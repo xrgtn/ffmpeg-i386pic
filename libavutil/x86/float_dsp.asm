@@ -373,7 +373,9 @@ VECTOR_FMUL_ADD
 %macro VECTOR_FMUL_REVERSE 0
 cglobal vector_fmul_reverse, 4,4,2, dst, src0, src1, len
 %if cpuflag(avx2)
-    movaps  m2, [pd_reverse]
+    PIC_BEGIN
+    movaps  m2, [pic(pd_reverse)]
+    PIC_END
 %endif
     lea       lenq, [lend*4 - 2*mmsize]
 ALIGN 16
