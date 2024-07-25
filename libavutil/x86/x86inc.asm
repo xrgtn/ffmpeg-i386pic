@@ -99,16 +99,22 @@
     %endif
 %endmacro
 
-%if WIN64
-    %define PIC
-%elif ARCH_X86_64 == 0
-; x86_32 doesn't require PIC.
-; Some distros prefer shared objects to be PIC, but nothing breaks if
-; the code contains a few textrels, so we'll skip that complexity.
-    %undef PIC
-%endif
-%ifdef PIC
+%if ARCH_X86_64
+    %define PIC 1 ; always use PIC on x86-64
     default rel
+%elifidn __OUTPUT_FORMAT__,win32
+    %define PIC 0 ; PIC isn't used on 32-bit Windows
+%elifndef PIC
+    %define PIC 0
+%elifempty PIC    ; -DPIC
+    %define PIC 2 ; i386 PIC
+%elifnum PIC      ; -DPIC=0, -DPIC=1, -DPIC=1+1 etc
+    %assign PIC PIC ; convert 1+1 and alike to number
+%else             ; -DPIC=foo etc
+    ; %define X x
+    ; %error %strcat("X=", %str(X))
+    ; %assign Y X  <-- error will be reported here, therefore use fatal():
+    %fatal %strcat("invalid PIC=", %str(PIC))
 %endif
 
 %macro CPUNOP 1
@@ -338,6 +344,253 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %endrep
     %xdefine stack_offset %%stack_offset
     %assign n_arg_names %0
+%endmacro
+
+; PIC macros:
+; * PIC              PIC mode:
+;                    0  no PIC used (pic(a) produces (a), PIC_BEGIN and PIC_END
+;                       are no-op)
+;                    1  rip-relative PIC on x86_64 (works automagically after
+;                       'DEFAULT REL' directive -- PIC_BEGIN & PIC_END do
+;                       nothing, pic(a) produces (a) if pic64 flag is not set,
+;                       or (rpic64+(a)-rpic64l) if pic64 is set -- see
+;                       PIC64_LEA).
+;                    2  i386 PIC mode: enable PIC_BEGIN, PIC_END,
+;                       pic() etc)
+; * pic(abs_addr)    expands to (rpic+(abs_addr)-rpicl) when PIC == 2.
+;                    Expands to (rpic64+(abs_addr)-rpic64l) on pic64.
+;                    Expands to (abs_addr) otherwize.
+; * PIC_BEGIN        stores previous value of rpic on stack and initializes
+;                    rpic if rpic isn't already defined. As optimization,
+;                    doesn't push rpic in functions that have regs_used < 3.
+;                    Expands to nothing on PIC != 2.
+; * PIC_END          restores previous rpic and undefines rpic if not inside
+;                    outer PIC_BEGIN/PIC_END block. Also doesn't pop
+;                    rpic in functions having regs_used < 3.
+;                    Expands to nothing on PIC != 2.
+; * picb             PIC_BEGIN/PIC_END balance counter.
+; * rpicsf           rpic save flag:
+;                    0  don't save rpic in PIC_BEGIN / restore in PIC_END
+;                    1  save rpic in PIC_BEGIN and restore in PIC_END
+; * rpicsave         rpic save location ([mem] or reg) if non-empty,
+;                    safeguard against PIC push/pop otherwize.
+; * rpic             gen-purpose register used as base reg for rpicl-relative
+;                    addressing; if initialized correctly [by PIC_BEGIN],
+;                    rpic contains address of rpicl which is usually defined
+;                    as the .lpicN label placed by current topmost PIC_BEGIN
+;                    macro.
+; * rpicl            label used to initialize rpic.
+; * lpic             returns local label in .lpicN format, N is 1,2,..
+; * lpicno           current/latest .lpic number.
+; * PIC64_LEA        initializes rpic64/rpic64l and sets pic64 flag.
+; * pic64            0  expand pic(a) to (a) in x86_64 PIC mode 1
+;                    1  expand pic(a) to (rpic+(a)-rpicl) in PIC mode 1
+; * rpic64           rpic for x86_64 mode.
+; * rpic64l          rpicl for x86_64 mode.
+; * PIC_CONTEXT_PUSH saves PIC context on macro stack:
+;                    * picb
+;                    * rpicsf
+;                    * rpicsave
+;                    * rpic
+;                    * rpicl
+;                    * stack_offset (PUSH/POP rpic can modify stack_offset,
+;                      therefore it's included in PIC conext)
+;                    Note that lpicno is not part of PIC context, and pic64,
+;                    rpic64 and rpic64l are not _currently_ part of it.
+; * PIC_CONTEXT_POP  restores PIC context previously saved by PIC_CONTEXT_PUSH.
+
+%define pic(a) %cond(PIC==2, (rpic+(a)-rpicl),\
+                     %cond(pic64, (rpic64+(a)-rpic64l), (a)))
+%assign picb 0
+%define lpic .lpic %+ lpicno
+%assign lpicno 0
+%assign pic64 0
+
+; PIC_CONTEXT_PUSH/POP macro pair is useful when code returns or jumps out from
+; inside of PIC_BEGIN/END block, e.g. if function has several RETs:
+;     cglobal foo, 5,6,7
+;         PIC_BEGIN r6 ; single PIC block for the whole foo()
+;         ...
+;         jnz .ret2
+;         ..
+;         RET ; fatal: unbalanced PIC_BEGIN/PIC_END (1) at end of foo
+;     .ret2:
+;         ...
+;         PIC_END
+;         RET
+; Typically the problem above can be somehow solved by splitting and narrowing
+; PIC block at the expense of runtime speed, like this:
+;     cglobal foo, 5,6,7
+;         PIC_BEGIN
+;         ...       ; 1st block
+;         PIC_END
+;         jnz .ret2
+;         PIC_BEGIN
+;         ...       ; 2nd block
+;         PIC_END
+;         RET
+;     .ret2:
+;         PIC_BEGIN
+;         ...       ; 3rd block
+;         PIC_END
+;         RET
+; Sometimes PIC block splitting is undesirable, like when the `jnz .ret2' op is
+; inside of a loop -- splitting like shown above will produce
+; pop/jnz/push/call/pop sequence instead of just jnz, end these extra 4 ops
+; (pop/push/call/pop) will be repeated many times with the loop. In such case
+; we can use the following hack instead:
+;     cglobal foo, 5,6,7   ; stack_offset=12
+;         PIC_BEGIN r6     ; PUSH r6, stack_offset=16
+;         ...
+;         jnz .ret2
+;         ..
+;         PIC_CONTEXT_PUSH ; save PIC context before PIC_END
+;         PIC_END          ; POP r6, picb=0
+;         RET              ; pop r5, pop r4, pop r3, ret
+;         PIC_CONTEXT_POP  ; make it look like the above PIC_END didn't happen:
+;     .ret2:               ; picb==1, stack_offset==15, etc
+;         ...
+;         PIC_END
+;         RET
+%macro PIC_CONTEXT_PUSH 0
+    %push pic_context
+    %assign %$picb picb
+    %ifdef rpicsf
+        %assign %$rpicsf rpicsf
+    %endif
+    %ifdef rpicsave
+        %xdefine %$rpicsave rpicsave
+    %endif
+    %ifdef rpic
+        %xdefine %$rpic rpic
+    %endif
+    %ifdef rpicl
+        %xdefine %$rpicl rpicl
+    %endif
+    %assign %$pic64 pic64
+    %assign %$stack_offset stack_offset
+%endmacro
+%macro PIC_CONTEXT_POP 0
+    %assign picb %$picb
+    %ifdef %$rpicsf
+        %assign rpicsf %$rpicsf
+    %else
+        %undef rpicsf
+    %endif
+    %ifdef %$rpicsave
+        %xdefine rpicsave %$rpicsave
+    %else
+        %undef rpicsave
+    %endif
+    %ifdef %$rpic
+        %xdefine rpic %$rpic
+    %else
+        %undef rpic
+    %endif
+    %ifdef %$rpicl
+        %xdefine rpicl %$rpicl
+    %else
+        %undef rpicl
+    %endif
+    %assign pic64 %$pic64
+    %assign stack_offset %$stack_offset
+    %pop pic_context
+%endmacro
+
+; PIC_BEGIN [reg[, fsave[, label]]]
+; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
+; if regs_used < 3 or r5 otherwize).
+; If fsave flag is given, use it to override rpicsf which is decided
+; automatically (rpicsf=0 when regs_used < 3).
+; If label parameter is given, initialize rpic with its address instead of
+; address of .lpicN label.
+%macro PIC_BEGIN 0-3
+    %if PIC == 2
+        %if picb == 0
+            %assign %%rpic_auto 1
+            %if %0 >= 1
+                %ifnempty %1
+                    %assign %%rpic_auto 0
+                %endif
+            %endif
+            %if %%rpic_auto==0
+                %xdefine rpic %1
+                %assign rpicsf 1
+            %elifndef regs_used
+                %xdefine rpic r5 ; edi on i386
+                %assign rpicsf 1
+            %elif regs_used < 3
+                %xdefine rpic r2 ; edx on i386
+                %assign rpicsf 0
+            %else
+                %xdefine rpic r5 ; edi on i386
+                %assign rpicsf 1
+            %endif
+            ; override rpicsf if fsave is present:
+            %if %0 >=2
+                %ifnempty %2
+                    %xdefine rpicsf %2
+                %endif
+            %endif
+            %if rpicsf
+                %ifndef rpicsave
+                    PUSH rpic
+                %elifempty rpicsave
+                    %warning "unsafe to push rpic"
+                %else
+                    mov rpicsave, rpic
+                %endif
+            %endif
+            %assign lpicno lpicno+1
+            call lpic
+lpic:       pop rpic
+            %if %0 >= 3
+                %xdefine rpicl (%3)
+                ; add rpic, rpicl - lpic
+                sub rpic, lpic - rpicl
+            %else
+                %xdefine rpicl lpic
+            %endif
+        %endif
+        %assign picb picb+1
+    %endif
+%endmacro
+%macro PIC_END 0
+    %if PIC == 2
+        %assign picb picb-1
+        %if picb < 0
+            %fatal %strcat("PIC_END not matched by PIC_BEGIN in ",\
+                %str(current_function))
+        %endif
+        %if picb == 0
+            %if rpicsf
+                %ifndef rpicsave
+                    POP rpic
+                %elifempty rpicsave
+                    ; %warning "unsafe to pop rpic"
+                %else
+                    mov rpic, rpicsave
+                %endif
+            %endif
+            %undef rpic
+            %undef rpicl
+            %undef rpicsf
+        %endif
+    %endif
+%endmacro
+
+; Because x86_64 doesn't support [rip+index_reg*N+offset] addressing mode,
+; separate general purpose register needs to be used as base reg for indexed
+; PIC memory access. PIC64_LEA helps to initialize rpic64/rpic64l and set pic64
+; flag for pic() macro to produce rpic64-based address.
+; If PIC is somehow disabled on x86_64 (PIC==0), PIC64_LEA turns to a no-op.
+%macro PIC64_LEA 2 ; reg, label
+    %if ARCH_X86_64 && (PIC==1)
+        %xdefine rpic64 %1
+        %xdefine rpic64l (%2)
+        %assign pic64 1
+        lea rpic64, [rpic64l] ; lea rpic64, [rip+rpic64l-$]
+    %endif
 %endmacro
 
 %define required_stack_alignment ((mmsize + 15) & ~15)
@@ -663,6 +916,10 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 ; We can automatically detect "follows a branch", but not a branch target.
 ; (SSSE3 is a sufficient condition to know that your cpu doesn't have this problem.)
 %macro REP_RET 0
+    %if picb != 0
+        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+            ") at end of ", %str(current_function))
+    %endif
     %if has_epilogue || cpuflag(ssse3)
         RET
     %else
@@ -673,6 +930,10 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
 
 %define last_branch_adr $$
 %macro AUTO_REP_RET 0
+    %if picb != 0
+        %fatal %strcat("unbalanced PIC_BEGIN/PIC_END (", picb,\
+            ") at end of ", %str(current_function))
+    %endif
     %if notcpuflag(ssse3)
         times ((last_branch_adr-$)>>31)+1 rep ; times 1 iff $ == last_branch_adr.
     %endif
@@ -724,6 +985,12 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     cglobal_internal 0, %1 %+ SUFFIX, %2
 %endmacro
 %macro cglobal_internal 2-3+
+    %undef num_args
+    %undef regs_used
+    %undef rpicsave
+    %assign pic64 0
+    %undef rpic64
+    %undef rpic64l
     annotate_function_size
     %if %1
         %xdefine %%FUNCTION_PREFIX private_prefix
