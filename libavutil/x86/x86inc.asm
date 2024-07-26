@@ -513,17 +513,28 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                     %assign %%rpic_auto 0
                 %endif
             %endif
-            %if %%rpic_auto==0
+            ; cglobal foo_asm, 0,0,0,a,b,c,d,e in fact uses 5 registers (a:r0,
+            ; b:r1 etc), it just doesn't do push/pop for them. Number of
+            ; "register aliases" is indicated in n_arg_names
+            %if %%rpic_auto == 0
                 %xdefine rpic %1
                 %assign rpicsf 1
-            %elifndef regs_used
+            %elifndef regs_used ; unknown number of regs used
                 %xdefine rpic r5 ; edi on i386
                 %assign rpicsf 1
-            %elif regs_used < 3
-                %xdefine rpic r2 ; edx on i386
-                %assign rpicsf 0
-            %else
-                %xdefine rpic r5 ; edi on i386
+            %elifndef n_arg_names
+                %if regs_used < 3
+                    %xdefine rpic r2 ; edx on i386
+                    %assign rpicsf 0 ; r2 is /scratch register/
+                %else
+                    %xdefine rpic r5
+                    %assign rpicsf 1
+                %endif
+            %elif regs_used < 3 && n_arg_names < 3
+                %xdefine rpic r2
+                %assign rpicsf 1 ; force saving, as ABI may be custom/asm
+            %else ; many regs used
+                %xdefine rpic r5
                 %assign rpicsf 1
             %endif
             ; override rpicsf if fsave is present:
@@ -590,6 +601,73 @@ lpic:       pop rpic
         %xdefine rpic64l (%2)
         %assign pic64 1
         lea rpic64, [rpic64l] ; lea rpic64, [rip+rpic64l-$]
+    %endif
+%endmacro
+
+%macro DECLARE_REG_ID 1-*
+    %assign %%i 0
+    %rep %0
+        %xdefine reg_id_of_%1 %%i
+        ;%assign %%p2 1<<%%i
+        ;%xdefine reg_2p_id_of_%1 %%p2
+        %assign %%i %%i+1
+        %rotate 1
+    %endrep
+%endmacro
+DECLARE_REG_ID rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, R8, R9, R10, R11, R12, R13, R14, R15
+DECLARE_REG_ID eax, ecx, edx, ebx, esp, ebp, esi, edi, R8d, R9d, R10d, R11d, R12d, R13d, R14d, R15d
+DECLARE_REG_ID ax, cx, dx, bx, sp, bp, si, di, R8w, R9w, R10w, R11w, R12w, R13w, R14w, R15w
+DECLARE_REG_ID al, cl, dl, bl, spl, bpl, sil, dil, R8w, R9w, R10w, R11w, R12w, R13w, R14w, R15w
+DECLARE_REG_ID ah, ch, dh, bh
+
+%macro CHECK_REG_COLLISION_I 4 ; reg, tok, i, str(arg[i])
+    %ifidn %1, %2
+        %error %strcat(%1, " collision with %", %3, ": ", %4)
+    %elif %isid(%1) && %isid(%2) \
+            && %isdef(reg_id_of_%1) && %isdef(reg_id_of_%2) \
+            && (reg_id_of_%1==reg_id_of_%2)
+        %error %strcat(%1, " collision with %", %3, ": ", %4)
+    %elif picb > 0
+        %if rpicsf && %isndef(rpicsave) && %isid(%2) \
+                && %isdef(reg_id_of_%2) \
+                && (reg_id_of_rsp==reg_id_of_%2)
+            %error %strcat("rpic push/pop collision with %", %3, ": ", %4)
+        %endif
+    %endif
+%endmacro
+
+%macro CHECK_REG_COLLISION 1-*  ; reg[, arg1[, arg2]...]
+    %xdefine %%r %1
+    %ifid %%r
+        %rotate 1
+        %assign %%i 1
+        %rep %0-1
+            %xdefine %%a %1         ; arg[i]
+            %defstr  %%s %%a        ; str(arg[i])
+            CHECK_REG_COLLISION_I %%r, %%a, %%i, %%s
+            ; split str(arg[i]) into words and check each one
+            %xdefine %%w ""         ; word
+            %assign %%j 1
+            %rep %strlen(%%s)
+                %xdefine %%c %substr(%%s, %%j, 1)       ; char
+                %if ("a"<=%%c && %%c<="z") || ("A"<=%%c && %%c<="Z") \
+                        || ("0"<=%%c && %%c<="9") \
+                        || "_"==%%c || "$"==%%c
+                    %xdefine %%w %strcat(%%w, %%c) ; append char to word
+                %else
+                    %ifnidn %%w, ""
+                        CHECK_REG_COLLISION_I %%r, %tok(%%w), %%i, %%s
+                    %endif
+                    %xdefine %%w ""
+                %endif
+                %assign %%j %%j+1
+            %endrep
+            %ifnidn %%w, ""
+                CHECK_REG_COLLISION_I %%r, %tok(%%w), %%i, %%s
+            %endif
+            %rotate 1
+            %assign %%i %%i+1
+        %endrep
     %endif
 %endmacro
 
@@ -1981,3 +2059,5 @@ EVEX_INSTR vrsqrtss,       vrsqrt14ss, 1
         %endmacro
     %endif
 %endif
+
+; vi:set sw=4 et:
