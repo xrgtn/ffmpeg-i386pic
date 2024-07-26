@@ -170,7 +170,7 @@ SECTION .text
 ; %4 - odd coefficients  (a5.reim, a7.reim, [b5.reim, b7.reim])
 ; %5 - temporary
 ; %6 - temporary
-%macro FFT8 6
+%macro FFT8 6 ; PIC
     addps    %5, %1, %3               ; q1-8
     addps    %6, %2, %4               ; k1-8
 
@@ -183,10 +183,13 @@ SECTION .text
     shufps   %1, %1, %1, q1010        ; r1212
     shufps   %5, %5, %6, q1210        ; q12, k32
 
-    xorps    %4, %4, [mask_pmmppmmp]  ; r4343 * pmmp
+    PIC_BEGIN
+    CHECK_REG_COLLISION rpic, %{1:-1}
+    xorps    %4, %4, [pic(mask_pmmppmmp)] ; r4343 * pmmp
     addps    %6, %5, %3               ; s12, g12
 
-    mulps    %2, %2, [d8_mult_odd]    ; r8 * d8_mult_odd
+    mulps    %2, %2, [pic(d8_mult_odd)] ; r8 * d8_mult_odd
+    PIC_END
     subps    %5, %5, %3               ; s34, g43
 
     addps    %3, %1, %4               ; z1234
@@ -211,36 +214,39 @@ SECTION .text
 ; %2 - odd coefficients  (r1.reim, r3.reim, r5.reim, r7.reim)
 ; %3 - temporary
 ; %4 - temporary
-%macro FFT8_AVX 4
+%macro FFT8_AVX 4 ; PIC
     subps      %3, %1, %2               ;  r1234, r5678
     addps      %1, %1, %2               ;  q1234, q5678
 
-    vpermilps  %2, %3, [s8_perm_odd1]   ;  r4422, r6688
-    shufps     %4, %1, %1, q3322        ;  q1122, q5566
+    PIC_BEGIN
+    CHECK_REG_COLLISION rpic, %{1:-1}
+    vpermilps  %2, %3, [pic(s8_perm_odd1)]  ;  r4422, r6688
+    shufps     %4, %1, %1, q3322            ;  q1122, q5566
 
-    movsldup   %3, %3                   ;  r1133, r5577
-    shufps     %1, %1, %1, q1100        ;  q3344, q7788
+    movsldup   %3, %3                       ;  r1133, r5577
+    shufps     %1, %1, %1, q1100            ;  q3344, q7788
 
-    addsubps   %3, %3, %2               ;  z1234, z5678
-    addsubps   %1, %1, %4               ;  s3142, s7586
+    addsubps   %3, %3, %2                   ;  z1234, z5678
+    addsubps   %1, %1, %4                   ;  s3142, s7586
 
-    mulps      %3, %3, [s8_mult_odd]    ;  z * s8_mult_odd
-    vpermilps  %1, %1, [s8_perm_even]   ;  s1234, s5687 !
+    mulps      %3, %3, [pic(s8_mult_odd)]   ;  z * s8_mult_odd
+    vpermilps  %1, %1, [pic(s8_perm_even)]  ;  s1234, s5687 !
 
-    shufps     %2, %3, %3, q2332        ;   junk, z7887
-    xorps      %4, %1, [mask_mmmmpppm]  ;  e1234, e5687 !
+    shufps     %2, %3, %3, q2332            ;   junk, z7887
+    xorps      %4, %1, [pic(mask_mmmmpppm)] ;  e1234, e5687 !
 
-    vpermilps  %3, %3, [s8_perm_odd2]   ;  z2314, z6556
-    vperm2f128 %1, %1, %4, 0x03         ;  e5687, s1234
+    vpermilps  %3, %3, [pic(s8_perm_odd2)]  ;  z2314, z6556
+    vperm2f128 %1, %1, %4, 0x03             ;  e5687, s1234
 
-    addsubps   %2, %2, %3               ;   junk, t5678
-    subps      %1, %1, %4               ;  w1234, w5678 even
+    addsubps   %2, %2, %3                   ;   junk, t5678
+    subps      %1, %1, %4                   ;  w1234, w5678 even
 
-    vperm2f128 %2, %2, %2, 0x11         ;  t5678, t5678
-    vperm2f128 %3, %3, %3, 0x00         ;  z2314, z2314
+    vperm2f128 %2, %2, %2, 0x11             ;  t5678, t5678
+    vperm2f128 %3, %3, %3, 0x00             ;  z2314, z2314
 
-    xorps      %2, %2, [mask_ppmpmmpm]  ;  t * ppmpmmpm
-    addps      %2, %3, %2               ;  u1234, u5678 odd
+    xorps      %2, %2, [pic(mask_ppmpmmpm)] ;  t * ppmpmmpm
+    PIC_END
+    addps      %2, %3, %2                   ;  u1234, u5678 odd
 %endmacro
 
 ; Single 16-point in-place complex FFT
@@ -250,41 +256,43 @@ SECTION .text
 ; %4 - odd coefficients  (r9.reim, r11.reim, r13.reim, r15.reim)
 ; %5, %6 - temporary
 ; %7, %8 - temporary (optional)
-%macro FFT16 6-8
+%macro FFT16 6-8 ; PIC
     FFT4       %3, %4, %5
+    PIC_BEGIN
+    CHECK_REG_COLLISION rpic, %{1:-1}
 %if %0 > 7
-    FFT8_AVX   %1, %2, %6, %7
-    movaps     %8, [mask_mpmppmpm]
-    movaps     %7, [s16_perm]
+    FFT8_AVX   %1, %2, %6, %7 ; PIC
+    movaps     %8, [pic(mask_mpmppmpm)]
+    movaps     %7, [pic(s16_perm)]
 %define mask %8
 %define perm %7
 %elif %0 > 6
     FFT8_AVX   %1, %2, %6, %7
-    movaps     %7, [s16_perm]
-%define mask [mask_mpmppmpm]
+    movaps     %7, [pic(s16_perm)]
+%define mask [pic(mask_mpmppmpm)]
 %define perm %7
 %else
     FFT8_AVX   %1, %2, %6, %5
-%define mask [mask_mpmppmpm]
-%define perm [s16_perm]
+%define mask [pic(mask_mpmppmpm)]
+%define perm [pic(s16_perm)]
 %endif
     xorps      %5, %5, %5                   ; 0
 
     shufps     %6, %4, %4, q2301            ; z12.imre, z13.imre...
     shufps     %5, %5, %3, q2301            ; 0, 0, z8.imre...
 
-    mulps      %4, %4, [s16_mult_odd1]      ; z.reim * costab
-    xorps      %5, %5, [mask_mppmmpmp]
+    mulps      %4, %4, [pic(s16_mult_odd1)] ; z.reim * costab
+    xorps      %5, %5, [pic(mask_mppmmpmp)]
 %if cpuflag(fma3)
-    fmaddps    %6, %6, [s16_mult_odd2], %4  ; s[8..15]
+    fmaddps    %6, %6, [pic(s16_mult_odd2)], %4 ; s[8..15]
     addps      %5, %3, %5                   ; s[0...7]
 %else
-    mulps      %6, %6, [s16_mult_odd2]      ; z.imre * costab
+    mulps      %6, %6, [pic(s16_mult_odd2)] ; z.imre * costab
 
     addps      %5, %3, %5                   ; s[0...7]
     addps      %6, %4, %6                   ; s[8..15]
 %endif
-    mulps      %5, %5, [s16_mult_even]      ; s[0...7]*costab
+    mulps      %5, %5, [pic(s16_mult_even)] ; s[0...7]*costab
 
     xorps      %4, %6, mask                 ; s[8..15]*mpmppmpm
     xorps      %3, %5, mask                 ; s[0...7]*mpmppmpm
@@ -297,6 +305,7 @@ SECTION .text
 
     vpermilps  %6, %6, perm                 ; y56, u56, y43, u43
     vpermilps  %5, %5, perm                 ; w56, x56, w43, x43
+    PIC_END
 
     subps      %4, %2, %6                   ; odd  part 2
     addps      %3, %2, %6                   ; odd  part 1
@@ -437,7 +446,7 @@ SECTION .text
 ; Uses all 16 of registers.
 ; Output is slightly permuted such that tx2,3's coefficients are interleaved
 ; on a 2-point basis (look at `doc/transforms.md`)
-%macro SPLIT_RADIX_COMBINE 17
+%macro SPLIT_RADIX_COMBINE 17 ; PIC, x86_64 only
 %if %1 && mmsize == 32
     vperm2f128 %14, %6, %7, 0x20     ; m2[0], m2[1], m3[0], m3[1] even
     vperm2f128 %16, %9, %8, 0x20     ; m2[0], m2[1], m3[0], m3[1] odd
@@ -516,7 +525,7 @@ SECTION .text
 ; Same as above, only does one parity at a time, takes 3 temporary registers,
 ; however, if the twiddles aren't needed after this, the registers they use
 ; can be used as any of the temporary registers.
-%macro SPLIT_RADIX_COMBINE_HALF 10
+%macro SPLIT_RADIX_COMBINE_HALF 10 ; PIC, x86_64 only
 %if %1
     shufps     %8, %6, %6, q2200     ; cos00224466
     shufps     %9, %7, %7, q1133     ; wim77553311
@@ -558,7 +567,7 @@ SECTION .text
 %endmacro
 
 ; Same as above, tries REALLY hard to use 2 temporary registers.
-%macro SPLIT_RADIX_COMBINE_LITE 9
+%macro SPLIT_RADIX_COMBINE_LITE 9 ; PIC, x86_64 only
 %if %1
     shufps     %8, %6, %6, q2200        ; cos00224466
     shufps     %9, %7, %7, q1133        ; wim77553311
@@ -606,15 +615,15 @@ SECTION .text
     addps      %3, %3, %9               ; m1
 %endmacro
 
-%macro SPLIT_RADIX_COMBINE_64 0
-    SPLIT_RADIX_COMBINE_LITE 1, m0, m1, tx1_e0, tx2_e0, tw_e, tw_o, tmp1, tmp2
+%macro SPLIT_RADIX_COMBINE_64 0 ; outq, tx.., tw.., tmp.., PIC, x86_64 only
+    SPLIT_RADIX_COMBINE_LITE 1, m0, m1, tx1_e0, tx2_e0, tw_e, tw_o, tmp1, tmp2 ; PIC, x86_64 only
 
     movaps [outq +  0*mmsize], m0
     movaps [outq +  4*mmsize], m1
     movaps [outq +  8*mmsize], tx1_e0
     movaps [outq + 12*mmsize], tx2_e0
 
-    SPLIT_RADIX_COMBINE_HALF 0, m2, m3, tx1_o0, tx2_o0, tw_e, tw_o, tmp1, tmp2, m0
+    SPLIT_RADIX_COMBINE_HALF 0, m2, m3, tx1_o0, tx2_o0, tw_e, tw_o, tmp1, tmp2, m0 ; PIC, x86_64 only
 
     movaps [outq +  2*mmsize], m2
     movaps [outq +  6*mmsize], m3
@@ -630,7 +639,7 @@ SECTION .text
     movaps m3, [outq +  7*mmsize]
 
     SPLIT_RADIX_COMBINE 0, m0, m2, m1, m3, tx1_e1, tx2_e1, tx1_o1, tx2_o1, tw_e, tw_o, \
-                           tmp1, tmp2, tx2_o0, tx1_o0, tx2_e0, tx1_e0 ; temporary registers
+                           tmp1, tmp2, tx2_o0, tx1_o0, tx2_e0, tx1_e0 ; temporary registers ; PIC, x86_64 only
 
     movaps [outq +  1*mmsize], m0
     movaps [outq +  3*mmsize], m1
@@ -647,7 +656,7 @@ SECTION .text
 ; The _4 indicates this is a quarter of the iterations required to complete a full
 ; combine loop
 ; %1 must contain len*2, %2 must contain len*4, %3 must contain len*6
-%macro SPLIT_RADIX_LOAD_COMBINE_4 8
+%macro SPLIT_RADIX_LOAD_COMBINE_4 8 ; rtabq, itabq, outq, PIC, x86_64 only
     movaps m8,         [rtabq + (%5)*mmsize + %7]
     vperm2f128 m9, m9, [itabq - (%5)*mmsize + %8], 0x23
 
@@ -664,7 +673,7 @@ SECTION .text
     SPLIT_RADIX_COMBINE 0, m0, m1, m2, m3, \
                            m4, m5, m6, m7, \
                            m8, m9, \
-                           m10, m11, m12, m13, m14, m15
+                           m10, m11, m12, m13, m14, m15 ; PIC, x86_64 only
 
     movaps [outq +      (0 + %4)*mmsize + %6], m0
     movaps [outq +      (2 + %4)*mmsize + %6], m2
@@ -677,7 +686,7 @@ SECTION .text
     movaps [outq + %3 + (2 + %4)*mmsize + %6], m7
 %endmacro
 
-%macro SPLIT_RADIX_LOAD_COMBINE_FULL 2-5
+%macro SPLIT_RADIX_LOAD_COMBINE_FULL 2-5 ; rtabq, itabq, outq, PIC, x86_64 only
 %if %0 > 2
 %define offset_c %3
 %else
@@ -694,7 +703,7 @@ SECTION .text
 %define offset_i 0
 %endif
 
-    SPLIT_RADIX_LOAD_COMBINE_4 %1, 2*%1, %2, 0, 0, offset_c, offset_r, offset_i
+    SPLIT_RADIX_LOAD_COMBINE_4 %1, 2*%1, %2, 0, 0, offset_c, offset_r, offset_i ; rtabq, itabq, outq, PIC, x86_64 only
     SPLIT_RADIX_LOAD_COMBINE_4 %1, 2*%1, %2, 1, 1, offset_c, offset_r, offset_i
     SPLIT_RADIX_LOAD_COMBINE_4 %1, 2*%1, %2, 4, 2, offset_c, offset_r, offset_i
     SPLIT_RADIX_LOAD_COMBINE_4 %1, 2*%1, %2, 5, 3, offset_c, offset_r, offset_i
@@ -704,7 +713,7 @@ SECTION .text
 ; stores. The _2 indicates this is a half of the iterations required to complete
 ; a full combine+deinterleave loop
 ; %3 must contain len*2, %4 must contain len*4, %5 must contain len*6
-%macro SPLIT_RADIX_COMBINE_DEINTERLEAVE_2 6
+%macro SPLIT_RADIX_COMBINE_DEINTERLEAVE_2 6 ; rtabq, itabq, outq, PIC, x86_64 only
     movaps m8,         [rtabq + (0 + %2)*mmsize]
     vperm2f128 m9, m9, [itabq - (0 + %2)*mmsize], 0x23
 
@@ -721,7 +730,7 @@ SECTION .text
     SPLIT_RADIX_COMBINE 0, m0, m1, m2, m3, \
        m4, m5, m6, m7, \
        m8, m9, \
-       m10, m11, m12, m13, m14, m15
+       m10, m11, m12, m13, m14, m15 ; PIC, x86_64 only
 
     unpckhpd m10, m0, m2
     unpckhpd m11, m1, m3
@@ -769,7 +778,7 @@ SECTION .text
     SPLIT_RADIX_COMBINE 0, m0, m1, m2, m3, \
                            m4, m5, m6, m7, \
                            m8, m9, \
-                           m10, m11, m12, m13, m14, m15 ; temporary registers
+                           m10, m11, m12, m13, m14, m15 ; temporary registers ; PIC, x86_64 only
 
     unpcklpd m8,  m0, m2
     unpcklpd m9,  m1, m3
@@ -801,13 +810,13 @@ SECTION .text
     vextractf128 [outq + %5 + (2 + 1 + %1)*mmsize + %6 + 16], m5,  1
 %endmacro
 
-%macro SPLIT_RADIX_COMBINE_DEINTERLEAVE_FULL 2-3
+%macro SPLIT_RADIX_COMBINE_DEINTERLEAVE_FULL 2-3 ; PIC, x86_64 only
 %if %0 > 2
 %define offset %3
 %else
 %define offset 0
 %endif
-    SPLIT_RADIX_COMBINE_DEINTERLEAVE_2 0, 0, %1, %1*2, %2, offset
+    SPLIT_RADIX_COMBINE_DEINTERLEAVE_2 0, 0, %1, %1*2, %2, offset ; rtabq, itabq, outq, PIC, x86_64 only
     SPLIT_RADIX_COMBINE_DEINTERLEAVE_2 4, 2, %1, %1*2, %2, offset
 %endmacro
 
@@ -877,7 +886,7 @@ cglobal fft8_float, 4, 4, 6, ctx, out, in, tmp
     LOAD64_LUT m3, inq, ctxq, (mmsize/2)*3, tmpq
 %endif
 
-    FFT8 m0, m1, m2, m3, m4, m5
+    FFT8 m0, m1, m2, m3, m4, m5 ; PIC
 
     unpcklpd m4, m0, m3
     unpcklpd m5, m1, m2
@@ -918,7 +927,7 @@ cglobal fft8_float, 4, 4, 4, ctx, out, in, tmp
     LOAD64_LUT m1, inq, ctxq, (mmsize/2)*1, tmpq, m3
 %endif
 
-    FFT8_AVX m0, m1, m2, m3
+    FFT8_AVX m0, m1, m2, m3 ; PIC
 
     unpcklpd m2, m0, m1
     unpckhpd m0, m0, m1
@@ -962,7 +971,7 @@ cglobal fft16_float, 4, 4, 8, ctx, out, in, tmp
     LOAD64_LUT m3, inq, ctxq, (mmsize/2)*3, tmpq, m7
 %endif
 
-    FFT16 m0, m1, m2, m3, m4, m5, m6, m7
+    FFT16 m0, m1, m2, m3, m4, m5, m6, m7 ; PIC
 
     unpcklpd m5, m1, m3
     unpcklpd m4, m0, m2
@@ -996,7 +1005,7 @@ FFT16_FN avx,  1
 FFT16_FN fma3, 0
 FFT16_FN fma3, 1
 
-%macro FFT32_FN 2
+%macro FFT32_FN 2 ; x86_64 only
 INIT_YMM %1
 %if %2
 cglobal fft32_asm_float, 0, 0, 0, ctx, out, in, stride, tmp
@@ -1013,7 +1022,7 @@ cglobal fft32_float, 4, 4, 16, ctx, out, in, tmp
     LOAD64_LUT m7, inq, ctxq, (mmsize/2)*7, tmpq, m11, m15
 %endif
 
-    FFT8 m4, m5, m6, m7, m8, m9
+    FFT8 m4, m5, m6, m7, m8, m9 ; PIC
 
 %if %2
     movaps m0, [inq + 0*mmsize]
@@ -1030,10 +1039,10 @@ cglobal fft32_float, 4, 4, 16, ctx, out, in, tmp
     movaps m8,         [tab_32_float]
     vperm2f128 m9, m9, [tab_32_float + 4*8 - 4*7], 0x23
 
-    FFT16 m0, m1, m2, m3, m10, m11, m12, m13
+    FFT16 m0, m1, m2, m3, m10, m11, m12, m13 ; PIC
 
     SPLIT_RADIX_COMBINE 1, m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, \
-                           m10, m11, m12, m13, m14, m15 ; temporary registers
+                           m10, m11, m12, m13, m14, m15 ; temporary registers ; PIC, x86_64 only
 
     unpcklpd  m9, m1, m3
     unpcklpd m10, m5, m7
@@ -1082,7 +1091,7 @@ FFT32_FN fma3, 0
 FFT32_FN fma3, 1
 %endif
 
-%macro FFT_SPLIT_RADIX_DEF 1-2
+%macro FFT_SPLIT_RADIX_DEF 1-2 ; lenq, outq, tgtq, tmpq, rtabq, itabq, call .32pt, PIC, je .deinterleave, jg .synth_.., jg %2, ret, x86_64 only
 ALIGN 16
 .%1 %+ pt:
     PUSH lenq
@@ -1107,7 +1116,7 @@ ALIGN 16
     mov tmpq, %1
 
 .synth_ %+ %1:
-    SPLIT_RADIX_LOAD_COMBINE_FULL 2*%1, 6*%1, 0, 0, 0
+    SPLIT_RADIX_LOAD_COMBINE_FULL 2*%1, 6*%1, 0, 0, 0 ; rtabq, itabq, outq, PIC, x86_64 only
     add outq, 8*mmsize
     add rtabq, 4*mmsize
     sub itabq, 4*mmsize
@@ -1120,7 +1129,7 @@ ALIGN 16
 %endif
 %endmacro
 
-%macro FFT_SPLIT_RADIX_FN 2
+%macro FFT_SPLIT_RADIX_FN 2 ; x86_64 only
 INIT_YMM %1
 %if %2
 cglobal fft_sr_asm_float, 0, 0, 0, ctx, out, in, stride, len, lut, itab, rtab, tgt, tmp
@@ -1519,7 +1528,7 @@ FFT_SPLIT_RADIX_FN avx2, 1
 %endif
 %endif
 
-%macro FFT15_FN 2
+%macro FFT15_FN 2 ; x86_64 only
 INIT_YMM avx2
 cglobal fft15_ %+ %2, 4, 10, 16, ctx, out, in, stride, len, lut, tmp, tgt5, stride3, stride5
     mov lutq, [ctxq + AVTXContext.map]
@@ -1582,7 +1591,7 @@ FFT15_FN 0, float
 FFT15_FN 1, ns_float
 %endif
 
-%macro IMDCT_FN 1
+%macro IMDCT_FN 1 ; x86_64 only
 INIT_YMM %1
 cglobal mdct_inv_float, 4, 14, 16, 320, ctx, out, in, stride, len, lut, exp, t1, t2, t3, \
                                         t4, t5, btmp
@@ -1769,7 +1778,7 @@ cglobal mdct_inv_float, 4, 14, 16, 320, ctx, out, in, stride, len, lut, exp, t1,
 IMDCT_FN avx2
 %endif
 
-%macro PFA_15_FN 2
+%macro PFA_15_FN 2 ; x64_64 only
 INIT_YMM %1
 %if %2
 cglobal fft_pfa_15xM_asm_float, 0, 0, 0, ctx, out, in, stride, len, lut, buf, map, tgt, tmp, \
