@@ -53,6 +53,73 @@ av_cold int ff_init_hscaler_mmxext(int dstW, int xInc, uint8_t *filterCode,
 
     // code fragment
 
+#if ARCH_X86_32 && defined(PIC)
+    __asm__ volatile (
+        "jmp		9f		\n\t"
+        // Begin
+        "0:				\n\t"
+        "movq	(%%edx,%%eax),	%%mm3	\n\t"
+        "movd	(%%ecx,%%esi),	%%mm0	\n\t"
+        "movd	1(%%ecx,%%esi),	%%mm1	\n\t"
+        "punpcklbw	%%mm7,	%%mm1	\n\t"
+        "punpcklbw	%%mm7,	%%mm0	\n\t"
+        "pshufw	$0xFF,	%%mm1,	%%mm1	\n\t"
+        "1:				\n\t"
+        "pshufw	$0xFF,	%%mm0,	%%mm0	\n\t"
+        "2:				\n\t"
+        "psubw		%%mm1,	%%mm0	\n\t"
+        "movl	8(%%ebx,%%eax),	%%esi	\n\t"
+        "pmullw		%%mm3,	%%mm0	\n\t"
+        "psllw		$7,	%%mm1	\n\t"
+        "paddw		%%mm1,	%%mm0	\n\t"
+        "movq		%%mm0,	(%%edx,%%eax)	\n\t"
+        "add		$8,	%%eax	\n\t"
+        // End
+        "9:				\n\t"
+	"call		10f		\n\t"
+        "10:				\n\t"
+	"pop		%%eax		\n\t"
+        "lea	0b-10b(%%eax),	%0	\n\t" // works even if %0==eax
+        "mov	1b-0b-1,	%1	\n\t"
+        "mov	2b-0b-1,	%2	\n\t"
+        "mov		9b-0b,	%3	\n\t"
+        : "=a" (fragmentA), /* force 1 output to be eax */
+	  "=r" (imm8OfPShufW1A), "=r" (imm8OfPShufW2A), "=r" (fragmentLengthA)
+        );
+
+	__asm__	volatile	(
+	"jmp		9f		\n\t"
+	//	Begin
+	"0:				\n\t"
+	"movq	(%%edx,%%eax),	%%mm3	\n\t"
+	"movd	(%%ecx,%%esi),	%%mm0	\n\t"
+	"punpcklbw	%%mm7,	%%mm0	\n\t"
+	"pshufw	$0xFF,	%%mm0,	%%mm1	\n\t"
+	"1:				\n\t"
+	"pshufw	$0xFF,	%%mm0,	%%mm0	\n\t"
+	"2:				\n\t"
+	"psubw		%%mm1,	%%mm0	\n\t"
+	"movl	8(%%ebx,%%eax),	%%esi	\n\t"
+	"pmullw		%%mm3,	%%mm0	\n\t"
+	"psllw		$7,	%%mm1	\n\t"
+	"paddw		%%mm1,	%%mm0	\n\t"
+
+	"movq	%%mm0,	(%%edi,%%eax)	\n\t"
+
+	"add		$8,	%%eax	\n\t"
+	//	End
+	"9:				\n\t"
+	"call		10f		\n\t"
+        "10:				\n\t"
+	"pop		%%eax		\n\t"
+	"lea	0b-10b(%%eax),	%0	\n\t"
+	"mov	1b-0b-1,	%1	\n\t"
+	"mov	2b-0b-1,	%2	\n\t"
+	"mov		9b-0b,	%3	\n\t"
+        : "=a" (fragmentB), /* force 1 output to be eax */
+	  "=r" (imm8OfPShufW1B), "=r" (imm8OfPShufW2B), "=r" (fragmentLengthB)
+	);
+#else
     __asm__ volatile (
         "jmp                         9f                 \n\t"
         // Begin
@@ -128,6 +195,7 @@ av_cold int ff_init_hscaler_mmxext(int dstW, int xInc, uint8_t *filterCode,
         : "=r" (fragmentB), "=r" (imm8OfPShufW1B), "=r" (imm8OfPShufW2B),
           "=r" (fragmentLengthB)
         );
+#endif
 
     xpos        = 0; // lumXInc/2 - 0x8000; // difference between pixel centers
     fragmentPos = 0;
