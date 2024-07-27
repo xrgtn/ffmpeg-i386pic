@@ -184,7 +184,7 @@ SECTION .text
     shufps   %5, %5, %6, q1210        ; q12, k32
 
     PIC_BEGIN
-    CHECK_REG_COLLISION rpic, %{1:-1}
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     xorps    %4, %4, [pic(mask_pmmppmmp)] ; r4343 * pmmp
     addps    %6, %5, %3               ; s12, g12
 
@@ -219,7 +219,7 @@ SECTION .text
     addps      %1, %1, %2               ;  q1234, q5678
 
     PIC_BEGIN
-    CHECK_REG_COLLISION rpic, %{1:-1}
+    CHECK_REG_COLLISION "rpic", %{1:-1}
     vpermilps  %2, %3, [pic(s8_perm_odd1)]  ;  r4422, r6688
     shufps     %4, %1, %1, q3322            ;  q1122, q5566
 
@@ -259,7 +259,7 @@ SECTION .text
 %macro FFT16 6-8 ; PIC
     FFT4       %3, %4, %5
     PIC_BEGIN
-    CHECK_REG_COLLISION rpic, %{1:-1}
+    CHECK_REG_COLLISION "rpic", %{1:-1}
 %if %0 > 7
     FFT8_AVX   %1, %2, %6, %7 ; PIC
     movaps     %8, [pic(mask_mpmppmpm)]
