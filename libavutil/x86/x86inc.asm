@@ -620,50 +620,93 @@ DECLARE_REG_ID ax, cx, dx, bx, sp, bp, si, di, R8w, R9w, R10w, R11w, R12w, R13w,
 DECLARE_REG_ID al, cl, dl, bl, spl, bpl, sil, dil, R8w, R9w, R10w, R11w, R12w, R13w, R14w, R15w
 DECLARE_REG_ID ah, ch, dh, bh
 
-%macro CHECK_REG_COLLISION_I 4 ; reg, tok, i, str(arg[i])
-    %ifidn %1, %2
-        %error %strcat(%1, " collision with %", %3, ": ", %4)
-    %elif %isid(%1) && %isid(%2) \
-            && %isdef(reg_id_of_%1) && %isdef(reg_id_of_%2) \
-            && (reg_id_of_%1==reg_id_of_%2)
-        %error %strcat(%1, " collision with %", %3, ": ", %4)
+%macro CHECK_REG_COLLISION_I 3-4 ; reg, arg[i], i, arg[i].word
+    %xdefine %%r %1
+    %xdefine %%rt %tok(%%r)
+    %xdefine %%rs %str(%%rt)
+    %xdefine %%rz %%rs
+    %ifnidn %%r, %%rt
+        %xdefine %%rz %strcat(%%r, "=", %%rt)
+    %endif
+    %xdefine %%rid -1
+    %ifid %%rt
+        %ifdef reg_id_of_%[%%rt]
+            %xdefine %%rid reg_id_of_%[%%rt]
+        %endif
+    %endif
+
+    %xdefine %%a %2
+    %xdefine %%at %tok(%%a)
+    %xdefine %%as %str(%%at)
+    %xdefine %%az %%as
+    %ifnidn %%a, %%at
+        %xdefine %%az %strcat(%%a, "=", %%at)
+    %endif
+
+    %xdefine %%w %%2
+    %if %0 >= 4
+        %xdefine %%w %4
+    %endif
+    %xdefine %%wt %tok(%%w)
+    %xdefine %%ws %str(%%wt)
+    %xdefine %%wid -2
+    %ifid %%wt
+        %ifdef reg_id_of_%[%%wt]
+            %xdefine %%wid reg_id_of_%[%%wt]
+        %endif
+    %endif
+
+    %if %isidn(%%r, %%w) || %isidn(%%rt, %%wt) || %%rid==%%wid
+        %error %strcat(%%rz, " collision with %", %3, ": ", %%az)
     %elif picb > 0
-        %if rpicsf && %isndef(rpicsave) && %isid(%2) \
-                && %isdef(reg_id_of_%2) \
-                && (reg_id_of_rsp==reg_id_of_%2)
-            %error %strcat("rpic push/pop collision with %", %3, ": ", %4)
+        %if rpicsf && %isndef(rpicsave) && %%wid==reg_id_of_rsp
+            ; Modify stack_offset and 'expand' arg[i] again. Then check
+            ; if expansion of arg[i] depends on stack_offset or not.
+            %xdefine %%so stack_offset
+            %assign stack_offset stack_offset-gprsize
+            %xdefine %%bt %tok(%%a)
+            ; %%at is original expansion of arg[i], %%bt - new one.
+            %ifidn %%bt, %%at
+                ; If arg[i] expansion doesn't depend on stack_offset, then
+                ; PUSH/POP rsp screws it.
+                %error %strcat("rpic push/pop collision with %", %3, ": ", %%az)
+            %endif
+            ; restore stack_offset
+            %xdefine stack_offset %%so
         %endif
     %endif
 %endmacro
 
 %macro CHECK_REG_COLLISION 1-*  ; reg[, arg1[, arg2]...]
     %xdefine %%r %1
-    %ifid %%r
+    %xdefine %%rt %tok(%%r)
+    %ifid %%rt
         %rotate 1
         %assign %%i 1
         %rep %0-1
-            %xdefine %%a %1         ; arg[i]
-            %defstr  %%s %%a        ; str(arg[i])
-            CHECK_REG_COLLISION_I %%r, %%a, %%i, %%s
-            ; split str(arg[i]) into words and check each one
-            %xdefine %%w ""         ; word
+            %xdefine %%a %1          ; arg[i])
+            %xdefine %%at %tok(%%a)  ; tok(arg[i])
+            %xdefine %%as %str(%%at) ; str(tok(arg[i]))
+            CHECK_REG_COLLISION_I %%r, %%a, %%i
+            ; split arg[i] into words and check each one
+            %xdefine %%w ""          ; word
             %assign %%j 1
-            %rep %strlen(%%s)
-                %xdefine %%c %substr(%%s, %%j, 1)       ; char
+            %rep %strlen(%%as)
+                %xdefine %%c %substr(%%as, %%j, 1)       ; char
                 %if ("a"<=%%c && %%c<="z") || ("A"<=%%c && %%c<="Z") \
                         || ("0"<=%%c && %%c<="9") \
                         || "_"==%%c || "$"==%%c
                     %xdefine %%w %strcat(%%w, %%c) ; append char to word
                 %else
                     %ifnidn %%w, ""
-                        CHECK_REG_COLLISION_I %%r, %tok(%%w), %%i, %%s
+                        CHECK_REG_COLLISION_I %%r, %%a, %%i, %%w
                     %endif
                     %xdefine %%w ""
                 %endif
                 %assign %%j %%j+1
             %endrep
             %ifnidn %%w, ""
-                CHECK_REG_COLLISION_I %%r, %tok(%%w), %%i, %%s
+                CHECK_REG_COLLISION_I %%r, %%a, %%i, %%w
             %endif
             %rotate 1
             %assign %%i %%i+1
