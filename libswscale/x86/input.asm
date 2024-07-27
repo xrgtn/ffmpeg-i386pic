@@ -132,28 +132,31 @@ SECTION .text
 ; %1 = nr. of XMM registers
 ; %2 = rgb or bgr
 %macro RGB24_TO_Y_FN 2-3
-cglobal %2 %+ 24ToY, 6, 6, %1, dst, src, u1, u2, w, table
+cglobal %2 %+ 24ToY, 6, 6, %1, dst, src, u1, u2, w, table ; u1/u2 mean unused1/unused2?
 %if ARCH_X86_64
     mova           m8, [%2_Ycoeff_12x4]
     mova           m9, [%2_Ycoeff_3x56]
 %define coeff1 m8
 %define coeff2 m9
 %else ; x86-32
-%define coeff1 [%2_Ycoeff_12x4]
-%define coeff2 [%2_Ycoeff_3x56]
+%define coeff1 [%2_Ycoeff_12x4] ; %define bgr_Ycoeff_12x4 16*4 + 16* 0 + tableq
+                                ; %define rgb_Ycoeff_12x4 16*4 + 16* 2 + tableq
+%define coeff2 [%2_Ycoeff_3x56] ; %define bgr_Ycoeff_3x56 16*4 + 16* 1 + tableq
+                                ; %define rgb_Ycoeff_3x56 16*4 + 16* 3 + tableq
 %endif ; x86-32/64
 %if ARCH_X86_64 && %0 == 3
     jmp mangle(private_prefix %+ _ %+ %3 %+ 24ToY %+ SUFFIX).body
 %else ; ARCH_X86_64 && %0 == 3
 .body:
+    PIC_BEGIN u1q, 0
 %if cpuflag(ssse3)
-    mova           m7, [shuf_rgb_12x4]
+    mova           m7, [pic(shuf_rgb_12x4)]
 %define shuf_rgb1 m7
 %if ARCH_X86_64
     mova          m10, [shuf_rgb_3x56]
 %define shuf_rgb2 m10
 %else ; x86-32
-%define shuf_rgb2 [shuf_rgb_3x56]
+%define shuf_rgb2 [pic(shuf_rgb_3x56)]
 %endif ; x86-32/64
 %endif ; cpuflag(ssse3)
 %if ARCH_X86_64
@@ -165,7 +168,7 @@ cglobal %2 %+ 24ToY, 6, 6, %1, dst, src, u1, u2, w, table
 %if notcpuflag(ssse3)
     pxor           m7, m7
 %endif ; !cpuflag(ssse3)
-    mova           m4, [rgb_Yrnd]
+    mova           m4, [pic(rgb_Yrnd)]
 .loop:
 %if cpuflag(ssse3)
     movu           m0, [srcq+0]           ; (byte) { Bx, Gx, Rx }[0-3]
@@ -207,6 +210,7 @@ cglobal %2 %+ 24ToY, 6, 6, %1, dst, src, u1, u2, w, table
     mova    [dstq+wq], m0
     add            wq, mmsize
     jl .loop
+    PIC_END
     RET
 %endif ; ARCH_X86_64 && %0 == 3
 %endmacro
@@ -234,14 +238,15 @@ cglobal %2 %+ 24ToUV, 7, 7, %1, dstU, dstV, u1, src, u2, w, table
     jmp mangle(private_prefix %+ _ %+ %3 %+ 24ToUV %+ SUFFIX).body
 %else ; ARCH_X86_64 && %0 == 3
 .body:
+    PIC_BEGIN u1q, 0
 %if cpuflag(ssse3)
-    mova           m7, [shuf_rgb_12x4]
+    mova           m7, [pic(shuf_rgb_12x4)]
 %define shuf_rgb1 m7
 %if ARCH_X86_64
     mova          m12, [shuf_rgb_3x56]
 %define shuf_rgb2 m12
 %else ; x86-32
-%define shuf_rgb2 [shuf_rgb_3x56]
+%define shuf_rgb2 [pic(shuf_rgb_3x56)]
 %endif ; x86-32/64
 %endif ; cpuflag(ssse3)
 %if ARCH_X86_64
@@ -253,7 +258,7 @@ cglobal %2 %+ 24ToUV, 7, 7, %1, dstU, dstV, u1, src, u2, w, table
     add         dstUq, wq
     add         dstVq, wq
     neg            wq
-    mova           m6, [rgb_UVrnd]
+    mova           m6, [pic(rgb_UVrnd)]
 %if notcpuflag(ssse3)
     pxor           m7, m7
 %endif
@@ -313,6 +318,7 @@ cglobal %2 %+ 24ToUV, 7, 7, %1, dstU, dstV, u1, src, u2, w, table
     mova   [dstVq+wq], m2
     add            wq, mmsize
     jl .loop
+    PIC_END
     RET
 %endif ; ARCH_X86_64 && %0 == 3
 %endmacro
@@ -355,7 +361,9 @@ cglobal %2%3%4%5 %+ ToY, 6, 6, %1, dst, src, u1, u2, w, table
     lea          srcq, [srcq+wq*2]
     add          dstq, wq
     neg            wq
-    mova           m4, [rgb_Yrnd]
+    PIC_BEGIN u1q, 0
+    mova           m4, [pic(rgb_Yrnd)]
+    PIC_END
     pcmpeqb        m7, m7
     psrlw          m7, 8                  ; (word) { 0x00ff } x4
 .loop:
@@ -434,7 +442,9 @@ cglobal %2%3%4%5 %+ ToUV, 7, 7, %1, dstU, dstV, u1, src, u2, w, table
     neg            wq
     pcmpeqb        m7, m7
     psrlw          m7, 8                  ; (word) { 0x00ff } x4
-    mova           m6, [rgb_UVrnd]
+    PIC_BEGIN u1q, 0
+    mova           m6, [pic(rgb_UVrnd)]
+    PIC_END
 .loop:
     ; FIXME check alignment and use mova
     movu           m0, [srcq+wq*2+0]      ; (byte) { Bx, Gx, Rx, xx }[0-3]
@@ -528,7 +538,7 @@ RGB32_FUNCS 8, 12
 
 ; %1 = a (aligned) or u (unaligned)
 ; %2 = yuyv or uyvy
-%macro LOOP_YUYV_TO_Y 2
+%macro LOOP_YUYV_TO_Y 2 ; dstq, srcq, wq, RET
 .loop_%1:
     mov%1          m0, [srcq+wq*2]        ; (byte) { Y0, U0, Y1, V0, ... }
     mov%1          m1, [srcq+wq*2+mmsize] ; (byte) { Y8, U4, Y9, V4, ... }
@@ -565,15 +575,15 @@ cglobal %2ToY, 5, 5, %1, dst, unused0, unused1, src, w
 %endif ; yuyv
     jnz .loop_u_start
     neg            wq
-    LOOP_YUYV_TO_Y  a, %2
+    LOOP_YUYV_TO_Y  a, %2 ; dstq, srcq, wq, RET
 .loop_u_start:
     neg            wq
-    LOOP_YUYV_TO_Y  u, %2
+    LOOP_YUYV_TO_Y  u, %2 ; dstq, srcq, wq, RET
 %endmacro
 
 ; %1 = a (aligned) or u (unaligned)
 ; %2 = yuyv or uyvy
-%macro LOOP_YUYV_TO_UV 2
+%macro LOOP_YUYV_TO_UV 2 ; dstUq, dstVq, srcq, wq, RET
 .loop_%1:
 %ifidn %2, yuyv
     mov%1          m0, [srcq+wq*4]        ; (byte) { Y0, U0, Y1, V0, ... }
@@ -626,19 +636,19 @@ cglobal %2ToUV, 4, 5, %1, dstU, dstV, unused, src, w
 %if %0 == 2
     jnz .loop_u_start
     neg            wq
-    LOOP_YUYV_TO_UV a, %2
+    LOOP_YUYV_TO_UV a, %2 ; dstUq, dstVq, srcq, wq, RET
 .loop_u_start:
     neg            wq
-    LOOP_YUYV_TO_UV u, %2
+    LOOP_YUYV_TO_UV u, %2 ; dstUq, dstVq, srcq, wq, RET
 %else
     neg            wq
-    LOOP_YUYV_TO_UV a, %2
+    LOOP_YUYV_TO_UV a, %2 ; dstUq, dstVq, srcq, wq, RET
 %endif
 %endmacro
 
 ; %1 = a (aligned) or u (unaligned)
 ; %2 = nv12 or nv21
-%macro LOOP_NVXX_TO_UV 2
+%macro LOOP_NVXX_TO_UV 2 ; dstUq, dstVq, srcq, wq, RET
 .loop_%1:
     mov%1          m0, [srcq+wq*2]        ; (byte) { U0, V0, U1, V1, ... }
     mov%1          m1, [srcq+wq*2+mmsize] ; (byte) { U8, V8, U9, V9, ... }
@@ -677,10 +687,10 @@ cglobal %2ToUV, 4, 5, %1, dstU, dstV, unused, src, w
     psrlw          m5, 8                  ; (word) { 0x00ff } x 8
     jnz .loop_u_start
     neg            wq
-    LOOP_NVXX_TO_UV a, %2
+    LOOP_NVXX_TO_UV a, %2 ; dstUq, dstVq, srcq, wq, RET
 .loop_u_start:
     neg            wq
-    LOOP_NVXX_TO_UV u, %2
+    LOOP_NVXX_TO_UV u, %2 ; dstUq, dstVq, srcq, wq, RET
 %endmacro
 
 INIT_XMM sse2
