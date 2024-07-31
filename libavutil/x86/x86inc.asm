@@ -637,7 +637,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %endif
             %if rpicsf
                 %ifndef rpicsave
-                    %error "unsafe to push rpic"
+                    %error %strcat("unsafe to push rpic in ", \
+                        current_function)
                 %elifempty rpicsave
                     PUSH rpic
                 %else
@@ -679,7 +680,8 @@ rpicl:          pop rpic
         %elif picb == 0
             %if rpicsf
                 %ifndef rpicsave
-                    ; %error "unsafe to pop rpic"
+                    ; %error %strcat("unsafe to pop rpic in ", \
+                    ;    current_function)
                 %elifempty rpicsave
                     POP rpic
                 %else
