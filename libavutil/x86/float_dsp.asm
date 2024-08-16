@@ -371,14 +371,16 @@ VECTOR_FMUL_ADD
 ;                          int len)
 ;-----------------------------------------------------------------------------
 %macro VECTOR_FMUL_REVERSE 0
-cglobal vector_fmul_reverse, 4,4,2, dst, src0, src1, len
+cglobal vector_fmul_reverse, 3,4,2, dst, src0, src1, len
+    ; on i386: delay loading lenq from lenm until after PIC
+    ; on x86_64: use scratch/volatile reg > r3 for no-save PIC
 %if cpuflag(avx2)
-    %define rpicsave ; safe to push/pop rpic
-    PIC_BEGIN
+    PIC_BEGIN %cond(ARCH_X86_64, r4, lenq), 0
+    CHECK_REG_COLLISION "rpic","dst","src0","src1","lenmp"
     movaps  m2, [pic(pd_reverse)]
     PIC_END
-    %undef rpicsave
 %endif
+    movifnidn lenq, lenmp ; load lenq from arg[3] on i386
     lea       lenq, [lend*4 - 2*mmsize]
 ALIGN 16
 .loop:
