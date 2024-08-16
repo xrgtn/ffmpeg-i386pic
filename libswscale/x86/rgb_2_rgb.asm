@@ -49,12 +49,15 @@ SECTION .text
 ;------------------------------------------------------------------------------
 INIT_MMX mmxext
 cglobal shuffle_bytes_2103, 3, 5, 8, src, dst, w, tmp, x
-    mova   m6, [pb_mask_shuffle2103_mmx]
+    PIC_BEGIN xq, 0 ; xq is not yet initialized, don't save
+    CHECK_REG_COLLISION "rpic","srcq","dstq","wq"
+    mova   m6, [pic(pb_mask_shuffle2103_mmx)]
+    PIC_END
     mova   m7, m6
     psllq  m7, 8
 
     movsxdifnidn wq, wd
-    mov xq, wq
+    mov xq, wq ; xq is initialized here
 
     add        srcq, wq
     add        dstq, wq
@@ -113,9 +116,13 @@ jge .end
 ; %1-4 index shuffle
 %macro SHUFFLE_BYTES 4
 cglobal shuffle_bytes_%1%2%3%4, 3, 5, 2, src, dst, w, tmp, x
-    VBROADCASTI128    m0, [pb_shuffle%1%2%3%4]
+    PIC_BEGIN xq, 0 ; xq is not yet initialized, don't save
+    CHECK_REG_COLLISION "rpic","srcq","dstq","wq"
+    VBROADCASTI128    m0, [pic(pb_shuffle%1%2%3%4)]
+    PIC_END
+
     movsxdifnidn wq, wd
-    mov xq, wq
+    mov xq, wq ; xq is initialized here
 
     add        srcq, wq
     add        dstq, wq
