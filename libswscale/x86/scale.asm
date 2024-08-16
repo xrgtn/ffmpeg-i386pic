@@ -49,10 +49,13 @@ SECTION .text
 
 ; SCALE_FUNC source_width, intermediate_nbits, filtersize, filtersuffix, n_args, n_xmm
 %macro SCALE_FUNC 6
+; delay loading arg[6] on i386:
+%assign %%a %cond(ARCH_X86_32 && (%5) > 6, 6, (%5)) ; args
+%assign %%r6y 0 ; r6 dirty flag
 %ifnidn %3, X
-cglobal hscale%1to%2_%4, %5, 7, %6, pos0, dst, w, src, filter, fltpos, pos1
+cglobal hscale%1to%2_%4, %%a, 7, %6, pos0, dst, w, src, filter, fltpos, pos1
 %else
-cglobal hscale%1to%2_%4, %5, 10, %6, pos0, dst, w, srcmem, filter, fltpos, fltsize
+cglobal hscale%1to%2_%4, %%a, 10, %6, pos0, dst, w, srcmem, filter, fltpos, fltsize
 %endif
 %if ARCH_X86_64
     movsxd        wq, wd
@@ -60,19 +63,38 @@ cglobal hscale%1to%2_%4, %5, 10, %6, pos0, dst, w, srcmem, filter, fltpos, fltsi
 %else ; x86-32
 %define mov32 mov
 %endif ; x86-64
+%if %2 == 19 || %1 == 16
+    ; use r6 w/o save: load/reload it from args later if necessary, otherwize
+    ; (not loaded from args) r6 isn't yet initialized, so saving is not needed:
+    PIC_BEGIN r6, 0
+    %if picb > 0 ; if PIC happened
+        %assign %%r6y 1 ; mark r6 as dirty
+    %endif
+    CHECK_REG_COLLISION "rpic","wq","r6mp"
+%endif
 %if %2 == 19
 %if cpuflag(sse4)
-    mova          m2, [max_19bit_int]
+    mova          m2, [pic(max_19bit_int)]
 %else ; ssse3/sse2
-    mova          m2, [max_19bit_flt]
+    mova          m2, [pic(max_19bit_flt)]
 %endif ; sse2/ssse3/sse4
 %endif ; %2 == 19
 %if %1 == 16
-    mova          m6, [minshort]
-    mova          m7, [unicoeff]
+    mova          m6, [pic(minshort)]
+    mova          m7, [pic(unicoeff)]
 %elif %1 == 8
     pxor          m3, m3
 %endif ; %1 == 8/16
+%if %2 == 19 || %1 == 16
+    PIC_END
+%endif
+; If arg[6] is present but not loaded to r6 yet or r6 is dirty,
+; load arg[6] into r6 (fltsizeq):
+%if ((%5) > 6) && ((%%a <= 6) || %%r6y)
+    ; We can skip loading if arch is x86_64 and PIC block didn't happen
+    ; (or expanded in no-op mode).
+    movifnidn     r6, r6mp
+%endif
 
 %if %1 == 8
 %define movlh movd
