@@ -88,6 +88,14 @@
             NAMED_CONSTRAINTS_ADD(bF8,bFC) \
         : "%"FF_REG_a, "%"FF_REG_d, "%"FF_REG_S            \
     );
+#define YSCALEYUV2PACKEDX_ENDZ                       \
+        :: "r" (&c->redDither),                      \
+           "m" (dummy), "m" (dummy), "m" (dummy),    \
+           "r" (dest), "m" (dstW_reg), "m" (uv_off), \
+           [bF8]"m"(bF8),                            \
+	   [bFC]"m"(bFC)                             \
+        :  "%"FF_REG_a, "%"FF_REG_d, "%"FF_REG_S     \
+    );
 
 #define YSCALEYUV2PACKEDX_ACCURATE_UV \
     __asm__ volatile(\
@@ -367,7 +375,34 @@ static void RENAME(yuv2bgr32_X)(SwsContext *c, const int16_t *lumFilter,
     "add             $8, "#index"   \n\t"\
     "cmp         "dstw", "#index"   \n\t"\
     " jb             1b             \n\t"
+#define REAL_WRITERGB16Z(dst, dstw, index) \
+    "pand        %[bF8], %%mm2  \n\t" /* B */\
+    "pand        %[bFC], %%mm4  \n\t" /* G */\
+    "pand        %[bF8], %%mm5  \n\t" /* R */\
+    "psrlq           $3, %%mm2  \n\t"\
+\
+    "movq         %%mm2, %%mm1  \n\t"\
+    "movq         %%mm4, %%mm3  \n\t"\
+\
+    "punpcklbw    %%mm7, %%mm3  \n\t"\
+    "punpcklbw    %%mm5, %%mm2  \n\t"\
+    "punpckhbw    %%mm7, %%mm4  \n\t"\
+    "punpckhbw    %%mm5, %%mm1  \n\t"\
+\
+    "psllq           $3, %%mm3  \n\t"\
+    "psllq           $3, %%mm4  \n\t"\
+\
+    "por          %%mm3, %%mm2  \n\t"\
+    "por          %%mm4, %%mm1  \n\t"\
+\
+    MOVNTQ(%%mm2,  (dst, index, 2))\
+    MOVNTQ(%%mm1, 8(dst, index, 2))\
+\
+    "add             $8, "#index"   \n\t"\
+    "cmp         "dstw", "#index"   \n\t"\
+    " jb             1b             \n\t"
 #define WRITERGB16(dst, dstw, index)  REAL_WRITERGB16(dst, dstw, index)
+#define WRITERGB16Z(dst, dstw, index)  REAL_WRITERGB16Z(dst, dstw, index)
 
 static void RENAME(yuv2rgb565_X_ar)(SwsContext *c, const int16_t *lumFilter,
                                     const int16_t **lumSrc, int lumFilterSize,
@@ -389,8 +424,8 @@ static void RENAME(yuv2rgb565_X_ar)(SwsContext *c, const int16_t *lumFilter,
     "paddusb "GREEN_DITHER"(%0), %%mm4\n\t"
     "paddusb "RED_DITHER"(%0), %%mm5\n\t"
 #endif
-    WRITERGB16(%4, "%5", %%FF_REGa)
-    YSCALEYUV2PACKEDX_END
+    WRITERGB16Z(%4, "%5", %%FF_REGa)
+    YSCALEYUV2PACKEDX_ENDZ
 }
 
 static void RENAME(yuv2rgb565_X)(SwsContext *c, const int16_t *lumFilter,
