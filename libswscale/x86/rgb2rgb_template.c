@@ -1550,6 +1550,11 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
 #define BGR2V_IDX "16*4+16*34"
     int y;
     const x86_reg chromWidth= width>>1;
+    /* Make stack copies of static (.rodata) constants ff_w1111 and
+     * ff_bgr2UVOffset to work around register shortage in inline asm: */
+    const uint64_t ff_w1111stk = ff_w1111;
+    const uint64_t ff_bgr2UVOffset_stk = ff_bgr2UVOffset;
+    const uint64_t ff_bgr2YOffset_stk = ff_bgr2YOffset;
 
     if (height > 2) {
         ff_rgb24toyv12_c(src, ydst, udst, vdst, width, 2, lumStride, chromStride, srcStride, rgb2yuv);
@@ -1566,7 +1571,7 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
             __asm__ volatile(
                 "mov                        %2, %%"FF_REG_a"\n\t"
                 "movq          "BGR2Y_IDX"(%3), %%mm6       \n\t"
-                "movq       "MANGLE(ff_w1111)", %%mm5       \n\t"
+                "movq                       %4, %%mm5       \n\t"
                 "pxor                    %%mm7, %%mm7       \n\t"
                 "lea (%%"FF_REG_a", %%"FF_REG_a", 2), %%"FF_REG_d" \n\t"
                 ".p2align                    4              \n\t"
@@ -1620,13 +1625,14 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
                 "psraw                      $7, %%mm4       \n\t"
 
                 "packuswb                %%mm4, %%mm0       \n\t"
-                "paddusb "MANGLE(ff_bgr2YOffset)", %%mm0    \n\t"
+                "paddusb                    %5, %%mm0    \n\t"
 
                 MOVNTQ"                  %%mm0, (%1, %%"FF_REG_a") \n\t"
                 "add                        $8,      %%"FF_REG_a"  \n\t"
                 " js                        1b                     \n\t"
-                : : "r" (src+width*3), "r" (ydst+width), "g" ((x86_reg)-width), "r"(rgb2yuv)
-                  NAMED_CONSTRAINTS_ADD(ff_w1111,ff_bgr2YOffset)
+                : : "r" (src+width*3), "r" (ydst+width),
+		    "g" ((x86_reg)-width), "r" (rgb2yuv),
+                    "m" (ff_w1111stk), "m" (ff_bgr2YOffset_stk)
                 : "%"FF_REG_a, "%"FF_REG_d
             );
             ydst += lumStride;
@@ -1635,7 +1641,7 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
         src -= srcStride*2;
         __asm__ volatile(
             "mov                        %4, %%"FF_REG_a"\n\t"
-            "movq       "MANGLE(ff_w1111)", %%mm5       \n\t"
+            "movq                       %6, %%mm5       \n\t"
             "movq          "BGR2U_IDX"(%5), %%mm6       \n\t"
             "pxor                    %%mm7, %%mm7       \n\t"
             "lea (%%"FF_REG_a", %%"FF_REG_a", 2), %%"FF_REG_d" \n\t"
@@ -1713,14 +1719,20 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
             "punpckldq               %%mm4, %%mm0           \n\t"
             "punpckhdq               %%mm4, %%mm1           \n\t"
             "packsswb                %%mm1, %%mm0           \n\t"
-            "paddb "MANGLE(ff_bgr2UVOffset)", %%mm0         \n\t"
+            "paddb                      %7, %%mm0         \n\t"
             "movd                    %%mm0, (%2, %%"FF_REG_a") \n\t"
             "punpckhdq               %%mm0, %%mm0              \n\t"
             "movd                    %%mm0, (%3, %%"FF_REG_a") \n\t"
             "add                        $4, %%"FF_REG_a"       \n\t"
             " js                        1b              \n\t"
-            : : "r" (src+chromWidth*6), "r" (src+srcStride+chromWidth*6), "r" (udst+chromWidth), "r" (vdst+chromWidth), "g" (-chromWidth), "r"(rgb2yuv)
-              NAMED_CONSTRAINTS_ADD(ff_w1111,ff_bgr2UVOffset)
+            : : "r" (src+chromWidth*6), "r" (src+srcStride+chromWidth*6),
+	        "r" (udst+chromWidth), "r" (vdst+chromWidth),
+		"g" (-chromWidth), "r" (rgb2yuv),
+		/* Here "m"(ff_w1111)/"m"(ff_bgr2UVOffset) won't do as there's
+		 * no free register to use as base reg in PIC memory addressing
+		 * (R_386_GOT32X). Their copies in stack are addressed via
+		 * [esp/rsp+offs], so they are OK: */
+		"m" (ff_w1111stk), "m" (ff_bgr2UVOffset_stk)
             : "%"FF_REG_a, "%"FF_REG_d
         );
 
