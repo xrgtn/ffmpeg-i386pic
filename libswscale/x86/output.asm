@@ -110,7 +110,7 @@ SECTION .text
 ; int32_t if $output_size is 16. $filter is 12 bits. $filterSize is a multiple
 ; of 2. $offset is either 0 or 3. $dither holds 8 values.
 ;-----------------------------------------------------------------------------
-%macro yuv2planeX_mainloop 2
+%macro yuv2planeX_mainloop 2 ; filterq, cntr_reg, srcq, dstq, wq, r5, r6, fltsizem, rsp, PIC*[%1!=8]
 .pixelloop_%2:
 %assign %%i 0
     ; the rep here is for the 8-bit output MMX case, where dither covers
@@ -134,7 +134,9 @@ SECTION .text
     mova            m1,  m_dith
 %endif ; x86-32/64
 %else ; %1 == 9/10/16
-    mova            m1, [yuv2yuvX_%1_start]
+    PIC_BEGIN wq
+    CHECK_REG_COLLISION "rpic", "cntr_reg", "fltsizem", "srcq", "r5", "r6", "filterq", "dstq"
+    mova            m1, [pic(yuv2yuvX_%1_start)]
     mova            m2,  m1
 %endif ; %1 == 8/9/10/16
     movsx     cntr_reg,  fltsizem
@@ -202,7 +204,7 @@ SECTION .text
 %else ; %1 == 9/10/16
 %if %1 == 16
     packssdw        m2,  m1
-    paddw           m2, [minshort]
+    paddw           m2, [pic(minshort)]
 %else ; %1 == 9/10
 %if cpuflag(sse4)
     packusdw        m2,  m1
@@ -210,9 +212,10 @@ SECTION .text
     packssdw        m2,  m1
     pmaxsw          m2,  m6
 %endif ; mmxext/sse2/sse4/avx
-    pminsw          m2, [yuv2yuvX_%1_upper]
+    pminsw          m2, [pic(yuv2yuvX_%1_upper)]
 %endif ; %1 == 9/10/16
     mov%2   [dstq+r5*2],  m2
+    PIC_END ; wq
 %endif ; %1 == 8/9/10/16
 
     add             r5,  mmsize/2
@@ -234,6 +237,9 @@ SECTION .text
 %endif
 
 cglobal yuv2planeX_%1, %3, 8, %2, filter, fltsize, src, dst, w, dither, offset
+%if %1 != 8
+    PIC_ALLOC
+%endif
 %if %1 == 8 || %1 == 9 || %1 == 10
     pxor            m6,  m6
 %endif ; %1 == 8/9/10
@@ -297,7 +303,12 @@ cglobal yuv2planeX_%1, %3, 8, %2, filter, fltsize, src, dst, w, dither, offset
     test          dstq, 15
     jnz .unaligned
     yuv2planeX_mainloop %1, a
+    PIC_CONTEXT_PUSH
+%if %1 != 8
+    PIC_FREE
+%endif
     RET
+    PIC_CONTEXT_POP
 .unaligned:
     yuv2planeX_mainloop %1, u
 %endif ; mmsize == 8/16
@@ -310,6 +321,7 @@ cglobal yuv2planeX_%1, %3, 8, %2, filter, fltsize, src, dst, w, dither, offset
     RET
 %endif ; x86-32/64
 %else ; %1 == 9/10/16
+    PIC_FREE
     RET
 %endif ; %1 == 8/9/10/16
 %endmacro
@@ -338,7 +350,7 @@ yuv2planeX_fn 10,  7, 5
 %endif
 
 ; %1=outout-bpc, %2=alignment (u/a)
-%macro yuv2plane1_mainloop 2
+%macro yuv2plane1_mainloop 2 ; srcq, dstq, wq, .loop_%2
 .loop_%2:
 %if %1 == 8
     paddsw          m0, m2, [srcq+wq*2+mmsize*0]
@@ -385,6 +397,13 @@ yuv2planeX_fn 10,  7, 5
 
 %macro yuv2plane1_fn 3
 cglobal yuv2plane1_%1, %3, %3, %2, src, dst, w, dither, offset
+%if %1 != 8
+    ; if ditherq is already pushed or volatile, set %%dithersf to 0:
+    %assign %%dithersf ((%2 < 4) && !ARCH_X86_64)
+    %if %%dithersf
+        %define rpicsave ; safe to push/pop rpic
+    %endif
+%endif
     movsxdifnidn    wq, wd
     add             wq, mmsize - 1
     and             wq, ~(mmsize - 1)
@@ -414,28 +433,38 @@ cglobal yuv2plane1_%1, %3, %3, %2, src, dst, w, dither, offset
     mova            m2, m3
 %elif %1 == 9
     pxor            m4, m4
-    mova            m3, [pw_512]
-    mova            m2, [pw_32]
+    ; ditherq is not used anymore in this function
+    PIC_BEGIN ditherq, %%dithersf
+    mova            m3, [pic(pw_512)]
+    mova            m2, [pic(pw_32)]
+    PIC_END
 %elif %1 == 10
     pxor            m4, m4
-    mova            m3, [pw_1024]
-    mova            m2, [pw_16]
+    PIC_BEGIN ditherq, %%dithersf
+    mova            m3, [pic(pw_1024)]
+    mova            m2, [pic(pw_16)]
+    PIC_END
 %else ; %1 == 16
 %if cpuflag(sse4) ; sse4/avx
-    mova            m4, [pd_4]
+    PIC_BEGIN ditherq, %%dithersf
+    mova            m4, [pic(pd_4)]
+    PIC_END
 %else ; sse2
-    mova            m4, [pd_4min0x40000]
-    mova            m5, [minshort]
+    PIC_BEGIN ditherq, %%dithersf
+    mova            m4, [pic(pd_4min0x40000)]
+    mova            m5, [pic(minshort)]
+    PIC_END
 %endif ; sse2/sse4/avx
 %endif ; %1 == ..
+    %undef rpicsave ; no more PIC in this function
 
     ; actual pixel scaling
     test          dstq, 15
     jnz .unaligned
-    yuv2plane1_mainloop %1, a
+    yuv2plane1_mainloop %1, a ; srcq, dstq, wq, .loop_a:
     RET
 .unaligned:
-    yuv2plane1_mainloop %1, u
+    yuv2plane1_mainloop %1, u ; srcq, dstq, wq, .loop_u:
     RET
 %endmacro
 
