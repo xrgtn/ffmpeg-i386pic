@@ -886,9 +886,9 @@ cglobal fft8_float, 4, 4, 6, ctx, out, in, tmp
     LOAD64_LUT m3, inq, ctxq, (mmsize/2)*3, tmpq
 %endif
 
-    %define rpicsave ; safe to push/pop rpic
+    %xdefine lpiccache tmpq ; nominate tmpq for no-save PIC
+    %assign lpiccf 0
     FFT8 m0, m1, m2, m3, m4, m5 ; PIC
-    %undef rpicsave
 
     unpcklpd m4, m0, m3
     unpcklpd m5, m1, m2
@@ -929,9 +929,9 @@ cglobal fft8_float, 4, 4, 4, ctx, out, in, tmp
     LOAD64_LUT m1, inq, ctxq, (mmsize/2)*1, tmpq, m3
 %endif
 
-    %define rpicsave ; safe to push/pop rpic
+    %xdefine lpiccache tmpq ; nominate tmpq for no-save PIC
+    %assign lpiccf 0
     FFT8_AVX m0, m1, m2, m3 ; PIC
-    %undef rpicsave
 
     unpcklpd m2, m0, m1
     unpckhpd m0, m0, m1
@@ -975,9 +975,9 @@ cglobal fft16_float, 4, 4, 8, ctx, out, in, tmp
     LOAD64_LUT m3, inq, ctxq, (mmsize/2)*3, tmpq, m7
 %endif
 
-    %define rpicsave ; safe to push/pop rpic
+    %xdefine lpiccache tmpq ; nominate tmpq for no-save PIC
+    %assign lpiccf 0
     FFT16 m0, m1, m2, m3, m4, m5, m6, m7 ; PIC
-    %undef rpicsave
 
     unpcklpd m5, m1, m3
     unpcklpd m4, m0, m2
