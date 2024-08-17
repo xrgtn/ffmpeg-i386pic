@@ -410,7 +410,7 @@ static inline void RENAME(vertX1Filter)(uint8_t *src, int stride, PPContext *co)
         "paddusb %%mm0, %%mm0                   \n\t"
         "psubusb %%mm0, %%mm4                   \n\t"
         "pcmpeqb %%mm7, %%mm4                   \n\t" // d <= QP ? -1 : 0
-        "psubusb "MANGLE(b01)", %%mm3           \n\t"
+        "psubusb %[b01], %%mm3                  \n\t"
         "pand %%mm4, %%mm3                      \n\t" // d <= QP ? d : 0
 
         PAVGB(%%mm7, %%mm3)                           // d/2
@@ -459,8 +459,8 @@ static inline void RENAME(vertX1Filter)(uint8_t *src, int stride, PPContext *co)
         "movq %%mm0, (%%"FF_REG_c", %1, 2)      \n\t" // line 7
 
         :
-        : "r" (src), "r" ((x86_reg)stride), "m" (co->pQPb)
-          NAMED_CONSTRAINTS_ADD(b01)
+        : "r" (src), "r" ((x86_reg)stride), "m" (co->pQPb),
+          [b01]"m"(b01)
         : "%"FF_REG_a, "%"FF_REG_c
     );
 #else //TEMPLATE_PP_MMXEXT
