@@ -1829,7 +1829,7 @@ static inline void RENAME(tempNoiseReducer)(uint8_t *src, int stride,
 #else //L1_DIFF
 #if defined (FAST_L2_DIFF)
         "pcmpeqb %%mm7, %%mm7                   \n\t"
-        "movq "MANGLE(b80)", %%mm6              \n\t"
+        "movq %[b80], %%mm6                     \n\t"
         "pxor %%mm0, %%mm0                      \n\t"
 #define REAL_L2_DIFF_CORE(a, b)\
         "movq " #a ", %%mm5                     \n\t"\
@@ -2078,8 +2078,9 @@ L2_DIFF_CORE((%0, %%FF_REGc)  , (%1, %%FF_REGc))
 
         "4:                                     \n\t"
 
-        :: "r" (src), "r" (tempBlurred), "r"((x86_reg)stride), "m" (tempBlurredPast)
-          NAMED_CONSTRAINTS_ADD(b80)
+        :: "r" (src), "r" (tempBlurred), "r"((x86_reg)stride),
+	   "m" (tempBlurredPast),
+           [b80]"m"(b80)
         : "%"FF_REG_a, "%"FF_REG_d, "%"FF_REG_c, "memory"
     );
 #else //TEMPLATE_PP_MMXEXT && HAVE_6REGS
