@@ -44,13 +44,16 @@ SECTION .text
 %endif
 %endmacro
 
-%macro PACK 1
+%macro PACK 1 ; PIC*[!sse4]
 %if cpuflag(sse4)
     packusdw %1, %1
 %else
-    psubd    %1, [pd_8000]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    psubd    %1, [pic(pd_8000)]
     packssdw %1, %1
-    paddw    %1, [pw_8000]
+    paddw    %1, [pic(pw_8000)]
+    PIC_END
 %endif
 %endmacro
 
@@ -63,14 +66,17 @@ SECTION .text
 %endif
 %endmacro
 
-%macro CHECK 2
+%macro CHECK 2 ; t0,1; curq, m2..5,7; PIC
+    CHECK_REG_COLLISION "rpic",%{1:-1},"curq","t0","t1"
     movu      m2, [curq+t1+%1*2]
     movu      m3, [curq+t0+%2*2]
     mova      m4, m2
     mova      m5, m2
     pxor      m4, m3
     pavgw     m5, m3
-    pand      m4, [pw_1]
+    PIC_BEGIN r4
+    pand      m4, [pic(pw_1)]
+    PIC_END
     psubusw   m5, m4
     RSHIFT    m5, 2
     punpcklwd m5, m7
@@ -89,7 +95,7 @@ SECTION .text
     paddd     m2, m4
 %endmacro
 
-%macro CHECK1 0
+%macro CHECK1 0 ; m0..3,5,6
     mova    m3, m0
     pcmpgtd m3, m2
     PMINSD  m0, m2, m6
@@ -100,8 +106,10 @@ SECTION .text
     mova    m1, m3
 %endmacro
 
-%macro CHECK2 0
-    paddd   m6, [pd_1]
+%macro CHECK2 0 ; m0..6, PIC
+    PIC_BEGIN r4
+    paddd   m6, [pic(pd_1)]
+    PIC_END
     pslld   m6, 30
     paddd   m2, m6
     mova    m3, m0
@@ -137,7 +145,7 @@ SECTION .text
     punpcklwd %1, m7
 %endmacro
 
-%macro FILTER 3
+%macro FILTER 3 ; in: [curq,t0,t1,%2,%3,prevq,nextq], m5,6; r8m; .loop%1: .end%1: out: [rsp+0..63],[dstq]; m0..4,7; mod: dstq,prevq,curq,nextq,r4m; PIC
 .loop%1:
     pxor         m7, m7
     LOAD         m0, [curq+t1]
@@ -191,19 +199,22 @@ SECTION .text
     punpcklwd    m3, m7
     paddd        m0, m2
     paddd        m0, m3
-    psubd        m0, [pd_1]
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","curq","t0","t1" ; curq:r2, t0:r4, t1:r5
+    psubd        m0, [pic(pd_1)]
 
-    CHECK -2, 0
-    CHECK1
+    CHECK -2, 0 ; t0,1; curq, m2..5,7; PIC
+    CHECK1      ; m0..3,5,6
     CHECK -3, 1
-    CHECK2
+    CHECK2      ; m0..6, PIC
     CHECK 0, -2
     CHECK1
     CHECK 1, -3
     CHECK2
+    PIC_END
 
     mova         m6, [rsp+48]
-    cmp   DWORD r8m, 2
+    cmp   DWORD r8m, 2 ; mode
     jge .end%1
     LOAD         m2, [%2+t1*2]
     LOAD         m4, [%3+t1*2]
@@ -240,14 +251,14 @@ SECTION .text
     paddd        m3, m6
     PMAXSD       m1, m2, m7
     PMINSD       m1, m3, m7
-    PACK         m1
+    PACK         m1 ; PIC*[!sse4]
 
     movh     [dstq], m1
     add        dstq, mmsize/2
     add       prevq, mmsize/2
     add        curq, mmsize/2
     add       nextq, mmsize/2
-    sub   DWORD r4m, mmsize/4
+    sub   DWORD r4m, mmsize/4 ; w
     jg .loop%1
 %endmacro
 
@@ -269,15 +280,27 @@ cglobal yadif_filter_line_16bit, 4, 7, 8, 80, dst, prev, cur, next, w, \
     DECLARE_REG_TMP 5,6
 %endif
 
+    ; Don't push rpic, use ALLOC because FILTER macro writes to [rsp+0..63]
+    PIC_ALLOC
+    %if ARCH_X86_32
+    ASSERT regs_used < 7
+    %endif
+    PIC_BEGIN %cond(ARCH_X86_32, r6, r7)
+    CHECK_REG_COLLISION "rpic","dstq","prevq","curq","nextq",\
+        "r4m","paritym","r8m","[rsp+48]"
     cmp DWORD paritym, 0
     je .parity0
+    ; [dstq,prevq,curq,nextq++,+t0,t1],r4m--,r8m; .loop1/.end1:, [rsp+0..63], PIC
     FILTER 1, prevq, curq
     jmp .ret
 
 .parity0:
+    ; [dstq,prevq,curq,nextq++,+t0,t1],r4m--,r8m; .loop0/.end0:, [rsp+0..63], PIC
     FILTER 0, curq, nextq
 
 .ret:
+    PIC_END
+    PIC_FREE
     RET
 %endmacro
 
