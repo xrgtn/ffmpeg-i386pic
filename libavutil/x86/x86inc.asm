@@ -99,22 +99,24 @@
     %endif
 %endmacro
 
-%if ARCH_X86_64
-    %define PIC 1 ; always use PIC on x86-64
+; Set i386pic from -DPIC option before PIC gets twisted.
+%if %isdef(PIC) && ARCH_X86_32
+    %assign i386pic 1
+%else
+    %assign i386pic 0
+%endif
+%assign amd64pic 0
+
+%if WIN64
+    %define PIC
+%elif ARCH_X86_64 == 0
+; x86_32 doesn't require PIC.
+; Some distros prefer shared objects to be PIC, but nothing breaks if
+; the code contains a few textrels, so we'll skip that complexity.
+    %undef PIC
+%endif
+%ifdef PIC
     default rel
-%elifidn __OUTPUT_FORMAT__,win32
-    %define PIC 0 ; PIC isn't used on 32-bit Windows
-%elifndef PIC
-    %define PIC 0
-%elifempty PIC    ; -DPIC
-    %define PIC 2 ; i386 PIC
-%elifnum PIC      ; -DPIC=0, -DPIC=1, -DPIC=1+1 etc
-    %assign PIC PIC ; convert 1+1 and alike to number
-%else             ; -DPIC=foo etc
-    ; %define X x
-    ; %error %strcat("X=", %str(X))
-    ; %assign Y X  <-- error will be reported here, therefore use fatal():
-    %fatal %strcat("invalid PIC=", %str(PIC))
 %endif
 
 %macro CPUNOP 1
@@ -344,26 +346,29 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 %endmacro
 
 ; PIC macros:
-; * PIC              PIC mode:
-;                    0  no PIC used (pic(a) produces (a), PIC_BEGIN and PIC_END
-;                       are no-op)
-;                    1  rip-relative PIC on x86_64 (works automagically after
-;                       'DEFAULT REL' directive -- PIC_BEGIN & PIC_END do
-;                       nothing, pic(a) produces (a) if pic64 flag is not set,
-;                       or (rpic64+(a)-lpic64) if pic64 is set -- see
-;                       PIC64_LEA).
-;                    2  i386 PIC mode: enable PIC_BEGIN, PIC_END,
-;                       pic() etc)
-; * pic(abs_addr)    expands to (rpic+(abs_addr)-lpic) when PIC == 2.
-;                    Expands to (rpic64+(abs_addr)-lpic64) if pic64 is set.
-;                    Expands to (abs_addr) otherwize.
+; * i386pic          i386 PIC flag:
+;                    0  no PIC used (pic(a) produces (a), PIC_BEGIN/END and
+;                       PIC_ALLOC/FREE are no-op)
+;                    1  enable PIC_BEGIN/END and PIC_ALLOC/FREE and expand
+;                       pic(a) into (rpic+(a)-lpic)
+; * amd64pic         amd64 PIC flag for pic() macro:
+;                    0  pic(a) expands to (a)
+;                    1  pic(a) expands to (rpic64+(a)-lpic64)
+;                    NOTE:
+;                    * i386pic is set once and for whole compilation unit
+;                    * amd64pic is reset to 0 at the beginning of each function
+;                      (in cglobal_internal macro)
+;                    * i386pic and amd64pic are mutually exclusive.
+; * pic(abs_addr)    expands to (rpic+(abs_addr)-lpic) if i386pic is set;
+;                    expands to (rpic64+(abs_addr)-lpic64) if amd64pic is set;
+;                    expands to (abs_addr) otherwize.
 ; * PIC_BEGIN        stores previous value of rpic on stack/in rpicsave and
 ;                    initializes rpic if it isn't already initialized (possibly
 ;                    using lpiccache etc).
-;                    Expands to nothing on PIC != 2.
+;                    Expands to nothing if i386pic is not set.
 ; * PIC_END          restores previous rpic and undefines rpic if not inside
 ;                    outer PIC_BEGIN/PIC_END block.
-;                    Expands to nothing on PIC != 2.
+;                    Expands to nothing if i386pic is not set.
 ; * picb             PIC_BEGIN/PIC_END balance counter.
 ; * rpic             gen-purpose register used as base reg for lpic-relative
 ;                    addressing; after initialization by PIC_BEGIN, rpic
@@ -392,11 +397,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * NEXT_LPIC        generates unique label in ..@lpicN or ..@lpicN_XXX format
 ;                    and puts the result in next_lpic xdef.
 ; * lpicno_xxx       current/latest .lpic number per function/module etc.
-; * PIC64_LEA        initializes rpic64/lpic64 and sets pic64 flag.
-; * pic64            0  expand pic(a) to (a) in x86_64 PIC mode 1
-;                    1  expand pic(a) to (rpic+(a)-lpic) in PIC mode 1
-; * rpic64           rpic for x86_64 mode.
-; * lpic64           lpic for x86_64 mode.
+; * PIC64_LEA        initializes rpic64/lpic64 and sets amd64pic flag.
+; * rpic64           rpic for amd64 mode.
+; * lpic64           lpic for amd64 mode.
 ; * PIC_CONTEXT_PUSH saves PIC context on macro stack:
 ;                    * picb
 ;                    * rpic
@@ -414,16 +417,15 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    * stack_size_padded (see rstk)
 ; * PIC_CONTEXT_POP  restores PIC context previously saved by PIC_CONTEXT_PUSH.
 ;                    Note that global_lpicno/foo_lpicno are not part of PIC
-;                    context (lpic is enough); while pic64, rpic64 and lpic64
-;                    do not have limiting structure like BEGIN/END blocks over
-;                    them and thus do not require context push/pop hack.
+;                    context (lpic is enough); while rpic64 and lpic64 do not
+;                    have limiting structure like BEGIN/END blocks over them
+;                    and thus do not require context push/pop hack.
 
-%define pic(a) %cond(PIC==2, (rpic+(a)-lpic),\
-                     %cond(pic64, (rpic64+(a)-lpic64), (a)))
+%define pic(a) %cond(i386pic, (rpic+(a)-lpic),\
+                     %cond(amd64pic, (rpic64+(a)-lpic64), (a)))
 %assign picb 0
 %assign lpiccf 0
 %assign picallocd 0
-%assign pic64 0
 
 ; PIC_CONTEXT_PUSH/POP macro pair is useful when code returns or jumps out from
 ; inside of PIC_BEGIN/END block, e.g. if function has several RETs:
@@ -603,7 +605,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; If lpiccf has been set beforehand, load previous lpic label address from
 ; lpiccache and don't perform call/pop initialization.
 %macro PIC_BEGIN 0-3
-    %if PIC == 2
+    %if i386pic
         %if picb == 0
             %assign %%rpic_auto 1
             %if %0 >= 1
@@ -705,7 +707,7 @@ lpic:           pop rpic
 ; * undefines lpic, if lpiccache is not defined;
 ;   - otherwize it keeps lpic defined after PIC_BEGIN/END block is finished;
 %macro PIC_END 0
-    %if PIC == 2
+    %if i386pic
         %assign picb picb-1
         %if picb < 0
             %error %strcat(%?, " not matched by PIC_BEGIN in ",\
@@ -807,7 +809,7 @@ lpic:           pop rpic
 ;                                    ;  0x..18: ==stk==  |
 ;                                    ;  0x..10: ==sz===--+
 %macro PIC_ALLOC 0
-    %if PIC==2
+    %if i386pic
         ASSERT (stack_size_padded >= stack_size)
         %if picallocd != 0
             %error %strcat(%?, " in non-zero PIC_ALLOC state (",\
@@ -917,7 +919,7 @@ lpic:           pop rpic
 %endmacro
 
 %macro PIC_FREE 0
-    %if PIC==2
+    %if i386pic
         ASSERT (stack_size_padded >= stack_size)
         %if picb > 0
             %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
@@ -980,15 +982,18 @@ lpic:           pop rpic
 
 ; Because x86_64 doesn't support [rip+index_reg*N+offset] addressing mode,
 ; separate general purpose register needs to be used as base reg for indexed
-; PIC memory access. PIC64_LEA helps to initialize rpic64/lpic64 and set pic64
-; flag for pic() macro to produce rpic64-based address.
-; If PIC is somehow disabled on x86_64 (PIC==0), PIC64_LEA turns to a no-op.
+; PIC memory access. PIC64_LEA helps to initialize rpic64/lpic64 and set
+; amd64pic flag for pic() macro to produce rpic64-based address.
 %macro PIC64_LEA 2 ; reg, label
-    %if ARCH_X86_64 && (PIC==1)
+    %if ARCH_X86_64
         %xdefine rpic64 %1
         %xdefine lpic64 (%2)
-        %assign pic64 1
-        lea rpic64, [lpic64] ; lea rpic64, [rip+lpic64-$]
+        %assign amd64pic 1
+        ;%ifdef PIC ; DEFAULT REL
+        ;    lea rpic64, [lpic64]
+        ;%else
+            lea rpic64, [rip+lpic64-$]
+        ;%endif
     %endif
 %endmacro
 
@@ -1492,7 +1497,7 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %undef rpicsave
     %undef lpiccache
     %assign lpiccf 0
-    %assign pic64 0
+    %assign amd64pic 0
     %undef rpic64
     %undef lpic64
     annotate_function_size
