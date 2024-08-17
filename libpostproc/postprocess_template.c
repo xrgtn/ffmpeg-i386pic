@@ -727,8 +727,8 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
         :
         : "r" (src), "r" ((x86_reg)stride), "m" (c->pQPb),
           [b80]"m"(b80),
-	  [b00]"m"(b00),
-	  [b01]"m"(b01)
+          [b00]"m"(b00),
+          [b01]"m"(b01)
         : "%"FF_REG_a, "%"FF_REG_c
     );
 
@@ -1018,9 +1018,9 @@ DERING_CORE((%0, %1, 8)       ,(%%FF_REGd, %1, 4),%%mm2,%%mm4,%%mm0,%%mm3,%%mm5,
         "1:                        \n\t"
         : : "r" (src), "r" ((x86_reg)stride), "m" (c->pQPb), "m"(c->pQPb2), "q"(tmp),
           [deringThreshold]"m"(deringThreshold),
-	  [b00]"m"(b00),
-	  [b02]"m"(b02),
-	  [b08]"m"(b08)
+          [b00]"m"(b00),
+          [b02]"m"(b02),
+          [b08]"m"(b08)
         : "%"FF_REG_a, "%"FF_REG_d
     );
 #else // HAVE_7REGS && TEMPLATE_PP_MMXEXT
@@ -2081,7 +2081,7 @@ L2_DIFF_CORE((%0, %%FF_REGc)  , (%1, %%FF_REGc))
         "4:                                     \n\t"
 
         :: "r" (src), "r" (tempBlurred), "r"((x86_reg)stride),
-	   "m" (tempBlurredPast),
+           "m" (tempBlurredPast),
            [b80]"m"(b80)
         : "%"FF_REG_a, "%"FF_REG_d, "%"FF_REG_c, "memory"
     );
@@ -2336,8 +2336,8 @@ static av_always_inline void RENAME(do_a_deblock)(uint8_t *src, int step, int st
             "movq %%mm6, %%mm1                      \n\t"
             "psllw $2, %%mm0                        \n\t"
             "psllw $2, %%mm1                        \n\t"
-            "paddw "MANGLE(w04)", %%mm0             \n\t"
-            "paddw "MANGLE(w04)", %%mm1             \n\t"
+            "paddw %[w04], %%mm0                    \n\t"
+            "paddw %[w04], %%mm1                    \n\t"
 
 #define NEXT\
             "movq (%0), %%mm2                       \n\t"\
@@ -2426,8 +2426,8 @@ static av_always_inline void RENAME(do_a_deblock)(uint8_t *src, int step, int st
             "mov %4, %0                             \n\t" //FIXME
 
             : "+&r"(src)
-            : "r" ((x86_reg)step), "m" (c->pQPb), "r"(sums), "g"(src)
-              NAMED_CONSTRAINTS_ADD(w04)
+            : "r" ((x86_reg)step), "m" (c->pQPb), "r"(sums), "g"(src),
+              [w04]"m"(w04)
         );
 
         src+= step; // src points to begin of the 8x8 Block
@@ -2615,10 +2615,10 @@ static av_always_inline void RENAME(do_a_deblock)(uint8_t *src, int step, int st
             "psubusw %%mm1, %%mm5                   \n\t" // ld
 
 
-            "movq "MANGLE(w05)", %%mm2              \n\t" // 5
+            "movq %[w05], %%mm2                     \n\t" // 5
             "pmullw %%mm2, %%mm4                    \n\t"
             "pmullw %%mm2, %%mm5                    \n\t"
-            "movq "MANGLE(w20)", %%mm2              \n\t" // 32
+            "movq %[w20], %%mm2                     \n\t" // 32
             "paddw %%mm2, %%mm4                     \n\t"
             "paddw %%mm2, %%mm5                     \n\t"
             "psrlw $6, %%mm4                        \n\t"
@@ -2661,8 +2661,9 @@ static av_always_inline void RENAME(do_a_deblock)(uint8_t *src, int step, int st
             "movq %%mm0, (%0, %1)                   \n\t"
 
             : "+r" (temp_src)
-            : "r" ((x86_reg)step), "m" (c->pQPb), "m"(eq_mask), "r"(tmp)
-              NAMED_CONSTRAINTS_ADD(w05,w20)
+            : "r" ((x86_reg)step), "m" (c->pQPb), "m"(eq_mask), "r"(tmp),
+              [w05]"m"(w05),
+              [w20]"m"(w20)
             : "%"FF_REG_a
         );
     }
