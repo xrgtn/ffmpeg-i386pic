@@ -129,6 +129,14 @@ SECTION .text
 
 cglobal %1_420_%2%3, GPR_num, GPR_num, reg_num, parameters
 
+%if regs_used > 6
+    PIC_ALLOC
+%else
+    %define rpicsave ; safe to push/pop rpic
+%endif
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic","index","image","pu_index","pv_index",\
+        "pointer_c_dither","py_2index"
 %if ARCH_X86_64
     movsxd indexq, indexd
 %if mmsize == 16
@@ -150,7 +158,7 @@ cglobal %1_420_%2%3, GPR_num, GPR_num, reg_num, parameters
     mova m7, m6
     punpcklbw m0, m4
     punpcklbw m1, m4
-    mova m2, [pw_00ff]
+    mova m2, [pic(pw_00ff)]
     pand m6, m2
     psrlw m7, 8
     psllw m0, 3
@@ -219,15 +227,15 @@ cglobal %1_420_%2%3, GPR_num, GPR_num, reg_num, parameters
     pshufw m1, m2, 0xc6
     pshufw m6, m3, 0x84
     pshufw m7, m5, 0x38
-    pand m6, [mask_1101] ; R0 G0 B0 R1 -- -- R2 G2
+    pand m6, [pic(mask_1101)] ; R0 G0 B0 R1 -- -- R2 G2
     movq m0, m1
-    pand m7, [mask_0110] ; -- -- R6 G6 B6 R7 -- --
+    pand m7, [pic(mask_0110)] ; -- -- R6 G6 B6 R7 -- --
     movq m2, m1
-    pand m1, [mask_0100] ; -- -- G3 B3 -- -- -- --
-    psrlq m3, 48         ; B2 R3 -- -- -- -- -- --
-    pand m0, [mask_0010] ; -- -- -- -- G1 B1 -- --
-    psllq m5, 32         ; -- -- -- -- R4 G4 B4 R5
-    pand m2, [mask_1001] ; G5 B5 -- -- -- -- G7 B7
+    pand m1, [pic(mask_0100)] ; -- -- G3 B3 -- -- -- --
+    psrlq m3, 48              ; B2 R3 -- -- -- -- -- --
+    pand m0, [pic(mask_0010)] ; -- -- -- -- G1 B1 -- --
+    psllq m5, 32              ; -- -- -- -- R4 G4 B4 R5
+    pand m2, [pic(mask_1001)] ; G5 B5 -- -- -- -- G7 B7
     por m1, m3
     por m0, m6
     por m1, m5
@@ -250,12 +258,12 @@ cglobal %1_420_%2%3, GPR_num, GPR_num, reg_num, parameters
     movd [imageq + 18], m5 ; R6 G6 B6 R7
 %endif ; mmsize = 8
 %else ; mmsize == 16
-    pshufb m3, [rgb24_shuf1] ; r0  g0  r6  g6  r12 g12 r2  g2  r8  g8  r14 g14 r4  g4  r10 g10
-    pshufb m6, [rgb24_shuf2] ; b10 r11 b0  r1  b6  r7  b12 r13 b2  r3  b8  r9  b14 r15 b4  r5
-    pshufb m2, [rgb24_shuf3] ; g5  b5  g11 b11 g1  b1  g7  b7  g13 b13 g3  b3  g9  b9  g15 b15
-    mova   m7, [mask_dw036]
-    mova   m4, [mask_dw147]
-    mova   m5, [mask_dw25]
+    pshufb m3, [pic(rgb24_shuf1)] ; r0  g0  r6  g6  r12 g12 r2  g2  r8  g8  r14 g14 r4  g4  r10 g10
+    pshufb m6, [pic(rgb24_shuf2)] ; b10 r11 b0  r1  b6  r7  b12 r13 b2  r3  b8  r9  b14 r15 b4  r5
+    pshufb m2, [pic(rgb24_shuf3)] ; g5  b5  g11 b11 g1  b1  g7  b7  g13 b13 g3  b3  g9  b9  g15 b15
+    mova   m7, [pic(mask_dw036)]
+    mova   m4, [pic(mask_dw147)]
+    mova   m5, [pic(mask_dw25)]
     pand   m0, m7, m3      ; r0  g0  --- --- --- --- r2  g2  --- --- --- --- r4  g4  --- ---
     pand   m1, m4, m6      ; --- --- b0  r1  --- --- --- --- b2  r3  --- --- --- --- b4  r5
     por    m0, m1
@@ -289,7 +297,12 @@ cglobal %1_420_%2%3, GPR_num, GPR_num, reg_num, parameters
 %ifidn %1, yuv
     pcmpeqd m3, m3 ; Set alpha empty
 %else
+    ASSERT %isidn(rpic,pa_2indexq)
+    PIC_END ; restore previous value of rpic/pa_2indexq from rpicsave
     movu m3, [pa_2indexq + 2 * indexq] ; Load alpha
+    ASSERT regs_used > 6 ; r6 has already been pushed by prologue
+    PIC_BEGIN r6, 0 ; don't save pa_2indexq to rpicsave again, it didn't change
+                    ; just load lpic from lpiccache into rpic/pa_2indexq.
 %endif
     mova m5, m_blue
     mova m6, m_red
@@ -331,15 +344,15 @@ cglobal %1_420_%2%3, GPR_num, GPR_num, reg_num, parameters
     paddusb m0, blue_dither
     paddusb m2, green_dither
     paddusb m1, red_dither
-    pand m0, [pb_f8]
-    pand m1, [pb_f8]
+    pand m0, [pic(pb_f8)]
+    pand m1, [pic(pb_f8)]
     mova m3, m2
     psllw m2, 3 - isRGB15
     psrlw m3, 5 + isRGB15
     psrlw m0, 3
     psrlw m1, isRGB15
-    pand m2, [pb_e0]
-    pand m3, [gmask]
+    pand m2, [pic(pb_e0)]
+    pand m3, [pic(gmask)]
     por m0, m2
     por m1, m3
     mova m2, m0
@@ -354,6 +367,10 @@ add imageq, 8 * depth * time_num
 add indexq, 4 * time_num
 js .loop0
 
+PIC_END
+%if regs_used > 6
+PIC_FREE
+%endif
 RET
 
 %endmacro
