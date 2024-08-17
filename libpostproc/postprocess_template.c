@@ -845,8 +845,8 @@ static inline void RENAME(dering)(uint8_t src[], int stride, PPContext *c)
         "lea (%0, %1), %%"FF_REG_a"             \n\t"
         "lea (%%"FF_REG_a", %1, 4), %%"FF_REG_d"\n\t"
 
-//  0        1        2        3        4        5        6        7        8        9
-// %0      eax   eax+%1  eax+2%1   %0+4%1      edx   edx+%1  edx+2%1   %0+8%1  edx+4%1
+//      0       1       2       3       4       5       6       7       8       9
+//      %0      eax     eax+%1  eax+2%1 %0+4%1  edx     edx+%1  edx+2%1 %0+8%1  edx+4%1
 
 #undef REAL_FIND_MIN_MAX
 #undef FIND_MIN_MAX
