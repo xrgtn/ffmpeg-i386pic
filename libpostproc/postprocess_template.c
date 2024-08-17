@@ -845,8 +845,8 @@ static inline void RENAME(dering)(uint8_t src[], int stride, PPContext *c)
         "lea (%0, %1), %%"FF_REG_a"             \n\t"
         "lea (%%"FF_REG_a", %1, 4), %%"FF_REG_d"\n\t"
 
-//        0        1        2        3        4        5        6        7        8        9
-//        %0        eax        eax+%1        eax+2%1        %0+4%1        edx        edx+%1        edx+2%1        %0+8%1        edx+4%1
+//  0        1        2        3        4        5        6        7        8        9
+// %0      eax   eax+%1  eax+2%1   %0+4%1      edx   edx+%1  edx+2%1   %0+8%1  edx+4%1
 
 #undef REAL_FIND_MIN_MAX
 #undef FIND_MIN_MAX
@@ -885,7 +885,7 @@ FIND_MIN_MAX((%0, %1, 8))
         "psubb %%mm7, %%mm6                     \n\t" // max - min
         "push %%"FF_REG_a"                      \n\t"
         "movd %%mm6, %%eax                      \n\t"
-        "cmpb "MANGLE(deringThreshold)", %%al   \n\t"
+        "cmpb %[deringThreshold], %%al          \n\t"
         "pop %%"FF_REG_a"                       \n\t"
         " jb 1f                                 \n\t"
         PAVGB(%%mm0, %%mm7)                           // a=(max + min)/2
@@ -911,9 +911,9 @@ FIND_MIN_MAX((%0, %1, 8))
         "psubusb %%mm7, %%mm0                   \n\t"
         "psubusb %%mm7, %%mm2                   \n\t"
         "psubusb %%mm7, %%mm3                   \n\t"
-        "pcmpeqb "MANGLE(b00)", %%mm0           \n\t" // L10 > a ? 0 : -1
-        "pcmpeqb "MANGLE(b00)", %%mm2           \n\t" // L20 > a ? 0 : -1
-        "pcmpeqb "MANGLE(b00)", %%mm3           \n\t" // L00 > a ? 0 : -1
+        "pcmpeqb %[b00], %%mm0                  \n\t" // L10 > a ? 0 : -1
+        "pcmpeqb %[b00], %%mm2                  \n\t" // L20 > a ? 0 : -1
+        "pcmpeqb %[b00], %%mm3                  \n\t" // L00 > a ? 0 : -1
         "paddb %%mm2, %%mm0                     \n\t"
         "paddb %%mm3, %%mm0                     \n\t"
 
@@ -934,9 +934,9 @@ FIND_MIN_MAX((%0, %1, 8))
         "psubusb %%mm7, %%mm2                   \n\t"
         "psubusb %%mm7, %%mm4                   \n\t"
         "psubusb %%mm7, %%mm5                   \n\t"
-        "pcmpeqb "MANGLE(b00)", %%mm2           \n\t" // L11 > a ? 0 : -1
-        "pcmpeqb "MANGLE(b00)", %%mm4           \n\t" // L21 > a ? 0 : -1
-        "pcmpeqb "MANGLE(b00)", %%mm5           \n\t" // L01 > a ? 0 : -1
+        "pcmpeqb %[b00], %%mm2                  \n\t" // L11 > a ? 0 : -1
+        "pcmpeqb %[b00], %%mm4                  \n\t" // L21 > a ? 0 : -1
+        "pcmpeqb %[b00], %%mm5                  \n\t" // L01 > a ? 0 : -1
         "paddb %%mm4, %%mm2                     \n\t"
         "paddb %%mm5, %%mm2                     \n\t"
 // 0, 2, 3, 1
@@ -961,7 +961,7 @@ FIND_MIN_MAX((%0, %1, 8))
         "psubusb " #lx ", " #t1 "               \n\t"\
         "psubusb " #lx ", " #t0 "               \n\t"\
         "psubusb " #lx ", " #sx "               \n\t"\
-        "movq "MANGLE(b00)", " #lx "            \n\t"\
+        "movq %[b00], " #lx "                   \n\t"\
         "pcmpeqb " #lx ", " #t1 "               \n\t" /* src[-1] > a ? 0 : -1*/\
         "pcmpeqb " #lx ", " #t0 "               \n\t" /* src[+1] > a ? 0 : -1*/\
         "pcmpeqb " #lx ", " #sx "               \n\t" /* src[0]  > a ? 0 : -1*/\
@@ -977,8 +977,8 @@ FIND_MIN_MAX((%0, %1, 8))
         PMINUB(t1, pplx, t0)\
         "paddb " #sx ", " #ppsx "               \n\t"\
         "paddb " #psx ", " #ppsx "              \n\t"\
-        "#paddb "MANGLE(b02)", " #ppsx "        \n\t"\
-        "pand "MANGLE(b08)", " #ppsx "          \n\t"\
+        "#paddb %[b02], " #ppsx "               \n\t"\
+        "pand %[b08], " #ppsx "                 \n\t"\
         "pcmpeqb " #lx ", " #ppsx "             \n\t"\
         "pand " #ppsx ", " #pplx "              \n\t"\
         "pandn " #dst ", " #ppsx "              \n\t"\
@@ -1014,8 +1014,11 @@ DERING_CORE((%%FF_REGd, %1, 2),(%0, %1, 8)       ,%%mm0,%%mm2,%%mm4,%%mm1,%%mm3,
 DERING_CORE((%0, %1, 8)       ,(%%FF_REGd, %1, 4),%%mm2,%%mm4,%%mm0,%%mm3,%%mm5,%%mm1,%%mm6,%%mm7)
 
         "1:                        \n\t"
-        : : "r" (src), "r" ((x86_reg)stride), "m" (c->pQPb), "m"(c->pQPb2), "q"(tmp)
-          NAMED_CONSTRAINTS_ADD(deringThreshold,b00,b02,b08)
+        : : "r" (src), "r" ((x86_reg)stride), "m" (c->pQPb), "m"(c->pQPb2), "q"(tmp),
+          [deringThreshold]"m"(deringThreshold),
+	  [b00]"m"(b00),
+	  [b02]"m"(b02),
+	  [b08]"m"(b08)
         : "%"FF_REG_a, "%"FF_REG_d
     );
 #else // HAVE_7REGS && TEMPLATE_PP_MMXEXT
