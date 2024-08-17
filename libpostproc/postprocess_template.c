@@ -645,7 +645,7 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
         "movq (%%"FF_REG_a", %1), %%mm3         \n\t" // l2
         "pxor %%mm6, %%mm2                      \n\t" // -l5-1
         "movq %%mm2, %%mm5                      \n\t" // -l5-1
-        "movq "MANGLE(b80)", %%mm4              \n\t" // 128
+        "movq %[b80], %%mm4                     \n\t" // 128
         "lea (%%"FF_REG_a", %1, 4), %%"FF_REG_c"\n\t"
         PAVGB(%%mm3, %%mm2)                           // (l2-l5+256)/2
         PAVGB(%%mm0, %%mm4)                           // ~(l4-l3)/4 + 128
@@ -657,7 +657,7 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
         "pxor %%mm6, %%mm2                      \n\t" // -l1-1
         PAVGB(%%mm3, %%mm2)                           // (l2-l1+256)/2
         PAVGB((%0), %%mm1)                            // (l0-l3+256)/2
-        "movq "MANGLE(b80)", %%mm3              \n\t" // 128
+        "movq %[b80], %%mm3                     \n\t" // 128
         PAVGB(%%mm2, %%mm3)                           // ~(l2-l1)/4 + 128
         PAVGB(%%mm1, %%mm3)                           // ~(l0-l3)/4 +(l2-l1)/8 + 128
         PAVGB(%%mm2, %%mm3)                           // ~(l0-l3)/8 +5(l2-l1)/16 + 128
@@ -667,14 +667,14 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
         "movq (%%"FF_REG_c", %1, 2), %%mm1      \n\t" // l7
         "pxor %%mm6, %%mm1                      \n\t" // -l7-1
         PAVGB((%0, %1, 4), %%mm1)                     // (l4-l7+256)/2
-        "movq "MANGLE(b80)", %%mm2              \n\t" // 128
+        "movq %[b80], %%mm2                     \n\t" // 128
         PAVGB(%%mm5, %%mm2)                           // ~(l6-l5)/4 + 128
         PAVGB(%%mm1, %%mm2)                           // ~(l4-l7)/4 +(l6-l5)/8 + 128
         PAVGB(%%mm5, %%mm2)                           // ~(l4-l7)/8 +5(l6-l5)/16 + 128
 // mm0=128-q, mm2=renergy/16 + 128, mm3=lenergy/16 + 128, mm4= menergy/16 + 128
 
-        "movq "MANGLE(b00)", %%mm1              \n\t" // 0
-        "movq "MANGLE(b00)", %%mm5              \n\t" // 0
+        "movq %[b00], %%mm1                     \n\t" // 0
+        "movq %[b00], %%mm5                     \n\t" // 0
         "psubb %%mm2, %%mm1                     \n\t" // 128 - renergy/16
         "psubb %%mm3, %%mm5                     \n\t" // 128 - lenergy/16
         PMAXUB(%%mm1, %%mm2)                          // 128 + |renergy/16|
@@ -683,7 +683,7 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
 
 // mm0=128-q, mm3=128 + MIN(|lenergy|,|renergy|)/16, mm4= menergy/16 + 128
 
-        "movq "MANGLE(b00)", %%mm7              \n\t" // 0
+        "movq %[b00], %%mm7                     \n\t" // 0
         "movq %2, %%mm2                         \n\t" // QP
         PAVGB(%%mm6, %%mm2)                           // 128 + QP/2
         "psubb %%mm6, %%mm2                     \n\t"
@@ -697,13 +697,13 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
 // mm0=128-q, mm1= SIGN(menergy), mm2= |menergy|/16 < QP/2, mm4= d/16
 
         "movq %%mm4, %%mm3                      \n\t" // d
-        "psubusb "MANGLE(b01)", %%mm4           \n\t"
+        "psubusb %[b01], %%mm4                  \n\t"
         PAVGB(%%mm7, %%mm4)                           // d/32
         PAVGB(%%mm7, %%mm4)                           // (d + 32)/64
         "paddb %%mm3, %%mm4                     \n\t" // 5d/64
         "pand %%mm2, %%mm4                      \n\t"
 
-        "movq "MANGLE(b80)", %%mm5              \n\t" // 128
+        "movq %[b80], %%mm5                     \n\t" // 128
         "psubb %%mm0, %%mm5                     \n\t" // q
         "paddsb %%mm6, %%mm5                    \n\t" // fix bad rounding
         "pcmpgtb %%mm5, %%mm7                   \n\t" // SIGN(q)
@@ -725,8 +725,10 @@ static inline void RENAME(doVertDefFilter)(uint8_t src[], int stride, PPContext 
         "movq %%mm2, (%0, %1, 4)                \n\t"
 
         :
-        : "r" (src), "r" ((x86_reg)stride), "m" (c->pQPb)
-          NAMED_CONSTRAINTS_ADD(b80,b00,b01)
+        : "r" (src), "r" ((x86_reg)stride), "m" (c->pQPb),
+          [b80]"m"(b80),
+	  [b00]"m"(b00),
+	  [b01]"m"(b01)
         : "%"FF_REG_a, "%"FF_REG_c
     );
 
