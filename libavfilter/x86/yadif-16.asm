@@ -282,10 +282,10 @@ cglobal yadif_filter_line_16bit, 4, 7, 8, 80, dst, prev, cur, next, w, \
 
     ; Don't push rpic, use ALLOC because FILTER macro writes to [rsp+0..63]
     PIC_ALLOC
-    %if ARCH_X86_32
+    %if i386pic
     ASSERT regs_used < 7
     %endif
-    PIC_BEGIN %cond(ARCH_X86_32, r6, r7)
+    PIC_BEGIN r6
     CHECK_REG_COLLISION "rpic","dstq","prevq","curq","nextq",\
         "r4m","paritym","r8m","[rsp+48]"
     cmp DWORD paritym, 0
