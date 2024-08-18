@@ -372,10 +372,10 @@ VECTOR_FMUL_ADD
 ;-----------------------------------------------------------------------------
 %macro VECTOR_FMUL_REVERSE 0
 cglobal vector_fmul_reverse, 3,4,2, dst, src0, src1, len
-    ; on i386: delay loading lenq from lenm until after PIC
-    ; on x86_64: use scratch/volatile reg > r3 for no-save PIC
+    ; on i386: delay loading lenq from lenmp until after PIC
+    ; on amd64: vector_fmul_reverse,3,4,2 == vector_fmul_reverse,4,4,2
 %if cpuflag(avx2)
-    PIC_BEGIN %cond(ARCH_X86_64, r4, lenq), 0
+    PIC_BEGIN lenq, 0
     CHECK_REG_COLLISION "rpic","dst","src0","src1","lenmp"
     movaps  m2, [pic(pd_reverse)]
     PIC_END
