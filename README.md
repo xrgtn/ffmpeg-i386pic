@@ -5,9 +5,107 @@ FFmpeg is a collection of libraries and tools to process multimedia content
 such as audio, video, subtitles and related metadata.
 
 ffmpeg-i386pic fork aims to add PIC support to i386 assembler code in ffmpeg.
-Currently only several asm (and one C file) have been fixed. Given that
-ffmpeg's asm codebase is about 3 times that of libx264, it will take several
-months of hacking.
+Currently only several .asm and .c files (with inline asm) have been fixed.
+Given that ffmpeg's asm codebase is about 3 times that of libx264, it will take
+several months of hacking.
+
+At the moment the next files still have R\_386\_32 (absolute address)
+relocations in .text:
+```
+user@localhost ~/ffmpeg $ find . -name \*.o | while read O; do if objdump -dr "$O" | grep R_386_32 >/dev/null; then printf '%s\t' "$O"; objdump -dr "$O" | grep R_386_32 | wc -l; fi; done
+./libavfilter/x86/vf_ssim.o	4
+./libavfilter/x86/vf_gradfun.o	4
+./libavfilter/x86/vf_blend.o	25
+./libavfilter/x86/vf_maskedmerge.o	3
+./libavfilter/x86/vf_removegrain.o	4
+./libavfilter/x86/vf_overlay.o	10
+./libavfilter/x86/af_volume.o	7
+./libavfilter/x86/vf_yadif.o	28
+./libavfilter/x86/vf_stereo3d.o 19
+./libavfilter/x86/vf_bwdif.o	56
+./libavfilter/x86/vf_fspp.o	41
+./libavfilter/x86/yadif-10.o	20
+./libavfilter/x86/vf_hflip.o	4
+./libavfilter/x86/vf_v360.o	4
+./libavfilter/x86/vf_interlace.o	4
+./libswresample/x86/resample.o	11
+./libswresample/x86/rematrix.o	12
+./libswresample/x86/audio_convert.o	164
+./libavcodec/h264_cabac.o	21
+./libavcodec/x86/lossless_videodsp.o	18
+./libavcodec/x86/sbrdsp.o	21
+./libavcodec/x86/ac3dsp.o	9
+./libavcodec/x86/h264_intrapred_10bit.o 23
+./libavcodec/x86/idctdsp.o	1
+./libavcodec/x86/h264_weight_10bit.o	30
+./libavcodec/x86/vp9lpf_16bpp.o 696
+./libavcodec/x86/hpeldsp.o	30
+./libavcodec/x86/h263_loopfilter.o	4
+./libavcodec/x86/qpeldsp.o	270
+./libavcodec/x86/h264_chromamc_10bit.o	24
+./libavcodec/x86/simple_idct.o	1020
+./libavcodec/x86/hevc_sao.o	32
+./libavcodec/x86/vp3dsp.o	58
+./libavcodec/x86/lpc_init.o	5
+./libavcodec/x86/h264_idct_10bit.o	38
+./libavcodec/x86/sbcdsp.o	7
+./libavcodec/x86/lossless_videoencdsp.o 1
+./libavcodec/x86/jpeg2000dsp.o	16
+./libavcodec/x86/hevc_sao_10bit.o	370
+./libavcodec/x86/vp9itxfm.o	8144
+./libavcodec/x86/vp9intrapred.o 231
+./libavcodec/x86/vp9intrapred_16bpp.o	80
+./libavcodec/x86/utvideodsp.o	6
+./libavcodec/x86/h264_qpel_10bit.o	132
+./libavcodec/x86/rv34dsp.o	11
+./libavcodec/x86/opusdsp.o	1
+./libavcodec/x86/takdsp.o	1
+./libavcodec/x86/bswapdsp.o	2
+./libavcodec/x86/exrdsp.o	6
+./libavcodec/x86/vp9mc.o	16
+./libavcodec/x86/h264_qpel_8bit.o	152
+./libavcodec/x86/imdct36.o	163
+./libavcodec/x86/ttadsp.o	4
+./libavcodec/x86/vp8dsp.o	74
+./libavcodec/x86/h264_deblock.o 99
+./libavcodec/x86/h264_intrapred.o	92
+./libavcodec/x86/cavsdsp.o	504
+./libavcodec/x86/hevc_add_res.o 6
+./libavcodec/x86/h264_deblock_10bit.o	48
+./libavcodec/x86/hevc_idct.o	248
+./libavcodec/x86/vc1dsp_mc.o	5
+./libavcodec/x86/h264_idct.o	11
+./libavcodec/x86/dirac_dwt.o	13
+./libavcodec/x86/v210enc.o	50
+./libavcodec/x86/vc1dsp_mmx.o	86
+./libavcodec/x86/pngdsp.o	2
+./libavcodec/x86/dct32.o	19
+./libavcodec/x86/aacencdsp.o	1
+./libavcodec/x86/aacpsdsp.o	1
+./libavcodec/x86/diracdsp.o	20
+./libavcodec/x86/v210.o 22
+./libavcodec/x86/vorbisdsp.o	1
+./libavcodec/x86/vp8dsp_loopfilter.o	229
+./libavcodec/x86/hevc_deblock.o 48
+./libavcodec/x86/vp9mc_16bpp.o	40
+./libavcodec/x86/lpc.o	16
+./libavcodec/x86/rv40dsp.o	30
+./libavcodec/x86/vp9itxfm_16bpp.o	2440
+./libavcodec/x86/flacdsp.o	1
+./libavcodec/x86/g722dsp.o	4
+./libavcodec/x86/cfhddsp.o	88
+./libavcodec/x86/me_cmp.o	6
+./libavcodec/x86/cavsidct.o	4
+./libavcodec/x86/xvididct.o	144
+./libavcodec/x86/ttaencdsp.o	4
+./libavcodec/x86/h264_chromamc.o	62
+./libavcodec/x86/vc1dsp_loopfilter.o	63
+./libavcodec/x86/celt_pvq_search.o	33
+./libavcodec/x86/vp6dsp.o	2
+./libavcodec/x86/vp9lpf.o	1076
+./libavcodec/hevc_cabac.o	4
+user@localhost ~/ffmpeg $ 
+```
 
 ## Libraries
 
