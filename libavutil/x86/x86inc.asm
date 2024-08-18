@@ -394,6 +394,11 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ; * lpiccache        lpic cache location (e.g. [rstk+stack_offset-N]), if
 ;                    defined.
 ; * lpiccf           "lpic cached" flag.
+; * dpic             "designated" no-save register for next top PIC_BEGIN/END
+;                    block
+; * dpiclf           dpic loaded flag: set when dpic contains lpic address
+; * picallocd        indicates how PIC_ALLOC allocated memory; necessary for
+;                    PIC_FREE to correctly free it.
 ; * NEXT_LPIC        generates unique label in ..@lpicN or ..@lpicN_XXX format
 ;                    and puts the result in next_lpic xdef.
 ; * lpicno_xxx       current/latest .lpic number per function/module etc.
@@ -408,6 +413,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 ;                    * lpic
 ;                    * lpiccache
 ;                    * lpiccf
+;                    * dpic
+;                    * dpicf
 ;                    * picallocd
 ;                    * rstk (rpicsave/lpiccache locations can be defined
 ;                      relative to rstk+stack_offset/size/size_padded)
@@ -515,6 +522,12 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %ifdef lpiccf
         %xdefine %$lpiccf lpiccf
     %endif
+    %ifdef dpic
+        %xdefine %$dpic dpic
+    %endif
+    %ifdef dpiclf
+        %xdefine %$dpiclf dpiclf
+    %endif
     %assign %$picallocd picallocd
     ; restore rstk/stack_params:
     %ifdef %$rstk
@@ -570,6 +583,16 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %else
         %undef lpiccf
     %endif
+    %ifdef %$dpic
+        %xdefine dpic %$dpic
+    %else
+        %undef dpic
+    %endif
+    %ifdef %$dpiclf
+        %xdefine dpiclf %$dpiclf
+    %else
+        %undef dpiclf
+    %endif
     %assign picallocd %$picallocd
     ; restore rstk/stack_params last:
     %ifdef %$rstk
@@ -589,9 +612,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 
 ; PIC_BEGIN [reg[, fsave[, label]]]
 ; Initialize PIC block to use reg as rpic, or select rpic automatically (r2
-; if regs_used < 3 or r5 otherwize). NOTE: if lpiccache is defined beforehand
-; and expands to a general purpose register, lpiccache register will be used
-; for rpic, overriding reg parameter and auto-selection.
+; if regs_used < 3 or r5 otherwize). NOTE: if dpic is defined beforehand,
+; dpic register will be used for rpic, overriding reg parameter and
+; auto-selection.
 ; If fsave flag is given, use it to override rpicsf which is decided
 ; automatically (typically rpicsf=0 when regs_used < 3).
 ; If label parameter is given, initialize rpic with its address instead of
@@ -613,13 +636,6 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                     %assign %%rpic_auto 0
                 %endif
             %endif
-            %if %isdef(lpiccache) && %isid(lpiccache)
-                ; %ifdef reg_id_of_ %+ ... won't work, use reg_id_of_%[...]:
-                %ifdef reg_id_of_%[lpiccache]
-                    ; lpiccache is a register, can use it for rpic
-                    %assign %%rpic_auto -1
-                %endif
-            %endif
             ; cglobal foo_asm, 0,0,0,a,b,c,d,e in fact uses 5 registers (a:r0,
             ; b:r1 etc), it just doesn't do push/pop for them. Number of
             ; "register aliases" is indicated in n_arg_names
@@ -628,11 +644,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %else
                 %assign %%narg 0
             %endif
-            %if %%rpic_auto == -1
-                %xdefine rpic lpiccache
+            %ifdef dpic ; designated no-save rpic present
+                %xdefine rpic dpic
                 %assign rpicsf 0
-                ;%warning %strcat("using ", lpiccache, " for rpic in ", \
-                ;    current_function)
             %elif %%rpic_auto == 0
                 %xdefine rpic %1
                 %assign rpicsf 1
@@ -657,8 +671,8 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             ; override rpicsf if fsave is present:
             %if %0 >=2
                 %ifnempty %2
-                    ; ignore %2 if rpic==lpiccache
-                    %if %%rpic_auto != -1
+                    ; ignore %2 if using dpic
+                    %ifndef dpic
                         %xdefine rpicsf %2
                     %endif
                 %endif
@@ -674,7 +688,18 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
                 %endif
             %endif
             %assign %%lpicchanged 0
-            %if lpiccf
+            %ifndef dpic
+                %assign %%dpiclf 0
+            %elifndef dpiclf
+                %assign %%dpiclf 0
+            %elif dpiclf==0
+                %assign %%dpiclf 0
+            %else
+                %assign %%dpiclf 1
+            %endif
+            %if %%dpiclf
+                ; do nothing (rpic==dpic and dpic is already loaded)
+            %elif lpiccf
                 movifnidn rpic, lpiccache
             %else
                 NEXT_LPIC
@@ -695,15 +720,19 @@ lpic:           pop rpic
                     %assign lpiccf 1
                 %endif
             %endif
+            %ifdef dpic
+                %assign dpiclf 1
+            %endif
         %endif
         %assign picb picb+1
     %endif
 %endmacro
 ; PIC_END closes current PIC_BEGIN/END block and decrements picb.
 ; When closing last (topmost) block:
-; * PIC_END updates lpiccache if it's defined and lpiccf==0,
-; * restores previous value of register used for rpic, if rpicsf is set;
-; * undefines rpic and rpicsf,
+; * PIC_END updates lpiccache if it's defined and lpiccf==0;
+; * restores previous value of register used for rpic, if rpicsf is set:
+;   - if dpiclf is defined when restoring rpic, clears dpiclf;
+; * undefines rpic and rpicsf;
 ; * undefines lpic, if lpiccache is not defined;
 ;   - otherwize it keeps lpic defined after PIC_BEGIN/END block is finished;
 %macro PIC_END 0
@@ -733,6 +762,9 @@ lpic:           pop rpic
                 %else
                     mov rpic, rpicsave
                 %endif
+                %ifdef dpiclf
+                    %assign dpiclf 0 ; dpic is unloaded
+                %endif
                 %ifidn rpic, lpiccache
                     ; restoring into lpiccache invalidates cache; having
                     ; rpicsf set while rpic==lpiccache is an error:
@@ -742,6 +774,34 @@ lpic:           pop rpic
             %endif
             %undef rpic
             %undef rpicsf
+        %endif
+    %endif
+%endmacro
+
+%macro DESIGNATE_RPIC 0-2
+    %if i386pic
+        %if picb > 0
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+        %endif
+        %if %0 >= 1
+            ; designate %1 register for no-save rpic
+            %ifnid %1
+                %error %strcat("invalid register name: ", %1)
+            %endif
+            %ifndef reg_id_of_%1
+                %error %strcat("not a register name: ", %1)
+            %endif
+            %xdefine dpic %1
+            %assign dpiclf 0
+            %if %0 >= 2
+                %if %2 ; set "dpic loaded" flag
+                    %assign dpiclf 1
+                %endif
+            %endif
+        %else
+            ; unset designated register
+            %undef dpic
+            %undef dpiclf
         %endif
     %endif
 %endmacro
