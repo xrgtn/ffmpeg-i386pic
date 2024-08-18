@@ -298,11 +298,11 @@ cglobal yuv2planeX_%1, %3, 8, %2, filter, fltsize, src, dst, w, dither, offset
     xor             r5,  r5
 
 %if mmsize == 8 || %1 == 8
-    yuv2planeX_mainloop %1, a
+    yuv2planeX_mainloop %1, a ; filterq, cntr_reg, srcq, dstq, wq, r5, r6, fltsizem, rsp, PIC*[%1!=8]
 %else ; mmsize == 16
     test          dstq, 15
     jnz .unaligned
-    yuv2planeX_mainloop %1, a
+    yuv2planeX_mainloop %1, a ; filterq, cntr_reg, srcq, dstq, wq, r5, r6, fltsizem, rsp, PIC*[%1!=8]
     PIC_CONTEXT_PUSH
 %if %1 != 8
     PIC_FREE
@@ -310,7 +310,7 @@ cglobal yuv2planeX_%1, %3, 8, %2, filter, fltsize, src, dst, w, dither, offset
     RET
     PIC_CONTEXT_POP
 .unaligned:
-    yuv2planeX_mainloop %1, u
+    yuv2planeX_mainloop %1, u ; filterq, cntr_reg, srcq, dstq, wq, r5, r6, fltsizem, rsp, PIC*[%1!=8]
 %endif ; mmsize == 8/16
 
 %if %1 == 8
@@ -398,8 +398,8 @@ yuv2planeX_fn 10,  7, 5
 %macro yuv2plane1_fn 3
 cglobal yuv2plane1_%1, %3, %3, %2, src, dst, w, dither, offset
 %if %1 != 8
-    ; if ditherq is already pushed or volatile, set %%dithersf to 0:
-    %assign %%dithersf ((%2 < 4) && !ARCH_X86_64)
+    ; if ditherq is already pushed (on i386), set %%dithersf to 0:
+    %assign %%dithersf (%2 < 4)
     %if %%dithersf
         %define rpicsave ; safe to push/pop rpic
     %endif
