@@ -735,6 +735,7 @@ lpic:           pop rpic
 ; * undefines rpic and rpicsf;
 ; * undefines lpic, if lpiccache is not defined;
 ;   - otherwize it keeps lpic defined after PIC_BEGIN/END block is finished;
+; * leaves dpic/dpiclf without changes.
 %macro PIC_END 0
     %if i386pic
         %assign picb picb-1
