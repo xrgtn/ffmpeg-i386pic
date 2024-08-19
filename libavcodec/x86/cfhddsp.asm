@@ -48,7 +48,7 @@ cglobal cfhd_horiz_filter_clip12, 5, 6, 8 + 4 * ARCH_X86_64, output, low, high, 
 %define ostrideq widthq
 %define lwidthq  widthq
 %define hwidthq  widthq
-%else
+%else ; %1 != 1023 && %1 != 4095
 %if ARCH_X86_64
 cglobal cfhd_horiz_filter, 8, 11, 12, output, ostride, low, lwidth, high, hwidth, width, height, x, y, temp
     shl  ostrided, 1
@@ -58,7 +58,7 @@ cglobal cfhd_horiz_filter, 8, 11, 12, output, ostride, low, lwidth, high, hwidth
 
     mov        yd, heightd
     neg        yq
-%else
+%else ; !ARCH_X86_64
 cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
     shl        xd, 1
     shl        yd, 1
@@ -71,12 +71,16 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
 
     mov        yd, r7m
     neg        yq
+%if i386pic
+    mov       r7m, yq   ; save -height in r7m
+    %define    yq  r7mp ; free yq (r3) register for use in PIC
+%endif
 
 %define ostrideq xm
 %define lwidthq  ym
 %define hwidthq  tempm
-%endif
-%endif
+%endif ; ARCH_X86_64 / !ARCH_X86_64
+%endif ; %1 == 1023 / %1 == 4095 / %1 != 1023 && %1 != 4095
 
 %if ARCH_X86_64
     mova       m8, [factor_p1_n1]
@@ -85,10 +89,20 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
     mova      m11, [pd_4]
 %endif
 
+%if %1 == 1023 || %1 == 4095
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1 ; r6 is free for use
+%else
+    PIC_BEGIN r3, 0 ; r3 is pushed by PROLOGUE; not used anymore
+%endif
+    CHECK_REG_COLLISION "rpic",\
+        "lowq","xq","highq","outputq","widthq","tempq",\
+        "lwidthq","hwidthq","ostrideq","yq"
+
 %if %1 == 0
 .looph:
 %endif
-    movsx          xq, word [lowq]
+    movsx          xq, word [lowq] ; xq reloaded
     imul           xq, 11
 
     movsx       tempq, word [lowq + 2]
@@ -106,7 +120,7 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
 
 %if %1
     movd          xm0, tempd
-    CLIPW          m0, [pw_0], [pw_%1]
+    CLIPW          m0, [pic(pw_0)], [pic(pw_%1)]
     pextrw      tempd, xm0, 0
 %endif
     mov  word [outputq], tempw
@@ -129,7 +143,7 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
 
 %if %1
     movd          xm0, tempd
-    CLIPW          m0, [pw_0], [pw_%1]
+    CLIPW          m0, [pic(pw_0)], [pic(pw_%1)]
     pextrw      tempd, xm0, 0
 %endif
     mov  word [outputq + 2], tempw
@@ -158,15 +172,15 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
     paddd          m6, m11
     paddd          m7, m11
 %else
-    pmaddwd        m4, [factor_p1_n1]
-    pmaddwd        m5, [factor_p1_n1]
-    pmaddwd        m6, [factor_n1_p1]
-    pmaddwd        m7, [factor_n1_p1]
+    pmaddwd        m4, [pic(factor_p1_n1)]
+    pmaddwd        m5, [pic(factor_p1_n1)]
+    pmaddwd        m6, [pic(factor_n1_p1)]
+    pmaddwd        m7, [pic(factor_n1_p1)]
 
-    paddd          m4, [pd_4]
-    paddd          m5, [pd_4]
-    paddd          m6, [pd_4]
-    paddd          m7, [pd_4]
+    paddd          m4, [pic(pd_4)]
+    paddd          m5, [pic(pd_4)]
+    paddd          m6, [pic(pd_4)]
+    paddd          m7, [pic(pd_4)]
 %endif
 
     psrad          m4, 3
@@ -190,10 +204,10 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
     pmaddwd        m1, m8
     pmaddwd        m3, m8
 %else
-    pmaddwd        m2, [pw_1]
-    pmaddwd        m0, [pw_1]
-    pmaddwd        m1, [factor_p1_n1]
-    pmaddwd        m3, [factor_p1_n1]
+    pmaddwd        m2, [pic(pw_1)]
+    pmaddwd        m0, [pic(pw_1)]
+    pmaddwd        m1, [pic(factor_p1_n1)]
+    pmaddwd        m3, [pic(factor_p1_n1)]
 %endif
 
     paddd          m2, m4
@@ -214,8 +228,8 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
     punpckhwd      m0, m1
 
 %if %1
-    CLIPW          m2, [pw_0], [pw_%1]
-    CLIPW          m0, [pw_0], [pw_%1]
+    CLIPW          m2, [pic(pw_0)], [pic(pw_%1)]
+    CLIPW          m0, [pic(pw_0)], [pic(pw_%1)]
 %endif
 
     movu  [outputq + xq * 2 + 4], m2
@@ -248,7 +262,7 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
 
 %if %1
     movd          xm0, tempd
-    CLIPW          m0, [pw_0], [pw_%1]
+    CLIPW          m0, [pic(pw_0)], [pic(pw_%1)]
     pextrw      tempd, xm0, 0
 %endif
     mov  word [outputq - 4], tempw
@@ -271,7 +285,7 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
 
 %if %1
     movd          xm0, tempd
-    CLIPW          m0, [pw_0], [pw_%1]
+    CLIPW          m0, [pic(pw_0)], [pic(pw_%1)]
     pextrw      tempd, xm0, 0
 %endif
     mov  word [outputq - 2], tempw
@@ -290,6 +304,7 @@ cglobal cfhd_horiz_filter, 7, 7, 8, output, x, low, y, high, temp, width, height
     jl .looph
 %endif
 
+    PIC_END ; r6,pop / r3,no-restore
     RET
 %endmacro
 
@@ -318,7 +333,7 @@ cglobal cfhd_vert_filter, 8, 11, 14, output, ostride, low, lwidth, high, hwidth,
     mova      m11, [pd_4]
     mova      m12, [factor_p11_n4]
     mova      m13, [factor_p5_p4]
-%else
+%else ; !ARCH_X86_64
 cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     shl        xd, 1
     shl        yd, 1
@@ -328,6 +343,10 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     mov       xmp, xq
     mov       ymp, yq
     mov     posmp, posq
+%if i386pic
+    mov      r7mp, widthq ; save widthq (r6) register
+    %define widthq   r7m  ; free widthq (r6) register
+%endif
 
     mov        xq, r7m
     dec        xq
@@ -338,7 +357,13 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
 %define hwidthq  posm
 %define heightq  widthm
 
-%endif
+%endif ; ARCH_X86_64 / !ARCH_X86_64
+
+    PIC_BEGIN r6, 0 ; r6 is saved in PROLOGUE and after shifting and storing
+                    ; to r7m, r6 isn't used anymore in the function
+    CHECK_REG_COLLISION "rpic",\
+        "outputq","xq","lowq","yq","highq","posq"\
+        "ostrideq","lwidthq","hwidthq","heightq","widthq"
 
     xor        xq, xq
 .loopw:
@@ -356,8 +381,8 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     pmaddwd    m0, m12
     pmaddwd    m2, m12
 %else
-    pmaddwd    m0, [factor_p11_n4]
-    pmaddwd    m2, [factor_p11_n4]
+    pmaddwd    m0, [pic(factor_p11_n4)]
+    pmaddwd    m2, [pic(factor_p11_n4)]
 %endif
 
     pxor       m4, m4
@@ -373,8 +398,13 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     paddd      m0, m4
     paddd      m2, m3
 
-    paddd      m0, [pd_4]
-    paddd      m2, [pd_4]
+%if ARCH_X86_64
+    paddd      m0, m11
+    paddd      m2, m11
+%else
+    paddd      m0, [pic(pd_4)]
+    paddd      m2, [pic(pd_4)]
+%endif
 
     psrad      m0, 3
     psrad      m2, 3
@@ -410,8 +440,8 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     pmaddwd    m0, m13
     pmaddwd    m2, m13
 %else
-    pmaddwd    m0, [factor_p5_p4]
-    pmaddwd    m2, [factor_p5_p4]
+    pmaddwd    m0, [pic(factor_p5_p4)]
+    pmaddwd    m2, [pic(factor_p5_p4)]
 %endif
 
     pxor       m4, m4
@@ -427,8 +457,13 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     psubd      m0, m4
     psubd      m2, m3
 
-    paddd      m0, [pd_4]
-    paddd      m2, [pd_4]
+%if ARCH_X86_64
+    paddd      m0, m11
+    paddd      m2, m11
+%else
+    paddd      m0, [pic(pd_4)]
+    paddd      m2, [pic(pd_4)]
+%endif
 
     psrad      m0, 3
     psrad      m2, 3
@@ -485,15 +520,15 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     paddd      m6, m11
     paddd      m7, m11
 %else
-    pmaddwd    m4, [factor_p1_n1]
-    pmaddwd    m5, [factor_p1_n1]
-    pmaddwd    m6, [factor_n1_p1]
-    pmaddwd    m7, [factor_n1_p1]
+    pmaddwd    m4, [pic(factor_p1_n1)]
+    pmaddwd    m5, [pic(factor_p1_n1)]
+    pmaddwd    m6, [pic(factor_n1_p1)]
+    pmaddwd    m7, [pic(factor_n1_p1)]
 
-    paddd      m4, [pd_4]
-    paddd      m5, [pd_4]
-    paddd      m6, [pd_4]
-    paddd      m7, [pd_4]
+    paddd      m4, [pic(pd_4)]
+    paddd      m5, [pic(pd_4)]
+    paddd      m6, [pic(pd_4)]
+    paddd      m7, [pic(pd_4)]
 %endif
 
     psrad      m4, 3
@@ -522,10 +557,10 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     pmaddwd    m1, m8
     pmaddwd    m3, m8
 %else
-    pmaddwd    m0, [pw_1]
-    pmaddwd    m2, [pw_1]
-    pmaddwd    m1, [factor_p1_n1]
-    pmaddwd    m3, [factor_p1_n1]
+    pmaddwd    m0, [pic(pw_1)]
+    pmaddwd    m2, [pic(pw_1)]
+    pmaddwd    m1, [pic(factor_p1_n1)]
+    pmaddwd    m3, [pic(factor_p1_n1)]
 %endif
 
     paddd      m0, m4
@@ -568,8 +603,8 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     pmaddwd    m0, m13
     pmaddwd    m2, m13
 %else
-    pmaddwd    m0, [factor_p5_p4]
-    pmaddwd    m2, [factor_p5_p4]
+    pmaddwd    m0, [pic(factor_p5_p4)]
+    pmaddwd    m2, [pic(factor_p5_p4)]
 %endif
 
     pxor       m4, m4
@@ -589,8 +624,8 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     paddd      m0, m11
     paddd      m2, m11
 %else
-    paddd      m0, [pd_4]
-    paddd      m2, [pd_4]
+    paddd      m0, [pic(pd_4)]
+    paddd      m2, [pic(pd_4)]
 %endif
 
     psrad      m0, 3
@@ -636,8 +671,8 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     pmaddwd    m0, m12
     pmaddwd    m2, m12
 %else
-    pmaddwd    m0, [factor_p11_n4]
-    pmaddwd    m2, [factor_p11_n4]
+    pmaddwd    m0, [pic(factor_p11_n4)]
+    pmaddwd    m2, [pic(factor_p11_n4)]
 %endif
 
     pxor       m4, m4
@@ -657,8 +692,8 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     paddd      m0, m11
     paddd      m2, m11
 %else
-    paddd      m0, [pd_4]
-    paddd      m2, [pd_4]
+    paddd      m0, [pic(pd_4)]
+    paddd      m2, [pic(pd_4)]
 %endif
 
     psrad      m0, 3
@@ -694,4 +729,5 @@ cglobal cfhd_vert_filter, 7, 7, 8, output, x, low, y, high, pos, width, height
     add        xq, mmsize
     cmp        xq, widthq
     jl .loopw
+    PIC_END ; r6, 0
     RET
