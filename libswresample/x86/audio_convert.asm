@@ -32,7 +32,7 @@ SECTION .text
 
 ;to, from, a/u, log2_outsize, log_intsize, const
 %macro PACK_2CH 5-7
-cglobal pack_2ch_%2_to_%1_%3, 3, 4, 6, dst, src, len, src2
+cglobal pack_2ch_%2_to_%1_%3, 2, 4, 6, dst, src, len, src2
     mov src2q   , [srcq+gprsize]
     mov srcq    , [srcq]
     mov dstq    , [dstq]
@@ -46,11 +46,16 @@ cglobal pack_2ch_%2_to_%1_%3, 3, 4, 6, dst, src, len, src2
 %else
 pack_2ch_%2_to_%1_u_int %+ SUFFIX:
 %endif
+    ASSERT %isidn(%str(%7),"NOP_N") || %isidn(%substr(%str(%7),%strlen(%str(%7))-4,5),"_INIT")
+    DESIGNATE_RPIC lenq ; not yet loaded
+    CHECK_REG_COLLISION "lenq","srcq","dstq","src2q"
+    %7 m0,m1,m2,m3,m4,m5 ; PIC*[%7=~/_INIT$/]
+    DESIGNATE_RPIC ; designate 'lenq' reg no more
+    movifnidn lenq, lenmp ; [delayed] load lenq from arg[2]
     lea     srcq , [srcq  + (1<<%5)*lenq]
     lea     src2q, [src2q + (1<<%5)*lenq]
     lea     dstq , [dstq  + (2<<%4)*lenq]
     neg     lenq
-    %7 m0,m1,m2,m3,m4,m5
 .next:
 %if %4 >= %5
     mov%3     m0, [         srcq +(1<<%5)*lenq]
@@ -64,7 +69,7 @@ pack_2ch_%2_to_%1_u_int %+ SUFFIX:
     punpckhdq m1, m2
 %endif
     %6 m0,m1,m2,m3,m4,m5
-%else
+%else ; %4 < %5
     mov%3     m0, [         srcq +(1<<%5)*lenq]
     mov%3     m1, [mmsize + srcq +(1<<%5)*lenq]
     mov%3     m2, [         src2q+(1<<%5)*lenq]
@@ -74,7 +79,7 @@ pack_2ch_%2_to_%1_u_int %+ SUFFIX:
     punpcklwd m0, m1
     punpckhwd m2, m1
     SWAP 1,2
-%endif
+%endif ; %4 >= %5 ; %4 < %5
     mov%3 [           dstq+(2<<%4)*lenq], m0
     mov%3 [  mmsize + dstq+(2<<%4)*lenq], m1
 %if %4 > %5
@@ -89,7 +94,7 @@ pack_2ch_%2_to_%1_u_int %+ SUFFIX:
 %endmacro
 
 %macro UNPACK_2CH 5-7
-cglobal unpack_2ch_%2_to_%1_%3, 3, 4, 7, dst, src, len, dst2
+cglobal unpack_2ch_%2_to_%1_%3, 2, 4, 7, dst, src, len, dst2
     mov dst2q   , [dstq+gprsize]
     mov srcq    , [srcq]
     mov dstq    , [dstq]
@@ -103,12 +108,17 @@ cglobal unpack_2ch_%2_to_%1_%3, 3, 4, 7, dst, src, len, dst2
 %else
 unpack_2ch_%2_to_%1_u_int %+ SUFFIX:
 %endif
+    ASSERT %isidn(%str(%7),"NOP_N") || %isidn(%substr(%str(%7),%strlen(%str(%7))-4,5),"_INIT")
+    PIC_BEGIN lenq, 0 ; lenq load is delayed
+    CHECK_REG_COLLISION "rpic","srcq","dstq","dst2q"
+    %7 m0,m1,m2,m3,m4,m5 ; PIC*[%7=~/_INIT$/]
+    mova      m6, [pic(word_unpack_shuf)]
+    PIC_END
+    movifnidn lenq, lenmp ; [delayed] load lenq from arg[2]
     lea     srcq , [srcq  + (2<<%5)*lenq]
     lea     dstq , [dstq  + (1<<%4)*lenq]
     lea     dst2q, [dst2q + (1<<%4)*lenq]
     neg     lenq
-    %7 m0,m1,m2,m3,m4,m5
-    mova      m6, [word_unpack_shuf]
 .next:
     mov%3     m0, [           srcq +(2<<%5)*lenq]
     mov%3     m2, [  mmsize + srcq +(2<<%5)*lenq]
@@ -161,7 +171,7 @@ unpack_2ch_%2_to_%1_u_int %+ SUFFIX:
 %endmacro
 
 %macro CONV 5-7
-cglobal %2_to_%1_%3, 3, 3, 6, dst, src, len
+cglobal %2_to_%1_%3, 2, 3, 6, dst, src, len
     mov srcq    , [srcq]
     mov dstq    , [dstq]
 %ifidn %3, a
@@ -172,10 +182,15 @@ cglobal %2_to_%1_%3, 3, 3, 6, dst, src, len
 %else
 %2_to_%1_u_int %+ SUFFIX:
 %endif
+    ASSERT %isidn(%str(%7),"NOP_N") || %isidn(%substr(%str(%7),%strlen(%str(%7))-4,5),"_INIT")
+    DESIGNATE_RPIC lenq ; not yet loaded
+    CHECK_REG_COLLISION "lenq","srcq","dstq"
+    %7 m0,m1,m2,m3,m4,m5 ; PIC*[%7=~/_INIT$/]
+    DESIGNATE_RPIC ; designate 'lenq' reg no more
+    movifnidn lenq, lenmp ; [delayed] load lenq from arg[2]
     lea     srcq , [srcq  + (1<<%5)*lenq]
     lea     dstq , [dstq  + (1<<%4)*lenq]
     neg     lenq
-    %7 m0,m1,m2,m3,m4,m5
 .next:
     mov%3     m0, [           srcq +(1<<%5)*lenq]
     mov%3     m1, [  mmsize + srcq +(1<<%5)*lenq]
@@ -239,7 +254,9 @@ pack_6ch_%2_to_%1_u_int %+ SUFFIX:
     sub    src3q, srcq
     sub    src4q, srcq
     sub    src5q, srcq
-    %8 x,x,x,x,m7,x
+    %define rpicsave ; safe to push/pop rpic
+    %8 x,x,x,x,m7,x ; PIC*[%7=~/_INIT$/]
+    %undef rpicsave ; no more PIC in this function
 .loop:
     mov%3     m0, [srcq      ]
     mov%3     m1, [srcq+src1q]
@@ -342,7 +359,9 @@ unpack_6ch_%2_to_%1_u_int %+ SUFFIX:
     sub    dst3q, dstq
     sub    dst4q, dstq
     sub    dst5q, dstq
-    %8 x,x,x,x,m7,x
+    %define rpicsave ; safe to push/pop rpic
+    %8 x,x,x,x,m7,x ; PIC*[%7=~/_INIT$/]
+    %undef rpicsave ; no more PIC in this function
 .loop:
     mov%3     m0, [srcq   ]
     mov%3     m1, [srcq+16]
@@ -382,6 +401,7 @@ unpack_6ch_%2_to_%1_u_int %+ SUFFIX:
 
 %macro PACK_8CH 8
 cglobal pack_8ch_%2_to_%1_%3, 2, PACK_8CH_GPRS, %6, ARCH_X86_32*48, dst, src, len, src1, src2, src3, src4, src5, src6, src7
+    PIC_ALLOC
     mov     dstq, [dstq]
 %if ARCH_X86_32
     DEFINE_ARGS dst, src, src2, src3, src4, src5, src6
@@ -463,13 +483,20 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
 %endif
 
 %if ARCH_X86_64
-    %8 x,x,x,x,m9,x
+    %8 x,x,x,x,m9,x ; PIC*[%7=~/_INIT$/]
 %elifidn %1, int32
-    %define m9 [flt2p31]
+    %define m9 [pic(flt2p31)]
 %else
-    %define m9 [flt2pm31]
+    %define m9 [pic(flt2pm31)]
 %endif
 
+%if i386pic
+    ; Do empty PIC_BEGIN+END just to init lpiccache for PIC block in loop
+    ; below.
+    PIC_BEGIN src1q, 0 ; src1q is saved in src1m, using no-save PIC here and
+    PIC_END            ; manually loading src1q from src1m saves 1 processor
+    mov src1q, src1m   ; instruction (eliminates `mov rpicsave, src1q').
+%endif
 .loop:
     mov%3     m0, [srcq      ]
     mov%3     m1, [srcq+src1q]
@@ -500,12 +527,15 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
 
     TRANSPOSE8x4D 0, 1, 2, 3, 4, 5, 6, 7, [rsp], [rsp+16], 1
 
-    %7 m0,m1,x,x,m9,m2
+    PIC_BEGIN r5 ; r5:src5q/src6q
+    CHECK_REG_COLLISION "rpic","dstq","[rsp]" ; dstq:r0
+    %7 m0,m1,x,x,m9,m2 ; PIC*[i386]
     mova     m2, [rsp]
-    mov%3   [dstq], m0
-    %7 m2,m3,x,x,m9,m0
-    %7 m4,m5,x,x,m9,m0
-    %7 m6,m7,x,x,m9,m0
+    mov%3   [dstq], m0 ; PIC*[i386]
+    %7 m2,m3,x,x,m9,m0 ; PIC*[i386]
+    %7 m4,m5,x,x,m9,m0 ; PIC*[i386]
+    %7 m6,m7,x,x,m9,m0 ; PIC*[i386]
+    PIC_END
 
 %endif
 
@@ -525,10 +555,11 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
 %endif
     sub      lend, mmsize/4
     jg .loop
+    PIC_FREE
     RET
 %endmacro
 
-%macro INT16_TO_INT32_N 6
+%macro INT16_TO_INT32_N 6 ; m0..4
     pxor      m2, m2
     pxor      m3, m3
     punpcklwd m2, m1
@@ -540,7 +571,7 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
     punpckhwd m1, m4
 %endmacro
 
-%macro INT32_TO_INT16_N 6
+%macro INT32_TO_INT16_N 6 ; m0..3
     psrad     m0, 16
     psrad     m1, 16
     psrad     m2, 16
@@ -550,8 +581,11 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
     SWAP 1,2
 %endmacro
 
-%macro INT32_TO_FLOAT_INIT 6
-    mova      %5, [flt2pm31]
+%macro INT32_TO_FLOAT_INIT 6 ; PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",,,,,%5
+    mova      %5, [pic(flt2pm31)]
+    PIC_END
 %endmacro
 %macro INT32_TO_FLOAT_N 6
     cvtdq2ps  %1, %1
@@ -560,8 +594,11 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
     mulps %2, %2, %5
 %endmacro
 
-%macro FLOAT_TO_INT32_INIT 6
-    mova      %5, [flt2p31]
+%macro FLOAT_TO_INT32_INIT 6 ; PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",,,,,%5
+    mova      %5, [pic(flt2p31)]
+    PIC_END
 %endmacro
 %macro FLOAT_TO_INT32_N 6
     mulps %1, %5
@@ -574,11 +611,13 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
     paddd %2, %6
 %endmacro
 
-%macro INT16_TO_FLOAT_INIT 6
-    mova      m5, [flt2pm31]
+%macro INT16_TO_FLOAT_INIT 6 ; PIC
+    PIC_BEGIN r4
+    mova      m5, [pic(flt2pm31)]
+    PIC_END
 %endmacro
-%macro INT16_TO_FLOAT_N 6
-    INT16_TO_INT32_N %1,%2,%3,%4,%5,%6
+%macro INT16_TO_FLOAT_N 6 ; m0..5
+    INT16_TO_INT32_N %1,%2,%3,%4,%5,%6 ; m0..4
     cvtdq2ps  m0, m0
     cvtdq2ps  m1, m1
     cvtdq2ps  m2, m2
@@ -589,10 +628,12 @@ pack_8ch_%2_to_%1_u_int %+ SUFFIX:
     mulps m3, m3, m5
 %endmacro
 
-%macro FLOAT_TO_INT16_INIT 6
-    mova      m5, [flt2p15]
+%macro FLOAT_TO_INT16_INIT 6 ; PIC
+    PIC_BEGIN r4
+    mova      m5, [pic(flt2p15)]
+    PIC_END
 %endmacro
-%macro FLOAT_TO_INT16_N 6
+%macro FLOAT_TO_INT16_N 6 ; m0..3,5
     mulps m0, m5
     mulps m1, m5
     mulps m2, m5
