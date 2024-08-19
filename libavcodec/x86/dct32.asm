@@ -478,7 +478,7 @@ cglobal dct32_float, 2, 3, 16, out, in, tmp
     BUTTERFLY2  m0, m3, m2, m1
 
     PASS5 ; outq ; PIC
-    PIC_END ; tmpq,no-save
+    PIC_END ; tmpq, no-save
     PASS6 ; tmpq, outq
     RET
 %endmacro
