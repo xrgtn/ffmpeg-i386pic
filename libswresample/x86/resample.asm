@@ -119,7 +119,12 @@ cglobal resample_common_%1, 1, 7, 2, ctx, phase_count, dst, frac, \
 %define src_stackq            r2mp
 %define update_context_stackd r4m
 
-    mov                         dstq, r1mp
+%ifidn %1, int16
+    PIC_ALLOC
+    PIC_BEGIN r3, 0 ; init lpiccache
+    PIC_END
+%endif
+    mov                         dstq, r1mp ; r2
     mov                           r3, r3mp
     lea                           r3, [dstq+r3*%2]
     PUSH                              dword [ctxq+ResampleContext.dst_incr_div]
@@ -166,7 +171,9 @@ cglobal resample_common_%1, 1, 7, 2, ctx, phase_count, dst, frac, \
     mov         min_filter_count_x4q, min_filter_length_x4q
 %endif
 %ifidn %1, int16
-    movd                          m0, [pd_0x4000]
+    PIC_BEGIN indexq ; r4
+    movd                          m0, [pic(pd_0x4000)]
+    PIC_END
 %else ; float/double
     xorps                         m0, m0, m0
 %endif
@@ -267,6 +274,9 @@ cglobal resample_common_%1, 1, 7, 2, ctx, phase_count, dst, frac, \
 %if ARCH_X86_32
     ADD                          rsp, 0x20
 %endif
+%ifidn %1, int16
+    PIC_FREE
+%endif
     RET
 
 ; int resample_linear_$format(ResampleContext *ctx, float *dst,
@@ -345,15 +355,15 @@ cglobal resample_linear_%1, 0, 15, 5, ctx, phase_mask, src, phase_count, index, 
 %else ; x86-32
 cglobal resample_linear_%1, 1, 7, 5, ctx, min_filter_length_x4, filter2, \
                                      frac, index, dst, filter_bank
-
+    ; r0:ctx
     ; push temp variables to stack
 %define ctx_stackq            r0mp
 %define src_stackq            r2mp
 %define update_context_stackd r4m
 
-    mov                         dstq, r1mp
-    mov                           r3, r3mp
-    lea                           r3, [dstq+r3*%2]
+    mov                         dstq, r1mp ; r0:ctx, r5:dst
+    mov                           r3, r3mp ; r0:ctx, r5:dst, r3:sz
+    lea                           r3, [dstq+r3*%2] ; r3:dst+sz*%2
     PUSH                              dword [ctxq+ResampleContext.dst_incr_div]
     PUSH                              r3
     mov                           r3, dword [ctxq+ResampleContext.filter_alloc]
@@ -364,19 +374,21 @@ cglobal resample_linear_%1, 1, 7, 5, ctx, min_filter_length_x4, filter2, \
     mov                           r3, dword [ctxq+ResampleContext.src_incr]
     PUSH                              dword [ctxq+ResampleContext.phase_count]  ; unneeded replacement of phase_mask
     PUSH                              r3d
+    PIC_BEGIN r2, 0 ; r2/filter2q not loaded yet
 %ifidn %1, int16
-    movd                          m4, [pd_0x4000]
+    movd                          m4, [pic(pd_0x4000)]
 %else ; float/double
     cvtsi2s%4                    xm0, r3d
-    movs%4                       xm4, [%5]
+    movs%4                       xm4, [pic(%5)]
     divs%4                       xm4, xm0
 %endif
-    mov        min_filter_length_x4d, [ctxq+ResampleContext.filter_length]
-    mov                       indexd, [ctxq+ResampleContext.index]
+    PIC_END
+    mov        min_filter_length_x4d, [ctxq+ResampleContext.filter_length] ; r1
+    mov                       indexd, [ctxq+ResampleContext.index] ; r4
     shl        min_filter_length_x4d, %3
-    mov                        fracd, [ctxq+ResampleContext.frac]
+    mov                        fracd, [ctxq+ResampleContext.frac] ; r3
     neg        min_filter_length_x4q
-    mov                 filter_bankq, [ctxq+ResampleContext.filter_bank]
+    mov                 filter_bankq, [ctxq+ResampleContext.filter_bank] ; r6
     sub                         r2mp, min_filter_length_x4q
     sub                 filter_bankq, min_filter_length_x4q
     PUSH                              min_filter_length_x4q
@@ -400,17 +412,17 @@ cglobal resample_linear_%1, 1, 7, 5, ctx, min_filter_length_x4, filter2, \
 %endif
 
 .loop:
-    mov                     filter1d, filter_allocd
+    mov                     filter1d, filter_allocd ; r0
     imul                    filter1d, indexd
 %if ARCH_X86_64
     mov         min_filter_count_x4q, min_filter_len_x4q
     lea                     filter1q, [filter_bankq+filter1q*%2]
     lea                     filter2q, [filter1q+filter_allocq*%2]
 %else ; x86-32
-    mov         min_filter_count_x4q, filter_bankq
+    mov         min_filter_count_x4q, filter_bankq ; r1
     lea                     filter1q, [min_filter_count_x4q+filter1q*%2]
     mov         min_filter_count_x4q, min_filter_length_x4q
-    mov                     filter2q, filter1q
+    mov                     filter2q, filter1q ; r2 is loaded here
     add                     filter2q, filter_alloc_x4q
 %endif
 %ifidn %1, int16
