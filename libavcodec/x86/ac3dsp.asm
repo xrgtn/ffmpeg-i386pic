@@ -75,8 +75,11 @@ AC3_EXPONENT_MIN
 ;-----------------------------------------------------------------------------
 
 INIT_XMM sse2
-cglobal float_to_fixed24, 3, 3, 9, dst, src, len
-    movaps     m0, [pf_1_24]
+cglobal float_to_fixed24, 2, 3, 9, dst, src, len
+    PIC_BEGIN lenq, 0 ; lenq/r2 not loaded yet, use no-save
+    movaps     m0, [pic(pf_1_24)]
+    PIC_END
+    movifnidn lenq, lenmp ; load lenq/r2 from arg[2]
 .loop:
     movaps     m1, [srcq    ]
     movaps     m2, [srcq+16 ]
@@ -151,14 +154,15 @@ cglobal ac3_compute_mantissa_size, 1, 2, 4, mant_cnt, sum
     paddw       m1, [mant_cntq+ 7*16]
     paddw       m0, [mant_cntq+ 8*16]
     paddw       m1, [mant_cntq+ 9*16]
+    PIC_BEGIN r2, 0 ; ac3_compute_mantissa_size() only uses r0 & r1
     paddw       m0, [mant_cntq+10*16]
     paddw       m1, [mant_cntq+11*16]
-    pmaddwd     m0, [ac3_bap_bits   ]
-    pmaddwd     m1, [ac3_bap_bits+16]
+    pmaddwd     m0, [pic(ac3_bap_bits)   ]
+    pmaddwd     m1, [pic(ac3_bap_bits)+16]
     paddd       m0, m1
     PHADDD4     m0, m1
     movd      sumd, m0
-    movdqa      m3, [pw_bap_mul1]
+    movdqa      m3, [pic(pw_bap_mul1)]
     movhpd      m0, [mant_cntq     +2]
     movlpd      m0, [mant_cntq+1*32+2]
     movhpd      m1, [mant_cntq+2*32+2]
@@ -170,7 +174,8 @@ cglobal ac3_compute_mantissa_size, 1, 2, 4, mant_cnt, sum
     pmulhuw     m2, m3
     paddusw     m0, m1
     paddusw     m0, m2
-    pmaddwd     m0, [pw_bap_mul2]
+    pmaddwd     m0, [pic(pw_bap_mul2)]
+    PIC_END
     PHADDD4     m0, m1
     movd       eax, m0
     add        eax, sumd
@@ -192,12 +197,16 @@ cglobal ac3_compute_mantissa_size, 1, 2, 4, mant_cnt, sum
 %endmacro
 
 %macro AC3_EXTRACT_EXPONENTS 0
-cglobal ac3_extract_exponents, 3, 3, 4, exp, coef, len
+cglobal ac3_extract_exponents, 1, 3, 4, exp, coef, len
+    movifnidn lenq, lenmp ; load lenq/r2 from arg[2]
+    PIC_BEGIN coefq, 0 ; coefq/r1 not loaded yet
+    mova      m2, [pic(pd_1)]
+    mova      m3, [pic(pd_151)]
+    PIC_END
+    movifnidn coefq, coefmp ; load coefq/r1 from arg[1]
     add     expq, lenq
     lea    coefq, [coefq+4*lenq]
     neg     lenq
-    mova      m2, [pd_1]
-    mova      m3, [pd_151]
 .loop:
     ; move 4 32-bit coefs to xmm0
     mova      m0, [coefq+4*lenq]
