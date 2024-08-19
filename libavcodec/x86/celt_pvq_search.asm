@@ -82,10 +82,13 @@ SECTION .text
 %endif
 %endmacro
 
-%macro PULSES_SEARCH 1
+%macro PULSES_SEARCH 1 ; tmpX/rsp,tmpY/r1,Nd/r3,r4; m0..7, PIC x3
 ; m6 Syy_norm
 ; m7 Sxy_norm
+    CHECK_REG_COLLISION "rpic","tmpX","tmpY","Nd","r4"
+    PIC_BEGIN r4, 0 ; r4 is reset to 0 below, don't save
     addps          m6, mm_const_float_0_5   ; Syy_norm += 1.0/2
+    PIC_END
     pxor           m1, m1                   ; max_idx
     xorps          m3, m3                   ; p_max
     xor           r4d, r4d
@@ -139,7 +142,9 @@ align 16
     cmp           r4d, Nd
     jb   %%distortion_search
 
+    PIC_BEGIN r4, 0 ; r4 is reloaded from xm1 below, don't save
     por            m1, mm_const_int32_offsets  ; max_idx offsets per individual lane (skipped in the inner loop)
+    PIC_END
     movdqa         m4, m1                      ; needed for the aligned y[max_idx]+=1; processing
 
 %if mmsize >= 32
@@ -185,7 +190,9 @@ align 16
 
     and           r4d, ~(mmsize-1)      ; align address down, so the value pointed by max_idx is inside a mmsize load
     movaps         m5, [tmpY + r4]      ; m5 = Y[y3...ym...y0]
+    PIC_BEGIN r5
     andps          m1, mm_const_float_1 ; m1 =  [ 0...1.0...0]
+    PIC_END
     %{1}ps         m5, m1               ; m5 = Y[y3...ym...y0] +/- [0...1.0...0]
     movaps [tmpY + r4], m5              ; Y[max_idx] +-= 1.0;
 %endmacro
@@ -212,19 +219,30 @@ align 16
 ; uint32 N      - Number of vector elements. Must be 0 < N < 256
 ;
 %macro PVQ_FAST_SEARCH 1
+%if i386pic
+  %define num_pic_regs 0 ; drop alien PIC's hold on r5
+%endif
 cglobal pvq_search%1, 4, 5+num_pic_regs, 11, 256*4, inX, outY, K, N
 %define tmpX rsp
 %define tmpY outYq
 
-    movaps     m0, [const_float_abs_mask]
+    PIC_CONTEXT_PUSH ; push pre-PIC context
+    PIC_ALLOC
+    PIC_BEGIN  r5 ; r5 is not used in this function in i386pic mode
+    CHECK_REG_COLLISION "rpic","tmpX","tmpY","inXq","outYq","Kq","Nq"
+    movaps     m0, [pic(const_float_abs_mask)]
     shl        Nd, 2    ; N *= sizeof(float); also 32 bit operation zeroes the high 32 bits in 64 bit mode.
     mov       r4d, Nd
 
     neg       r4d
     and       r4d, mmsize-1
 
+%if i386pic
+    movups     m2, [pic(const_align_abs_edge) + r4 - mmsize]
+%else ; alien PIC
     SET_PIC_BASE lea, r5, const_align_abs_edge  ; rip+const
     movups     m2, [pic_base_const_align_abs_edge + r4 - mmsize]
+%endif
 
     add        Nd, r4d              ; N = align(N, mmsize)
 
@@ -293,22 +311,28 @@ align 16
     sub        Kd, r4d      ; K -= pulses , also 32 bit operation zeroes high 32 bit in 64 bit mode.
     jz   %%finish           ; K - pulses == 0
 
+%if i386pic
+    %define mm_const_float_0_5     [pic(const_float_0_5)]
+    %define mm_const_float_1       [pic(const_float_1)]
+    %define mm_const_int32_offsets [pic(const_int32_offsets)]
+%else
     SET_HI_REG_MM_CONSTANT movaps,  m8, const_float_0_5
     SET_HI_REG_MM_CONSTANT movaps,  m9, const_float_1
     SET_HI_REG_MM_CONSTANT movdqa, m10, const_int32_offsets
+%endif
     ; Use Syy/2 in distortion parameter calculations.
     ; Saves pre and post-caclulation to correct Y[] values.
     ; Same precision, since float mantisa is normalized.
     ; The SQRT approximation does differ.
     HSUMPS     m7, m0         ; Sxy_norm
-    mulps      m6, mm_const_float_0_5
+    mulps      m6, mm_const_float_0_5 ; PIC
 
     jc   %%remove_pulses_loop   ; K - pulses < 0
 
 align 16                        ; K - pulses > 0
 %%add_pulses_loop:
 
-    PULSES_SEARCH add   ; m6 Syy_norm ; m7 Sxy_norm
+    PULSES_SEARCH add   ; m6 Syy_norm ; m7 Sxy_norm ; PIC
 
     sub        Kd, 1
     jnz  %%add_pulses_loop
@@ -320,7 +344,7 @@ align 16                        ; K - pulses > 0
 align 16
 %%remove_pulses_loop:
 
-    PULSES_SEARCH sub   ; m6 Syy_norm ; m7 Sxy_norm
+    PULSES_SEARCH sub   ; m6 Syy_norm ; m7 Sxy_norm ; PIC
 
     add        Kd, 1
     jnz  %%remove_pulses_loop
@@ -330,7 +354,7 @@ align 16
 align 16
 %%finish:
     lea       r4d, [Nd - mmsize]
-    movaps     m2, [const_float_sign_mask]
+    movaps     m2, [pic(const_float_sign_mask)]
 
 align 16
 %%restore_sign_loop:
@@ -352,7 +376,11 @@ align 16
     movaps     m0, m6   ; return (float)Syy_norm
 %endif
 
+    PIC_CONTEXT_PUSH
+    PIC_END
+    PIC_FREE
     RET
+    PIC_CONTEXT_POP
 
 align 16
 %%zero_input:
@@ -363,8 +391,11 @@ align 16
     sub       r4d, mmsize
     jnc  %%zero_loop
 
-    movaps     m6, [const_float_1]
+    movaps     m6, [pic(const_float_1)]
     jmp  %%return
+    ; Pop pre-PIC context, otherwize we'll get "unbalanced PIC_BEGIN/END"
+    ; and "invalid PIC_ALLOC state" at the start of next function:
+    PIC_CONTEXT_POP
 %endmacro
 
 ; if 1, use a float op that give half precision but execute for around 3 cycles.
