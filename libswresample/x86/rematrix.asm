@@ -114,10 +114,11 @@ cglobal mix_1_1_%1_int16, 5, 5, 6, out, in, coeffp, index, len
 mix_1_1_int16_u_int %+ SUFFIX:
 %endif
     movd   m4, [coeffpq + 4*indexq]
+    PIC_BEGIN coeffpq, 0 ; coeffpq isn't used anymore, don't save
     SPLATW m5, m4
     psllq  m4, 32
     psrlq  m4, 48
-    mova   m0, [w1]
+    mova   m0, [pic(w1)]
     psllw  m0, m4
     psrlw  m0, 1
     punpcklwd m5, m0
@@ -130,10 +131,10 @@ mix_1_1_int16_u_int %+ SUFFIX:
     mov%1        m2, [inq + lenq + mmsize]
     mova         m1, m0
     mova         m3, m2
-    punpcklwd    m0, [w1]
-    punpckhwd    m1, [w1]
-    punpcklwd    m2, [w1]
-    punpckhwd    m3, [w1]
+    punpcklwd    m0, [pic(w1)]
+    punpckhwd    m1, [pic(w1)]
+    punpcklwd    m2, [pic(w1)]
+    punpckhwd    m3, [pic(w1)]
     pmaddwd      m0, m5
     pmaddwd      m1, m5
     pmaddwd      m2, m5
@@ -148,6 +149,7 @@ mix_1_1_int16_u_int %+ SUFFIX:
     mov%1  [outq + lenq + mmsize], m2
     add        lenq, mmsize*2
         jl .next
+    PIC_END
 %if mmsize == 8
     emms
     RET
@@ -170,11 +172,13 @@ mix_2_1_int16_u_int %+ SUFFIX:
 %endif
     movd   m4, [coeffpq + 4*index1q]
     movd   m6, [coeffpq + 4*index2q]
+    PIC_BEGIN coeffpq, 0 ; coeffpq isn't used anymore, don't save
     SPLATW m5, m4
     SPLATW m6, m6
     psllq  m4, 32
     psrlq  m4, 48
-    mova   m7, [dw1]
+    mova   m7, [pic(dw1)]
+    PIC_END
     pslld  m7, m4
     psrld  m7, 1
     punpcklwd m5, m6
