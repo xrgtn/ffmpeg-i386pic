@@ -227,7 +227,12 @@ cglobal pvq_search%1, 4, 5+num_pic_regs, 11, 256*4, inX, outY, K, N
 %define tmpY outYq
 
     PIC_CONTEXT_PUSH ; push pre-PIC context
-    PIC_ALLOC
+    PIC_ALLOC "rpicsave" ; allocate area for rpicsave only:
+                         ; 1. monolithic PIC_BEGIN/END doesn't need lpiccache
+                         ;    and won't generate lpiccache update op (mov)
+                         ; 2. allocating area for single register has more
+                         ;    chances to fit in the existing gap, which is just
+                         ;    the case here (stack alignment 16 on i386)
     PIC_BEGIN  r5 ; r5 is not used in this function in i386pic mode
     CHECK_REG_COLLISION "rpic","tmpX","tmpY","inXq","outYq","Kq","Nq"
     movaps     m0, [pic(const_float_abs_mask)]
