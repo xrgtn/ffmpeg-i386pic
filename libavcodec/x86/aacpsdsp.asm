@@ -443,13 +443,16 @@ HYBRID_SYNTHESIS_DEINT
 %endmacro
 
 %macro PS_HYBRID_ANALYSIS 0
-cglobal ps_hybrid_analysis, 5, 5, 5 + notcpuflag(fma3) * 3, 24 * 4, out, in, filter, stride, n
+cglobal ps_hybrid_analysis, 4, 5, 5 + notcpuflag(fma3) * 3, 24 * 4, out, in, filter, stride, n
 %if cpuflag(sse3)
 %define MOVH movsd
 %else
 %define MOVH movlps
-    mova m7, [ps_p1m1p1m1]
+    PIC_BEGIN nq, 0 ; nq/r4 load delayed
+    mova m7, [pic(ps_p1m1p1m1)]
+    PIC_END
 %endif
+    movifnidn nq, nmp ; load nq/r4 from arg[4]
     shl strideq, 3
     shl nd, 6
     add filterq, nq
