@@ -63,8 +63,11 @@ SECTION .text
 %macro COMPOSE_VERTICAL 1
 ; void vertical_compose53iL0(IDWTELEM *b0, IDWTELEM *b1, IDWTELEM *b2,
 ;                                  int width)
-cglobal vertical_compose53iL0_%1, 4,4,1, b0, b1, b2, width
-    mova    m2, [pw_2]
+cglobal vertical_compose53iL0_%1, 3,4,1, b0, b1, b2, width
+    PIC_BEGIN widthq, 0 ; widthq not yet loaded
+    mova    m2, [pic(pw_2)]
+    PIC_END
+    movifnidn widthq, widthmp ; load widthq
 %if ARCH_X86_64
     mov     widthd, widthd
 %endif
@@ -79,8 +82,11 @@ cglobal vertical_compose53iL0_%1, 4,4,1, b0, b1, b2, width
 
 ; void vertical_compose_dirac53iH0(IDWTELEM *b0, IDWTELEM *b1, IDWTELEM *b2,
 ;                                  int width)
-cglobal vertical_compose_dirac53iH0_%1, 4,4,1, b0, b1, b2, width
-    mova    m1, [pw_1]
+cglobal vertical_compose_dirac53iH0_%1, 3,4,1, b0, b1, b2, width
+    PIC_BEGIN widthq, 0 ; widthq not yet loaded
+    mova    m1, [pic(pw_1)]
+    PIC_END
+    movifnidn widthq, widthmp ; load widthq
 %if ARCH_X86_64
     mov     widthd, widthd
 %endif
@@ -97,9 +103,12 @@ cglobal vertical_compose_dirac53iH0_%1, 4,4,1, b0, b1, b2, width
 
 ; void vertical_compose_dd97iH0(IDWTELEM *b0, IDWTELEM *b1, IDWTELEM *b2,
 ;                               IDWTELEM *b3, IDWTELEM *b4, int width)
-cglobal vertical_compose_dd97iH0_%1, 6,6,5, b0, b1, b2, b3, b4, width
-    mova    m3, [pw_8]
-    mova    m4, [pw_1991]
+cglobal vertical_compose_dd97iH0_%1, 5,6,5, b0, b1, b2, b3, b4, width
+    PIC_BEGIN widthq, 0 ; widthq not yet loaded
+    mova    m3, [pic(pw_8)]
+    mova    m4, [pic(pw_1991)]
+    PIC_END
+    movifnidn widthq, widthmp ; load widthq
 %if ARCH_X86_64
     mov     widthd, widthd
 %endif
@@ -114,9 +123,12 @@ cglobal vertical_compose_dd97iH0_%1, 6,6,5, b0, b1, b2, b3, b4, width
 
 ; void vertical_compose_dd137iL0(IDWTELEM *b0, IDWTELEM *b1, IDWTELEM *b2,
 ;                                IDWTELEM *b3, IDWTELEM *b4, int width)
-cglobal vertical_compose_dd137iL0_%1, 6,6,6, b0, b1, b2, b3, b4, width
-    mova    m3, [pw_16]
-    mova    m4, [pw_1991]
+cglobal vertical_compose_dd137iL0_%1, 5,6,6, b0, b1, b2, b3, b4, width
+    PIC_BEGIN widthq, 0 ; widthq not yet loaded
+    mova    m3, [pic(pw_16)]
+    mova    m4, [pic(pw_1991)]
+    PIC_END
+    movifnidn widthq, widthmp ; load widthq
 %if ARCH_X86_64
     mov     widthd, widthd
 %endif
@@ -142,8 +154,11 @@ cglobal vertical_compose_dd137iL0_%1, 6,6,6, b0, b1, b2, b3, b4, width
     RET
 
 ; void vertical_compose_haar(IDWTELEM *b0, IDWTELEM *b1, int width)
-cglobal vertical_compose_haar_%1, 3,4,3, b0, b1, width
-    mova    m3, [pw_1]
+cglobal vertical_compose_haar_%1, 2,3,3, b0, b1, width
+    PIC_BEGIN widthq, 0 ; widthq not yet loaded
+    mova    m3, [pic(pw_1)]
+    PIC_END
+    movifnidn widthq, widthmp ; load widthq
 %if ARCH_X86_64
     mov     widthd, widthd
 %endif
@@ -163,7 +178,7 @@ cglobal vertical_compose_haar_%1, 3,4,3, b0, b1, width
 %endmacro
 
 ; extend the left and right edges of the tmp array by %1 and %2 respectively
-%macro EDGE_EXTENSION 3
+%macro EDGE_EXTENSION 3 ; tmpq,w2q
     mov     %3, [tmpq]
 %assign %%i 1
 %rep %1
@@ -183,10 +198,12 @@ cglobal vertical_compose_haar_%1, 3,4,3, b0, b1, width
 ; void horizontal_compose_haari(IDWTELEM *b, IDWTELEM *tmp, int width)
 cglobal horizontal_compose_haar%2i_%1, 3,6,4, b, tmp, w, x, w2, b_w2
     mov    w2d, wd
-    xor     xq, xq
+    PIC_BEGIN xq, 0 ; xq is zeroed 4 lines below, don't save
+    mova    m3, [pic(pw_1)]
+    PIC_END
     shr    w2d, 1
+    xor     xq, xq  ; xq is zeroed
     lea  b_w2q, [bq+wq]
-    mova    m3, [pw_1]
 .lowpass_loop:
     movu    m1, [b_w2q + 2*xq]
     mova    m0, [bq    + 2*xq]
@@ -237,7 +254,8 @@ cglobal horizontal_compose_dd97i_ssse3, 3,6,8, b, tmp, w, x, w2, b_w2
     shr    w2d, 1
     lea  b_w2q, [bq+wq]
     movu    m4, [bq+wq]
-    mova    m7, [pw_2]
+    PIC_BEGIN wq, 0 ; wq isn't used anymore
+    mova    m7, [pic(pw_2)]
     pslldq  m4, 14
 .lowpass_loop:
     movu    m1, [b_w2q + 2*xq]
@@ -251,7 +269,7 @@ cglobal horizontal_compose_dd97i_ssse3, 3,6,8, b, tmp, w, x, w2, b_w2
     cmp     xd, w2d
     jl      .lowpass_loop
 
-    EDGE_EXTENSION 1, 2, xw
+    EDGE_EXTENSION 1, 2, xw ; tmpq,w2q,xq
     ; leave the last up to 7 (sse) or 3 (mmx) values for C
     xor     xd, xd
     and    w2d, ~(mmsize/2 - 1)
@@ -260,9 +278,9 @@ cglobal horizontal_compose_dd97i_ssse3, 3,6,8, b, tmp, w, x, w2, b_w2
 
     mova    m7, [tmpq-mmsize]
     mova    m0, [tmpq]
-    mova    m5, [pw_1]
-    mova    m3, [pw_8]
-    mova    m4, [pw_1991]
+    mova    m5, [pic(pw_1)]
+    mova    m3, [pic(pw_8)]
+    mova    m4, [pic(pw_1991)]
 .highpass_loop:
     mova    m6, m0
     palignr m0, m7, 14
@@ -290,6 +308,7 @@ cglobal horizontal_compose_dd97i_ssse3, 3,6,8, b, tmp, w, x, w2, b_w2
     cmp     xd, w2d
     jl      .highpass_loop
 .end:
+    PIC_END ; wq, no-save
     RET
 
 
