@@ -67,19 +67,21 @@ ps_cos_vec: dd   0.500603,  0.505471,  0.515447,  0.531043
     BUTTERFLY0 %1, %2, %3, %4, 0xb1
 %endmacro
 
-%macro BUTTERFLY3V 5
+%macro BUTTERFLY3V 5 ; PIC
     movaps m%5, m%1
     addps  m%1, m%2
     subps  m%5, m%2
     SWAP %2, %5
+    PIC_BEGIN r4
     mulps  m%2, [ps_cos_vec+192]
     movaps m%5, m%3
     addps  m%3, m%4
     subps  m%4, m%5
     mulps  m%4, [ps_cos_vec+192]
+    PIC_END
 %endmacro
 
-%macro PASS6_AND_PERMUTE 0
+%macro PASS6_AND_PERMUTE 0 ; tmpq, outq
     mov         tmpd, [outq+4]
     movss         m7, [outq+72]
     addss         m7, [outq+76]
@@ -198,18 +200,20 @@ cglobal dct32_float, 2,3,8, out, in, tmp
     vinsertf128 m5, m5, [inq+96], 1
     vinsertf128 m5, m5, [inq+112], 0
     vshufps     m5, m5, m5, 0x1b
-    BUTTERFLY   m4, m5, [ps_cos_vec], m6
+    PIC_BEGIN tmpq, 0 ; tmpq not loaded/initialized until PASS6_AND_PERMUTE
+    CHECK_REG_COLLISION "rpic","inq"
+    BUTTERFLY   m4, m5, [pic(ps_cos_vec)], m6
 
     vmovaps     m2, [inq+64]
     vinsertf128 m6, m6, [inq+32], 1
     vinsertf128 m6, m6, [inq+48], 0
     vshufps     m6, m6, m6, 0x1b
-    BUTTERFLY   m2, m6, [ps_cos_vec+32], m0
+    BUTTERFLY   m2, m6, [pic(ps_cos_vec)+32], m0
 
     ; pass 2
 
-    BUTTERFLY  m5, m6, [ps_cos_vec+64], m0
-    BUTTERFLY  m4, m2, [ps_cos_vec+64], m7
+    BUTTERFLY  m5, m6, [pic(ps_cos_vec)+64], m0
+    BUTTERFLY  m4, m2, [pic(ps_cos_vec)+64], m7
 
 
     ; pass 3
@@ -217,18 +221,18 @@ cglobal dct32_float, 2,3,8, out, in, tmp
     vperm2f128  m1, m6, m4, 0x20
     vshufps     m3, m3, m3, 0x1b
 
-    BUTTERFLY   m1, m3, [ps_cos_vec+96], m6
+    BUTTERFLY   m1, m3, [pic(ps_cos_vec)+96], m6
 
 
     vperm2f128  m4, m5, m2, 0x20
     vperm2f128  m5, m5, m2, 0x31
     vshufps     m5, m5, m5, 0x1b
 
-    BUTTERFLY   m4, m5, [ps_cos_vec+96], m6
+    BUTTERFLY   m4, m5, [pic(ps_cos_vec)+96], m6
 
     ; pass 4
-    vmovaps m6, [ps_p1p1m1m1+0]
-    vmovaps m2, [ps_cos_vec+128]
+    vmovaps m6, [pic(ps_p1p1m1m1)+0]
+    vmovaps m2, [pic(ps_cos_vec)+128]
 
     BUTTERFLY2  m5, m6, m2, m7
     BUTTERFLY2  m4, m6, m2, m7
@@ -238,7 +242,8 @@ cglobal dct32_float, 2,3,8, out, in, tmp
 
     ; pass 5
     vshufps m6, m6, m6, 0xcc
-    vmovaps m2, [ps_cos_vec+160]
+    vmovaps m2, [pic(ps_cos_vec)+160]
+    PIC_END
 
     BUTTERFLY3  m5, m6, m2, m7
     BUTTERFLY3  m4, m6, m2, m7
@@ -261,7 +266,7 @@ cglobal dct32_float, 2,3,8, out, in, tmp
 
     ;    pass 6, no SIMD...
 INIT_XMM
-    PASS6_AND_PERMUTE
+    PASS6_AND_PERMUTE ; tmpq, outq
     RET
 %endif
 
@@ -269,7 +274,7 @@ INIT_XMM
 %define SPILL SWAP
 %define UNSPILL SWAP
 
-%macro PASS5 0
+%macro PASS5 0 ; PIC
     nop ; FIXME code alignment
     SWAP 5, 8
     SWAP 4, 12
@@ -278,10 +283,10 @@ INIT_XMM
     SWAP 0, 15
     PERMUTE 9,10, 10,12, 11,14, 12,9, 13,11, 14,13
     TRANSPOSE4x4PS 8, 9, 10, 11, 0
-    BUTTERFLY3V    8, 9, 10, 11, 0
+    BUTTERFLY3V    8, 9, 10, 11, 0 ; PIC
     addps   m10, m11
     TRANSPOSE4x4PS 12, 13, 14, 15, 0
-    BUTTERFLY3V    12, 13, 14, 15, 0
+    BUTTERFLY3V    12, 13, 14, 15, 0 ; PIC
     addps   m14, m15
     addps   m12, m14
     addps   m14, m13
@@ -345,22 +350,24 @@ INIT_XMM
 %endmacro
 
 %else ; ARCH_X86_32
-%macro SPILL 2 ; xmm#, mempos
+%macro SPILL 2 ; xmm#, mempos ; outq
     movaps [outq+(%2-8)*16], m%1
 %endmacro
-%macro UNSPILL 2
+%macro UNSPILL 2 ; outq
     movaps m%1, [outq+(%2-8)*16]
 %endmacro
 
-%define PASS6 PASS6_AND_PERMUTE
-%macro PASS5 0
-    movaps      m2, [ps_cos_vec+160]
+%define PASS6 PASS6_AND_PERMUTE ; tmpq, outq
+%macro PASS5 0 ; outq ; PIC
+    PIC_BEGIN r4
+    movaps      m2, [pic(ps_cos_vec)+160]
+    PIC_END
     shufps      m3, m3, 0xcc
 
     BUTTERFLY3  m5, m3, m2, m1
-    SPILL 5, 8
+    SPILL 5, 8 ; outq
 
-    UNSPILL 1, 9
+    UNSPILL 1, 9 ; outq
     BUTTERFLY3  m1, m3, m2, m5
     SPILL 1, 14
 
@@ -384,7 +391,7 @@ INIT_XMM
     BUTTERFLY3  m0, m3, m2, m7
     SPILL 0, 15
 %endmacro
-%endif
+%endif ; ARCH_X86_64 / !ARCH_X86_64
 
 
 ; void ff_dct32_float(FFTSample *out, const FFTSample *in)
@@ -394,14 +401,16 @@ cglobal dct32_float, 2, 3, 16, out, in, tmp
 
     movaps      m0, [inq+0]
     LOAD_INV    m1, [inq+112]
-    BUTTERFLY   m0, m1, [ps_cos_vec], m3
+    PIC_BEGIN tmpq, 0
+    CHECK_REG_COLLISION "rpic","inq","outq"
+    BUTTERFLY   m0, m1, [pic(ps_cos_vec)], m3
 
     movaps      m7, [inq+64]
     LOAD_INV    m4, [inq+48]
-    BUTTERFLY   m7, m4, [ps_cos_vec+32], m3
+    BUTTERFLY   m7, m4, [pic(ps_cos_vec)+32], m3
 
     ; pass 2
-    movaps      m2, [ps_cos_vec+64]
+    movaps      m2, [pic(ps_cos_vec)+64]
     BUTTERFLY   m1, m4, m2, m3
     SPILL 1, 11
     SPILL 4, 8
@@ -409,22 +418,22 @@ cglobal dct32_float, 2, 3, 16, out, in, tmp
     ; pass 1
     movaps      m1, [inq+16]
     LOAD_INV    m6, [inq+96]
-    BUTTERFLY   m1, m6, [ps_cos_vec+16], m3
+    BUTTERFLY   m1, m6, [pic(ps_cos_vec)+16], m3
 
     movaps      m4, [inq+80]
     LOAD_INV    m5, [inq+32]
-    BUTTERFLY   m4, m5, [ps_cos_vec+48], m3
+    BUTTERFLY   m4, m5, [pic(ps_cos_vec)+48], m3
 
     ; pass 2
     BUTTERFLY   m0, m7, m2, m3
 
-    movaps      m2, [ps_cos_vec+80]
+    movaps      m2, [pic(ps_cos_vec)+80]
     BUTTERFLY   m6, m5, m2, m3
 
     BUTTERFLY   m1, m4, m2, m3
 
     ; pass 3
-    movaps      m2, [ps_cos_vec+96]
+    movaps      m2, [pic(ps_cos_vec)+96]
     shufps      m1, m1, 0x1b
     BUTTERFLY   m0, m1, m2, m3
     SPILL 0, 15
@@ -443,8 +452,8 @@ cglobal dct32_float, 2, 3, 16, out, in, tmp
     BUTTERFLY   m7, m4, m2, m3
 
     ; pass 4
-    movaps      m3, [ps_p1p1m1m1+0]
-    movaps      m2, [ps_cos_vec+128]
+    movaps      m3, [pic(ps_p1p1m1m1)+0]
+    movaps      m2, [pic(ps_cos_vec)+128]
 
     BUTTERFLY2  m5, m3, m2, m1
 
@@ -468,8 +477,9 @@ cglobal dct32_float, 2, 3, 16, out, in, tmp
     UNSPILL 0, 15
     BUTTERFLY2  m0, m3, m2, m1
 
-    PASS5
-    PASS6
+    PASS5 ; outq ; PIC
+    PIC_END ; tmpq,no-save
+    PASS6 ; tmpq, outq
     RET
 %endmacro
 
