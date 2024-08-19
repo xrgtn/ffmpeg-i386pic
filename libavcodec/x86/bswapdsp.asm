@@ -31,7 +31,7 @@ cextern pb_80
 SECTION .text
 
 ; %1 = aligned/unaligned
-%macro BSWAP_LOOPS  1
+%macro BSWAP_LOOPS  1 ; r0..3, m0..3
     mov      r3d, r2d
     sar      r2d, 3
     jz       .left4_%1
@@ -103,8 +103,10 @@ SECTION .text
 %macro BSWAP32_BUF 0
 %if cpuflag(ssse3)||cpuflag(avx2)
 cglobal bswap32_buf, 3,4,3
-    mov      r3, r1
-    VBROADCASTI128  m2, [pb_bswap32]
+    PIC_BEGIN r3, 0 ; r3 not initialized yet
+    VBROADCASTI128  m2, [pic(pb_bswap32)]
+    PIC_END
+    mov      r3, r1 ; r3 initialized here
 %else
 cglobal bswap32_buf, 3,4,5
     mov      r3, r1
