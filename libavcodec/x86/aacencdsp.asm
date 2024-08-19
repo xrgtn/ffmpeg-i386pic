@@ -32,8 +32,11 @@ SECTION .text
 ;void ff_abs_pow34(float *out, const float *in, const int size);
 ;*******************************************************************
 INIT_XMM sse
-cglobal abs_pow34, 3, 3, 3, out, in, size
-    mova   m2, [float_abs_mask]
+cglobal abs_pow34, 2, 3, 3, out, in, size
+    PIC_BEGIN sizeq, 0 ; sizeq/r2 load delayed
+    mova   m2, [pic(float_abs_mask)]
+    PIC_END
+    movifnidn sizeq, sizemp ; load sizeq/r2 from arg[2]
     shl    sizeq, 2
     add    inq, sizeq
     add    outq, sizeq
