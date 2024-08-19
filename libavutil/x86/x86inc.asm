@@ -869,10 +869,12 @@ lpic:           pop rpic
 ;                                    ;  0x..20: .......__|__align32
 ;                                    ;  0x..18: ==stk==  |
 ;                                    ;  0x..10: ==sz===--+
-%macro PIC_ALLOC 0
+%macro PIC_ALLOC 0-1
     %if i386pic
         ASSERT (stack_size_padded >= stack_size)
-        %if picallocd != 0
+        %if picb > 0
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+        %elif picallocd != 0
             %error %strcat(%?, " in non-zero PIC_ALLOC state (",\
                 picallocd, ")")
         %endif
@@ -894,9 +896,22 @@ lpic:           pop rpic
         %if WIN64 && ((stack_size > 0) || (%%nxmmpush > 0))
             %assign %%wpad 16*nxmmresv + 32
         %endif
-        %if picb > 0
-            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
-        %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
+        ; rpicsave, lpiccache or both:
+        %if %0 == 0
+            %assign %%ak  3           ; requested alloc mask
+            %assign %%asz 2*(gprsize) ; requested alloc size
+        %elifidn %1,"rpicsave"
+            %assign %%ak  1
+            %assign %%asz 1*(gprsize)
+        %elifidn %1,"lpiccache"
+            %assign %%ak  2
+            %assign %%asz 1*(gprsize)
+        %else
+            %assign %%ak  0
+            %assign %%asz 0*(gprsize)
+            %error %strcat("Invalid ", %?," %1 parameter: ", %1)
+        %endif
+        %if (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
             ; aligned to reqrd_align and rsp stored in rstkm
             ; TODO: try placing sv/cache (in this order):
             ; - in !!!!!!!-gap, if there's enough space
@@ -908,60 +923,59 @@ lpic:           pop rpic
         %else
             ; aligned to stk_align or not aligned at all
             ASSERT %isidn(rstk, rsp)
-            %assign %%g 2*(gprsize)
-            %assign %%G %cond((STACK_ALIGNMENT) > %%g, (STACK_ALIGNMENT), %%g)
-            %if (stack_size_padded-stack_size-%%wpad) >= 2*(gprsize)
-                ; !!!!!!!-gap is already large enough to hold 2 regs
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
+            %assign %%ASZ %cond((STACK_ALIGNMENT) > %%asz,\
+                (STACK_ALIGNMENT), %%asz)
+            %if (stack_size_padded-stack_size-%%wpad) >= %%asz
+                ; !!!!!!!-gap is already large enough to hold %%asz bytes
+                %assign %%ao stack_offset-(stack_size_padded)+%%asz
                 %assign picallocd 1
             %elif stack_size_padded == 0
                 ; no stack_size, no pad, unaligned -- create pad, don't align:
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
-                SUB rsp, %%g
-                %assign stack_size_padded %%g
+                %assign %%ao stack_offset-(stack_size_padded)+%%asz
+                SUB rsp, %%asz
+                %assign stack_size_padded %%asz
                 %assign picallocd 2
             %elif %%nxmmpush == 0
                 ; non-empty pad, but no xmm regs to move -- inflate
                 ; !!!!!!!-gap at the top of stack pad:
-                %assign %%sv stack_offset-(stack_size_padded)+2*(gprsize)
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
+                %assign %%ao stack_offset-(stack_size_padded)+%%asz
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
                 %assign picallocd 3
             %elif stack_size > 0
                 ; WIN64, xmm regs pushed, non-empty stack_size area,
                 ; rqrd_align <= stk_align -- inflate stack_size, so that xmm
                 ; regs are left untouched:
-                %assign %%sv stack_offset-(stack_size)+2*(gprsize)
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
-                %assign stack_size stack_size+%%G
+                %assign %%ao stack_offset-(stack_size)+%%asz
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
+                %assign stack_size stack_size+%%ASZ
                 %assign picallocd 4
             %elif required_stack_alignment > STACK_ALIGNMENT
                 ; WIN64, nxmmpush > 0, initial stack_size is 0 and inflating it
                 ; forces switch to rstk/rstkm model, with unknown at compile
                 ; time shift of xmm save area (so xmm regs would need to be
                 ; pushed/saved again).
-                ; Here we extend wpad and place 2 regs at its bottom,
-                ; temporarily invalidating [rsp+stack_size+32+i*16] references
-                ; to xmm save area, until PIC_FREE
-                %assign %%sv stack_offset-(stack_size)-32
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
+                ; Here we extend wpad and place rpicsave/lpiccache area at its
+                ; bottom, temporarily invalidating [rsp+stack_size+32+i*16]
+                ; references to xmm save area, until PIC_FREE
+                %assign %%ao stack_offset-(stack_size)-32
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
                 %assign picallocd 5
             %else ; rqrd_align <= stk_align
                 ; WIN64, nxmmpush > 0, initial stack_size==0 but inflating it
                 ; won't switch to rstk/rstkm model.
-                %assign %%sv stack_offset-(stack_size)+2*(gprsize)
-                SUB rsp, %%G
-                %assign stack_size_padded stack_size_padded+%%G
-                %assign stack_size %%G
+                %assign %%ao stack_offset-(stack_size)+%%asz
+                SUB rsp, %%ASZ
+                %assign stack_size_padded stack_size_padded+%%ASZ
+                %assign stack_size %%ASZ
                 %assign picallocd 6
             %endif
-            ; sv is distance from rpicsave to retaddr (return address pushed to
-            ; stack by caller); cc is distance from lpiccache to retaddr.
-            ; lpiccache is directly above rpicsave, so it's 1 regsize closer
-            ; to retaddr:
-            %assign %%cc %%sv-gprsize
+            ; %%ao is distance from start (bottom) or rpicsave/lpiccache area
+            ; to retaddr (return address pushed to stack by caller);
+            ; %%ao2 is 1 slot above %%ao, so it's 1 regsize closer to retaddr:
+            %assign %%ao2 %%ao-(gprsize)
             ; xdefine rpicsave/lpiccache as macros with 'unexpanded' rstk and
             ; stack_offset parameters (trick is for rstk and stack_offset to be
             ; undefined at the moment when rpicsave/lpiccache are being
@@ -971,8 +985,14 @@ lpic:           pop rpic
             %xdefine %%stko  stack_offset
             %undef stack_offset
             %undef rstk
-            %xdefine rpicsave  [rstk+stack_offset-%%sv]
-            %xdefine lpiccache [rstk+stack_offset-%%cc]
+            %if %%ak==1
+                %xdefine rpicsave  [rstk+stack_offset-%%ao]
+            %elif %%ak==2
+                %xdefine lpiccache [rstk+stack_offset-%%ao]
+            %elif %%ak==3
+                %xdefine rpicsave  [rstk+stack_offset-%%ao]
+                %xdefine lpiccache [rstk+stack_offset-%%ao2]
+            %endif
             %xdefine stack_offset %%stko
             %xdefine rstk %%rstk
         %endif
