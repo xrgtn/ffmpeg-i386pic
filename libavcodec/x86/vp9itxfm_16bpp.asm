@@ -324,10 +324,14 @@ IDCT4_10_FN
 
 %macro IADST4_FN 4
 cglobal vp9_%1_%3_4x4_add_10, 3, 3, 0, dst, stride, block, eob
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq"
+
 %if WIN64 && notcpuflag(ssse3)
     WIN64_SPILL_XMM 8
 %endif
-    movdqa            xmm5, [pd_8192]
+    movdqa            xmm5, [pic(pd_8192)]
     mova                m0, [blockq+0*16+0]
     mova                m1, [blockq+1*16+0]
     packssdw            m0, [blockq+0*16+8]
@@ -338,18 +342,19 @@ cglobal vp9_%1_%3_4x4_add_10, 3, 3, 0, dst, stride, block, eob
     packssdw            m3, [blockq+3*16+8]
 
 %if cpuflag(ssse3)
-    mova                m6, [pw_11585x2]
+    mova                m6, [pic(pw_11585x2)]
 %endif
 %ifnidn %1%3, iadstiadst
     movdq2q             m7, xmm5
 %endif
-    VP9_%2_1D
+    VP9_%2_1D ; PIC
     TRANSPOSE4x4W  0, 1, 2, 3, 4
-    VP9_%4_1D
+    VP9_%4_1D ; PIC
 
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
     VP9_IDCT4_WRITEOUT ; dstq,strideq; PIC
+    PIC_END ; r3, push/pop
     RET
 %endmacro
 
