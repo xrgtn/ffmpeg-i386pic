@@ -372,36 +372,38 @@ IADST4_FN iadst, IADST4, iadst, IADST4
 ;
 ; dst1 = src1 * coef1 + src2 * coef2 + rnd >> 14
 ; dst2 = src1 * coef2 - src2 * coef1 + rnd >> 14
-%macro SUMSUB_MUL 6-8 [pd_8192], [pd_3fff] ; src/dst 1-2, tmp1-2, coef1-2, rnd, mask
-    pand               m%3, m%1, %8
-    pand               m%4, m%2, %8
+%macro SUMSUB_MUL 6-8 [pic(pd_8192)], [pic(pd_3fff)] ; src/dst 1-2, tmp1-2, coef1-2, rnd, mask ; PIC
+    PIC_BEGIN r4
+    pand               m%3, m%1, %8 ; PIC*
+    pand               m%4, m%2, %8 ; PIC*
     psrad              m%1, 14
     psrad              m%2, 14
     packssdw           m%4, m%2
     packssdw           m%3, m%1
     punpckhwd          m%2, m%4, m%3
     punpcklwd          m%4, m%3
-    pmaddwd            m%3, m%4, [pw_%6_%5]
-    pmaddwd            m%1, m%2, [pw_%6_%5]
-    pmaddwd            m%4, [pw_m%5_%6]
-    pmaddwd            m%2, [pw_m%5_%6]
-    paddd              m%3, %7
-    paddd              m%4, %7
+    pmaddwd            m%3, m%4, [pic(pw_%6_%5)]
+    pmaddwd            m%1, m%2, [pic(pw_%6_%5)]
+    pmaddwd            m%4, [pic(pw_m%5_%6)]
+    pmaddwd            m%2, [pic(pw_m%5_%6)]
+    paddd              m%3, %7 ; PIC*
+    paddd              m%4, %7 ; PIC*
+    PIC_END
     psrad              m%3, 14
     psrad              m%4, 14
     paddd              m%1, m%3
     paddd              m%2, m%4
 %endmacro
 
-%macro IDCT4_12BPP_1D 0-8 [pd_8192], [pd_3fff], 0, 1, 2, 3, 4, 5 ; rnd, mask, in/out0-3, tmp0-1
-    SUMSUB_MUL          %3, %5, %7, %8, 11585, 11585, %1, %2
-    SUMSUB_MUL          %4, %6, %7, %8, 15137,  6270, %1, %2
+%macro IDCT4_12BPP_1D 0-8 [pic(pd_8192)], [pic(pd_3fff)], 0, 1, 2, 3, 4, 5 ; rnd, mask, in/out0-3, tmp0-1 ; PIC
+    SUMSUB_MUL          %3, %5, %7, %8, 11585, 11585, %1, %2 ; PIC
+    SUMSUB_MUL          %4, %6, %7, %8, 15137,  6270, %1, %2 ; PIC
     SUMSUB_BA        d, %4, %3, %7
     SUMSUB_BA        d, %6, %5, %7
     SWAP                %4, %6, %3
 %endmacro
 
-%macro STORE_4x4 6 ; tmp1-2, reg1-2, min, max
+%macro STORE_4x4 6 ; tmp1-2, reg1-2, min, max ; dstq,strideq,stride3q
     movh               m%1, [dstq+strideq*0]
     movh               m%2, [dstq+strideq*2]
     movhps             m%1, [dstq+strideq*1]
@@ -418,7 +420,7 @@ IADST4_FN iadst, IADST4, iadst, IADST4
     movhps [dstq+stride3q ], m%2
 %endmacro
 
-%macro ROUND_AND_STORE_4x4 8 ; reg1-4, min, max, rnd, shift
+%macro ROUND_AND_STORE_4x4 8 ; reg1-4, min, max, rnd, shift ; dstq,strideq,stride3q
     paddd              m%1, %7
     paddd              m%2, %7
     paddd              m%3, %7
@@ -429,7 +431,7 @@ IADST4_FN iadst, IADST4, iadst, IADST4
     psrad              m%4, %8
     packssdw           m%1, m%2
     packssdw           m%3, m%4
-    STORE_4x4           %2, %4, %1, %3, %5, %6
+    STORE_4x4           %2, %4, %1, %3, %5, %6 ; dstq,strideq,stride3q
 %endmacro
 
 INIT_XMM sse2
