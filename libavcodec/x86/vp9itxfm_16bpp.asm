@@ -298,7 +298,7 @@ cglobal vp9_idct_idct_4x4_add_10, 4, 4, 8, dst, stride, block, eob
 
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
-    VP9_IDCT4_WRITEOUT
+    VP9_IDCT4_WRITEOUT ; dstq,strideq; PIC
     RET
 %endmacro
 
@@ -334,7 +334,7 @@ cglobal vp9_%1_%3_4x4_add_10, 3, 3, 0, dst, stride, block, eob
 
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
-    VP9_IDCT4_WRITEOUT
+    VP9_IDCT4_WRITEOUT ; dstq,strideq; PIC
     RET
 %endmacro
 
