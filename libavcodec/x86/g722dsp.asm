@@ -36,14 +36,17 @@ cglobal g722_apply_qmf, 2, 2, 5, prev, out
     movu m0, [prevq+mmsize*0]
     movu m1, [prevq+mmsize*1]
     movu m2, [prevq+mmsize*2]
+    PIC_BEGIN r2, 0 ; unused scratch reg
+    CHECK_REG_COLLISION "rpic","prevq","outq"
     punpcklwd m3, m0, m1
     punpckhwd m0, m1
     punpcklwd m4, m2, m2
     punpckhwd m2, m2
-    pmaddwd   m3, [pw_qmf_coeffs ]
-    pmaddwd   m0, [pw_qmf_coeffs2]
-    pmaddwd   m4, [pw_qmf_coeffs3]
-    pmaddwd   m2, [pw_qmf_coeffs4]
+    pmaddwd   m3, [pic(pw_qmf_coeffs) ]
+    pmaddwd   m0, [pic(pw_qmf_coeffs2)]
+    pmaddwd   m4, [pic(pw_qmf_coeffs3)]
+    pmaddwd   m2, [pic(pw_qmf_coeffs4)]
+    PIC_END
     paddd     m0, m3
     paddd     m2, m4
     paddd     m0, m2
