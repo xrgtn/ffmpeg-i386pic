@@ -156,7 +156,7 @@ cglobal vp9_iwht_iwht_4x4_add_%1, 2, 3, 8, dst, stride, block, eob
     CHECK_REG_COLLISION "rpic","dstq","strideq","blockmp"
     mova                m7, [pic(pw_%2)]
     PIC_END
-    movifnidn       blockq, blockmp ; load blockq/r2 from arg[2]
+    movifnidn       blockq, blockmp ; load blockq/r2 from arg[2]
     mova                m0, [blockq+0*16+0]
     mova                m1, [blockq+1*16+0]
 %if %1 >= 12
