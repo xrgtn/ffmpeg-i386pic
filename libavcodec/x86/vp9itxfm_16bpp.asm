@@ -643,23 +643,26 @@ IADST4_12BPP_FN iadst, IADST4, iadst, IADST4
 
 ; the following line has not been executed at the end of this macro:
 ; UNSCRATCH            6, 8, rsp+%3*mmsize
-%macro IDCT8_1D 1-5 [pd_8192], [pd_3fff], 2 * mmsize, 17 ; src, rnd, mask, src_stride, stack_offset
+%macro IDCT8_1D 1-5 [pic(pd_8192)], [pic(pd_3fff)], 2 * mmsize, 17 ; src, rnd, mask, src_stride, stack_offset ; [rsp+], PIC
     mova                m0, [%1+0*%4]
     mova                m2, [%1+2*%4]
     mova                m4, [%1+4*%4]
     mova                m6, [%1+6*%4]
-    IDCT4_12BPP_1D      %2, %3, 0, 2, 4, 6, 1, 3            ; m0/2/4/6 have t0/1/2/3
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,,,,"[rsp+18*mmsize]"
+    IDCT4_12BPP_1D      %2, %3, 0, 2, 4, 6, 1, 3            ; m0/2/4/6 have t0/1/2/3 ; PIC
     SCRATCH              4, 8, rsp+(%5+0)*mmsize
-    SCRATCH              6, 9, rsp+(%5+1)*mmsize
+    SCRATCH              6, 9, rsp+(%5+1)*mmsize ; e.g. rsp+18*mmsize
     mova                m1, [%1+1*%4]
     mova                m3, [%1+3*%4]
     mova                m5, [%1+5*%4]
-    mova                m7, [%1+7*%4]
-    SUMSUB_MUL           1, 7, 4, 6, 16069,  3196, %2, %3   ; m1=t7a, m7=t4a
-    SUMSUB_MUL           5, 3, 4, 6,  9102, 13623, %2, %3   ; m5=t6a, m3=t5a
+    mova                m7, [%1+7*%4]            ; e.g. blockq+14*mmsize
+    SUMSUB_MUL           1, 7, 4, 6, 16069,  3196, %2, %3   ; m1=t7a, m7=t4a ; PIC
+    SUMSUB_MUL           5, 3, 4, 6,  9102, 13623, %2, %3   ; m5=t6a, m3=t5a ; PIC
     SUMSUB_BA         d, 3, 7, 4                            ; m3=t4, m7=t5a
     SUMSUB_BA         d, 5, 1, 4                            ; m5=t7, m1=t6a
-    SUMSUB_MUL           1, 7, 4, 6, 11585, 11585, %2, %3   ; m1=t6, m7=t5
+    SUMSUB_MUL           1, 7, 4, 6, 11585, 11585, %2, %3   ; m1=t6, m7=t5 ; PIC
+    PIC_END
     SUMSUB_BA         d, 5, 0, 4                            ; m5=out0, m0=out7
     SUMSUB_BA         d, 1, 2, 4                            ; m1=out1, m2=out6
     UNSCRATCH            4, 8, rsp+(%5+0)*mmsize
@@ -670,7 +673,7 @@ IADST4_12BPP_FN iadst, IADST4, iadst, IADST4
     SWAP                 0, 5, 4, 6, 2, 7
 %endmacro
 
-%macro STORE_2x8 5-7 dstq, strideq ; tmp1-2, reg, min, max
+%macro STORE_2x8 5-7 dstq, strideq ; tmp1-2, reg, min, max ; dstq*,strideq*
     mova               m%1, [%6+%7*0]
     mova               m%2, [%6+%7*1]
     paddw              m%1, m%3
@@ -732,7 +735,7 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     PRELOAD             11, pd_3fff, mask
     PRELOAD             13, pd_16, srnd
 .loop_1:
-    IDCT8_1D        blockq, reg_rnd, reg_mask
+    IDCT8_1D        blockq, reg_rnd, reg_mask ; blockq,[rsp+]; PIC
 
     TRANSPOSE4x4D        0, 1, 2, 3, 6
     mova  [ptrq+ 0*mmsize], m0
