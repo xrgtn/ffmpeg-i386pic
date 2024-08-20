@@ -299,7 +299,8 @@ cglobal vp9_idct_idct_4x4_add_10, 0, 4, 8, dst, stride, block, eob
     mova                m3, [blockq+3*16+0]
     packssdw            m2, [blockq+2*16+8]
     packssdw            m3, [blockq+3*16+8]
-    PIC_BEGIN coefq, 0
+    PIC_BEGIN r3, 0 ; at this point r3 is alternately defined either as eobq or
+                    ; as coefq (depending on ssse3 flag). Thus 'bare' r3.
     CHECK_REG_COLLISION "rpic","dstq","strideq","blockq"
 
 %if cpuflag(ssse3)
@@ -313,7 +314,7 @@ cglobal vp9_idct_idct_4x4_add_10, 0, 4, 8, dst, stride, block, eob
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
     VP9_IDCT4_WRITEOUT ; dstq,strideq; PIC
-    PIC_END ; coefq, no-save
+    PIC_END ; r3, no-save
     RET
 %endmacro
 
