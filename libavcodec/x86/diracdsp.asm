@@ -52,23 +52,27 @@ cglobal dirac_hpel_filter_v_%1, 4,6,8, dst, src, stride, width, src0, stridex3
     lea     stridex3q, [3*strideq]
     sub     src0q, stridex3q
     pxor    m7, m7
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic","dstq","srcq","strideq","widthd",\
+        "src0q","stridex3q"
 .loop:
     ; 7*(src[0] + src[1])
     UNPACK_ADD m0, m1, [srcq], [srcq + strideq], a,a
-    pmullw  m0, [pw_7]
-    pmullw  m1, [pw_7]
+    pmullw  m0, [pic(pw_7)]
+    pmullw  m1, [pic(pw_7)]
 
     ; 3*( ... + src[-2] + src[3])
     UNPACK_ADD m2, m3, [src0q + strideq], [srcq + stridex3q], a,a
     paddw   m0, m2
     paddw   m1, m3
-    pmullw  m0, [pw_3]
-    pmullw  m1, [pw_3]
+    pmullw  m0, [pic(pw_3)]
+    pmullw  m1, [pic(pw_3)]
 
     ; ... - 7*(src[-1] + src[2])
     UNPACK_ADD m2, m3, [src0q + strideq*2], [srcq + strideq*2], a,a
-    pmullw  m2, [pw_7]
-    pmullw  m3, [pw_7]
+    pmullw  m2, [pic(pw_7)]
+    pmullw  m3, [pic(pw_7)]
     psubw   m0, m2
     psubw   m1, m3
 
@@ -77,8 +81,8 @@ cglobal dirac_hpel_filter_v_%1, 4,6,8, dst, src, stride, width, src0, stridex3
     psubw   m0, m2
     psubw   m1, m3
 
-    paddw   m0, [pw_16]
-    paddw   m1, [pw_16]
+    paddw   m0, [pic(pw_16)]
+    paddw   m1, [pic(pw_16)]
     psraw   m0, 5
     psraw   m1, 5
     packuswb m0, m1
@@ -88,30 +92,34 @@ cglobal dirac_hpel_filter_v_%1, 4,6,8, dst, src, stride, width, src0, stridex3
     add     src0q, mmsize
     sub     widthd, mmsize
     jg      .loop
+    PIC_END
     RET
 
 ; dirac_hpel_filter_h_sse2(uint8_t *dst, uint8_t *src, int width);
 cglobal dirac_hpel_filter_h_%1, 3,3,8, dst, src, width
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","dstq","srcq","widthd"
     dec     widthd
     pxor    m7, m7
     and     widthd, ~(mmsize-1)
 .loop:
     ; 7*(src[0] + src[1])
     UNPACK_ADD m0, m1, [srcq + widthq], [srcq + widthq + 1], u,u
-    pmullw  m0, [pw_7]
-    pmullw  m1, [pw_7]
+    pmullw  m0, [pic(pw_7)]
+    pmullw  m1, [pic(pw_7)]
 
     ; 3*( ... + src[-2] + src[3])
     UNPACK_ADD m2, m3, [srcq + widthq - 2], [srcq + widthq + 3], u,u
     paddw   m0, m2
     paddw   m1, m3
-    pmullw  m0, [pw_3]
-    pmullw  m1, [pw_3]
+    pmullw  m0, [pic(pw_3)]
+    pmullw  m1, [pic(pw_3)]
 
     ; ... - 7*(src[-1] + src[2])
     UNPACK_ADD m2, m3, [srcq + widthq - 1], [srcq + widthq + 2], u,u
-    pmullw  m2, [pw_7]
-    pmullw  m3, [pw_7]
+    pmullw  m2, [pic(pw_7)]
+    pmullw  m3, [pic(pw_7)]
     psubw   m0, m2
     psubw   m1, m3
 
@@ -120,21 +128,24 @@ cglobal dirac_hpel_filter_h_%1, 3,3,8, dst, src, width
     psubw   m0, m2
     psubw   m1, m3
 
-    paddw   m0, [pw_16]
-    paddw   m1, [pw_16]
+    paddw   m0, [pic(pw_16)]
+    paddw   m1, [pic(pw_16)]
     psraw   m0, 5
     psraw   m1, 5
     packuswb m0, m1
     mova    [dstq + widthq], m0
     sub     widthd, mmsize
     jge     .loop
+    PIC_END ; r3, push/pop
     RET
 %endmacro
 
 %macro PUT_RECT 1
 ; void put_rect_clamped(uint8_t *dst, int dst_stride, int16_t *src, int src_stride, int width, int height)
 cglobal put_signed_rect_clamped_%1, 5,9,3, dst, dst_stride, src, src_stride, w, dst2, src2
-    mova    m0, [pb_80]
+    PIC_BEGIN dst2q, 0 ; dst2q/r5: not loaded, not yet initialized
+    mova    m0, [pic(pb_80)]
+    PIC_END
     add     wd, (mmsize-1)
     and     wd, ~(mmsize-1)
 
@@ -153,7 +164,7 @@ cglobal put_signed_rect_clamped_%1, 5,9,3, dst, dst_stride, src, src_stride, w, 
 
 .loopy:
     lea     src2q, [srcq+src_strideq]
-    lea     dst2q, [dstq+dst_strideq]
+    lea     dst2q, [dstq+dst_strideq] ; dst2q initialized
 .loopx:
     sub      wd, mmsize
     mova     m1, [srcq +2*wq]
@@ -176,9 +187,12 @@ cglobal put_signed_rect_clamped_%1, 5,9,3, dst, dst_stride, src, src_stride, w, 
 
 %macro ADD_RECT 1
 ; void add_rect_clamped(uint8_t *dst, uint16_t *src, int stride, int16_t *idwt, int idwt_stride, int width, int height)
-cglobal add_rect_clamped_%1, 7,9,3, dst, src, stride, idwt, idwt_stride, w, h
-    mova    m0, [pw_32]
+cglobal add_rect_clamped_%1, 6,9,3, dst, src, stride, idwt, idwt_stride, w, h
+    PIC_BEGIN hq, 0 ; hq/r6 not yet loaded
+    mova    m0, [pic(pw_32)]
+    PIC_END
     add     wd, (mmsize-1)
+    movifnidn hq, hmp ; load hq/r6 from arg[6]
     and     wd, ~(mmsize-1)
 
 %if ARCH_X86_64
@@ -310,8 +324,10 @@ cglobal put_signed_rect_clamped_10, 5, 7, 5, dst, dst_stride, src, src_stride, w
     mov     t2q, dstq
     mov     t1q, wq
     pxor     m2, m2
-    mova     m3, [clip_10bit]
-    mova     m4, [convert_to_unsigned_10bit]
+    PIC_BEGIN dstq, 0 ; dstq is reloaded at .loop_h: start
+    mova     m3, [pic(clip_10bit)]
+    mova     m4, [pic(convert_to_unsigned_10bit)]
+    PIC_END
 
     .loop_h:
     mov    dstq, t2q
