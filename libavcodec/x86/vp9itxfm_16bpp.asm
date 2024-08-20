@@ -528,71 +528,76 @@ cglobal vp9_idct_idct_4x4_add_12, 4, 4, 8, dst, stride, block, eob
 ; out1 =  9929 * in0 + 13377 * in1 -  5283 * in2 - 15282 * in3 + rnd >> 14
 ; out2 = 13377 * in0               - 13377 * in2 + 13377 * in3 + rnd >> 14
 ; out3 = 15212 * in0 - 13377 * in1 +  9929 * in2 -  5283 * in3 + rnd >> 14
-%macro IADST4_12BPP_1D 0-2 [pd_8192], [pd_3fff] ; rnd, mask
-    pand                m4, m0, %2
-    pand                m5, m1, %2
+%macro IADST4_12BPP_1D 0-2 [pic(pd_8192)], [pic(pd_3fff)] ; rnd, mask ; [rsp+], PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","[rsp+0*mmsize]","[rsp+1*mmsize]"
+    pand                m4, m0, %2 ; PIC*
+    pand                m5, m1, %2 ; PIC*
     psrad               m0, 14
     psrad               m1, 14
     packssdw            m5, m1
     packssdw            m4, m0
     punpckhwd           m1, m4, m5
     punpcklwd           m4, m5
-    pand                m5, m2, %2
-    pand                m6, m3, %2
+    pand                m5, m2, %2 ; PIC*
+    pand                m6, m3, %2 ; PIC*
     psrad               m2, 14
     psrad               m3, 14
     packssdw            m6, m3
     packssdw            m5, m2
     punpckhwd           m3, m5, m6
     punpcklwd           m5, m6
-    SCRATCH              1,  8, rsp+0*mmsize, a
-    SCRATCH              5,  9, rsp+1*mmsize, b
+    SCRATCH              1,  8, rsp+0*mmsize, a ; def reg_a
+    CHECK_REG_COLLISION "rpic","reg_a"
+    SCRATCH              5,  9, rsp+1*mmsize, b ; def reg_b
+    CHECK_REG_COLLISION "rpic","reg_b"
 
     ; m1/3 have the high bits of 0,1,2,3
     ; m4/5 have the low bits of 0,1,2,3
     ; m0/2/6/7 are free
 
-    mova                m2, [pw_15212_9929]
-    mova                m0, [pw_5283_13377]
+    mova                m2, [pic(pw_15212_9929)]
+    mova                m0, [pic(pw_5283_13377)]
     pmaddwd             m7, m2, reg_b
     pmaddwd             m6, m4, m0
     pmaddwd             m2, m3
     pmaddwd             m0, reg_a
     paddd               m6, m7
     paddd               m0, m2
-    mova                m1, [pw_m13377_13377]
-    mova                m5, [pw_13377_0]
+    mova                m1, [pic(pw_m13377_13377)]
+    mova                m5, [pic(pw_13377_0)]
     pmaddwd             m7, m1, reg_b
     pmaddwd             m2, m4, m5
     pmaddwd             m1, m3
     pmaddwd             m5, reg_a
     paddd               m2, m7
     paddd               m1, m5
-    paddd               m6, %1
-    paddd               m2, %1
+    paddd               m6, %1 ; PIC*
+    paddd               m2, %1 ; PIC*
     psrad               m6, 14
     psrad               m2, 14
     paddd               m0, m6                      ; t0
     paddd               m2, m1                      ; t2
 
-    mova                m7, [pw_m5283_m15212]
-    mova                m5, [pw_9929_13377]
+    mova                m7, [pic(pw_m5283_m15212)]
+    mova                m5, [pic(pw_9929_13377)]
     pmaddwd             m1, m7, reg_b
     pmaddwd             m6, m4, m5
     pmaddwd             m7, m3
     pmaddwd             m5, reg_a
     paddd               m6, m1
     paddd               m7, m5
-    UNSCRATCH            5,  9, rsp+1*mmsize, b
-    pmaddwd             m5, [pw_9929_m5283]
-    pmaddwd             m4, [pw_15212_m13377]
-    pmaddwd             m3, [pw_9929_m5283]
-    UNSCRATCH            1,  8, rsp+0*mmsize, a
-    pmaddwd             m1, [pw_15212_m13377]
+    UNSCRATCH            5,  9, rsp+1*mmsize, b ; undef reg_b
+    pmaddwd             m5, [pic(pw_9929_m5283)]
+    pmaddwd             m4, [pic(pw_15212_m13377)]
+    pmaddwd             m3, [pic(pw_9929_m5283)]
+    UNSCRATCH            1,  8, rsp+0*mmsize, a ; undef reg_a
+    pmaddwd             m1, [pic(pw_15212_m13377)]
     paddd               m4, m5
     paddd               m3, m1
-    paddd               m6, %1
-    paddd               m4, %1
+    paddd               m6, %1 ; PIC*
+    paddd               m4, %1 ; PIC*
+    PIC_END
     psrad               m6, 14
     psrad               m4, 14
     paddd               m7, m6                      ; t1
