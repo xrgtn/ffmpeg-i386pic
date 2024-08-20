@@ -447,38 +447,45 @@ cglobal vp9_idct_idct_4x4_add_12, 4, 4, 8, dst, stride, block, eob
     ; don't need any additional processing to fit it in a word
     DEFINE_ARGS dst, stride, block, coef
     pxor                m4, m4
-    DC_ONLY              4, m4
-    movd                m0, coefd
+    DC_ONLY              4, m4 ; coefq,blockq
+    movd                m0, coefd ; coefq not used after this point
+    PIC_BEGIN coefq, 0
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq"
     pshuflw             m0, m0, q0000
     punpcklqdq          m0, m0
-    mova                m5, [pw_4095]
+    mova                m5, [pic(pw_4095)]
+    PIC_END ; coefq, no-save
     DEFINE_ARGS dst, stride, stride3
     lea           stride3q, [strideq*3]
-    STORE_4x4            1, 3, 0, 0, m4, m5
+    STORE_4x4            1, 3, 0, 0, m4, m5 ; dstq,strideq,stride3q
     RET
 
 .idctfull:
-    DEFINE_ARGS dst, stride, block, eob
+    DEFINE_ARGS dst, stride, block, eob ; eobq not used after this point
     mova                m0, [blockq+0*16]
     mova                m1, [blockq+1*16]
     mova                m2, [blockq+2*16]
     mova                m3, [blockq+3*16]
-    mova                m6, [pd_8192]
-    mova                m7, [pd_3fff]
+    PIC_BEGIN r3, 0 ; eobq/r3 not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq"
+    mova                m6, [pic(pd_8192)]
+    mova                m7, [pic(pd_3fff)]
 
-    IDCT4_12BPP_1D      m6, m7
+    IDCT4_12BPP_1D      m6, m7 ; PIC
     TRANSPOSE4x4D        0, 1, 2, 3, 4
-    IDCT4_12BPP_1D      m6, m7
+    IDCT4_12BPP_1D      m6, m7 ; PIC
 
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
 
     ; writeout
     DEFINE_ARGS dst, stride, stride3
+    CHECK_REG_COLLISION "rpic","stride3q"
     lea           stride3q, [strideq*3]
-    mova                m5, [pw_4095]
-    mova                m6, [pd_8]
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m4, m5, m6, 4
+    mova                m5, [pic(pw_4095)]
+    mova                m6, [pic(pd_8)]
+    PIC_END ; r3, no-save
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m4, m5, m6, 4 ; dstq,strideq,stride3q
     RET
 
 %macro SCRATCH 3-4
