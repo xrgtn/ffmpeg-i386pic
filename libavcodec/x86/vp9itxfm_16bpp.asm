@@ -197,9 +197,9 @@ cglobal vp9_iwht_iwht_4x4_add_%1, 2, 3, 8, dst, stride, block, eob
     VP9_IWHT4_1D
 
     pxor                m6, m6
-    VP9_STORE_2X         0, 1, 4, 5, 6, 7 ; dstq*,strideq
+    VP9_STORE_2X         0, 1, 4, 5, 6, 7 ; dstq,strideq
     lea               dstq, [dstq+strideq*2]
-    VP9_STORE_2X         2, 3, 4, 5, 6, 7 ; dstq*,strideq
+    VP9_STORE_2X         2, 3, 4, 5, 6, 7 ; dstq,strideq
     ZERO_BLOCK      blockq, 16, 4, m6
     RET
 %endmacro
@@ -209,15 +209,17 @@ IWHT4_FN 10, 1023
 INIT_MMX mmxext
 IWHT4_FN 12, 4095
 
-%macro VP9_IDCT4_WRITEOUT 0
+%macro VP9_IDCT4_WRITEOUT 0 ; dstq,strideq; PIC
+    CHECK_REG_COLLISION "rpic","dstq","strideq" ; for external/upper PIC block
+    PIC_BEGIN r4
 %if cpuflag(ssse3)
-    mova                m5, [pw_2048]
+    mova                m5, [pic(pw_2048)]
     pmulhrsw            m0, m5
     pmulhrsw            m1, m5
     pmulhrsw            m2, m5
     pmulhrsw            m3, m5
 %else
-    mova                m5, [pw_8]
+    mova                m5, [pic(pw_8)]
     paddw               m0, m5
     paddw               m1, m5
     paddw               m2, m5
@@ -227,10 +229,11 @@ IWHT4_FN 12, 4095
     psraw               m2, 4
     psraw               m3, 4
 %endif
-    mova                m5, [pw_1023]
-    VP9_STORE_2X         0,  1,  6,  7,  4,  5
+    mova                m5, [pic(pw_1023)]
+    PIC_END
+    VP9_STORE_2X         0,  1,  6,  7,  4,  5 ; dstq,strideq
     lea               dstq, [dstq+2*strideq]
-    VP9_STORE_2X         2,  3,  6,  7,  4,  5
+    VP9_STORE_2X         2,  3,  6,  7,  4,  5 ; dstq,strideq
 %endmacro
 
 %macro DC_ONLY 2 ; shift, zero
