@@ -46,22 +46,27 @@
     psrad              m%2,  14
 %endmacro
 
-%macro VP9_MULSUB_2W_4X 7 ; dst1, dst2, coef1, coef2, rnd, tmp1/src, tmp2
-    VP9_MULSUB_2W_2X    %7,  %6,  %5, [pw_m%3_%4], [pw_%4_%3]
-    VP9_MULSUB_2W_2X    %1,  %2,  %5, [pw_m%3_%4], [pw_%4_%3]
+%macro VP9_MULSUB_2W_4X 7 ; dst1, dst2, coef1, coef2, rnd, tmp1/src, tmp2 ; PIC
+    PIC_BEGIN r4
+    ; error: rpic=ebp collision with %5: [(ebp+(ff_pd_8192)-..@lpic20_0)]
+    ; CHECK_REG_COLLISION "rpic",%1,%2,,,%5,%6,%7
+    CHECK_REG_COLLISION "rpic",%1,%2,,,,%6,%7
+    VP9_MULSUB_2W_2X    %7,  %6,  %5, [pic(pw_m%3_%4)], [pic(pw_%4_%3)]
+    VP9_MULSUB_2W_2X    %1,  %2,  %5, [pic(pw_m%3_%4)], [pic(pw_%4_%3)]
+    PIC_END
     packssdw           m%1, m%7
     packssdw           m%2, m%6
 %endmacro
 
-%macro VP9_UNPACK_MULSUB_2W_4X 7-9 ; dst1, dst2, (src1, src2,) coef1, coef2, rnd, tmp1, tmp2
+%macro VP9_UNPACK_MULSUB_2W_4X 7-9 ; dst1, dst2, (src1, src2,) coef1, coef2, rnd, tmp1, tmp2 ; PIC
 %if %0 == 7
     punpckhwd          m%6, m%2, m%1
     punpcklwd          m%2, m%1
-    VP9_MULSUB_2W_4X   %1, %2, %3, %4, %5, %6, %7
+    VP9_MULSUB_2W_4X   %1, %2, %3, %4, %5, %6, %7 ; PIC
 %else
     punpckhwd          m%8, m%4, m%3
     punpcklwd          m%2, m%4, m%3
-    VP9_MULSUB_2W_4X   %1, %2, %5, %6, %7, %8, %9
+    VP9_MULSUB_2W_4X   %1, %2, %5, %6, %7, %8, %9 ; PIC
 %endif
 %endmacro
 
@@ -71,19 +76,19 @@
     SWAP                 0, 3, 2                            ; 3102 -> 0123
 %endmacro
 
-%macro VP9_IDCT4_1D 0
+%macro VP9_IDCT4_1D 0 ; PIC
 %if cpuflag(ssse3)
     SUMSUB_BA            w, 2, 0, 4                         ; m2=IN(0)+IN(2) m0=IN(0)-IN(2)
     pmulhrsw            m2, m6                              ; m2=t0
     pmulhrsw            m0, m6                              ; m0=t1
 %else ; <= sse2
-    VP9_UNPACK_MULSUB_2W_4X 0, 2, 11585, 11585, m7, 4, 5    ; m0=t1, m1=t0
+    VP9_UNPACK_MULSUB_2W_4X 0, 2, 11585, 11585, m7, 4, 5    ; m0=t1, m1=t0 ; PIC
 %endif
-    VP9_UNPACK_MULSUB_2W_4X 1, 3, 15137, 6270, m7, 4, 5     ; m1=t2, m3=t3
+    VP9_UNPACK_MULSUB_2W_4X 1, 3, 15137, 6270, m7, 4, 5     ; m1=t2, m3=t3 ; PIC
     VP9_IDCT4_1D_FINALIZE
 %endmacro
 
-%macro VP9_IADST4_1D 0
+%macro VP9_IADST4_1D 0 ; PIC
     movq2dq           xmm0, m0
     movq2dq           xmm1, m1
     movq2dq           xmm2, m2
@@ -93,17 +98,18 @@
 %endif
     punpcklwd         xmm0, xmm1
     punpcklwd         xmm2, xmm3
-    pmaddwd           xmm1, xmm0, [pw_5283_13377]
-    pmaddwd           xmm4, xmm0, [pw_9929_13377]
+    PIC_BEGIN r4
+    pmaddwd           xmm1, xmm0, [pic(pw_5283_13377)]
+    pmaddwd           xmm4, xmm0, [pic(pw_9929_13377)]
 %if notcpuflag(ssse3)
-    pmaddwd           xmm6, xmm0, [pw_13377_0]
+    pmaddwd           xmm6, xmm0, [pic(pw_13377_0)]
 %endif
-    pmaddwd           xmm0, [pw_15212_m13377]
-    pmaddwd           xmm3, xmm2, [pw_15212_9929]
+    pmaddwd           xmm0, [pic(pw_15212_m13377)]
+    pmaddwd           xmm3, xmm2, [pic(pw_15212_9929)]
 %if notcpuflag(ssse3)
-    pmaddwd           xmm7, xmm2, [pw_m13377_13377]
+    pmaddwd           xmm7, xmm2, [pic(pw_m13377_13377)]
 %endif
-    pmaddwd           xmm2, [pw_m5283_m15212]
+    pmaddwd           xmm2, [pic(pw_m5283_m15212)]
 %if cpuflag(ssse3)
     psubw               m3, m2
 %else
@@ -122,10 +128,11 @@
     psrad             xmm0, 14
     psrad             xmm4, 14
 %if cpuflag(ssse3)
-    pmulhrsw            m3, [pw_13377x2]        ; out2
+    pmulhrsw            m3, [pic(pw_13377x2)]   ; out2
 %else
     psrad             xmm6, 14
 %endif
+    PIC_END
     packssdw          xmm0, xmm0
     packssdw          xmm1, xmm1
     packssdw          xmm4, xmm4
