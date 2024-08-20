@@ -236,7 +236,7 @@ IWHT4_FN 12, 4095
     VP9_STORE_2X         2,  3,  6,  7,  4,  5 ; dstq,strideq
 %endmacro
 
-%macro DC_ONLY 2 ; shift, zero
+%macro DC_ONLY 2 ; shift, zero ; coefq,blockq
     mov              coefd, dword [blockq]
     movd          [blockq], %2
     imul             coefd, 11585
@@ -251,34 +251,46 @@ IWHT4_FN 12, 4095
 ; in 15+1 words without additional effort, since the coefficients are 15bpp.
 
 %macro IDCT4_10_FN 0
-cglobal vp9_idct_idct_4x4_add_10, 4, 4, 8, dst, stride, block, eob
+cglobal vp9_idct_idct_4x4_add_10, 0, 4, 8, dst, stride, block, eob
+    ; load all arguments except dstq
+    movifnidn      strideq, stridemp
+    movifnidn       blockq, blockmp
+    movifnidn         eobq, eobmp
     cmp               eobd, 1
     jg .idctfull
 
     ; dc-only
     pxor                m4, m4
+    PIC_BEGIN dstq, 0 ; dstq not loaded yet
+    CHECK_REG_COLLISION "rpic","dstmp","strideq","blockq"
 %if cpuflag(ssse3)
     movd                m0, [blockq]
     movd          [blockq], m4
-    mova                m5, [pw_11585x2]
+    mova                m5, [pic(pw_11585x2)]
     pmulhrsw            m0, m5
     pmulhrsw            m0, m5
 %else
     DEFINE_ARGS dst, stride, block, coef
-    DC_ONLY              4, m4
+    CHECK_REG_COLLISION "rpic","coefq"
+    DC_ONLY              4, m4 ; coefq,blockq
     movd                m0, coefd
 %endif
     pshufw              m0, m0, 0
-    mova                m5, [pw_1023]
+    mova                m5, [pic(pw_1023)]
 %if cpuflag(ssse3)
-    pmulhrsw            m0, [pw_2048]       ; (x*2048 + (1<<14))>>15 <=> (x+8)>>4
+    pmulhrsw            m0, [pic(pw_2048)]  ; (x*2048 + (1<<14))>>15 <=> (x+8)>>4
 %endif
-    VP9_STORE_2X         0,  0,  6,  7,  4,  5
+    PIC_END ; dstq, no-save
+    movifnidn         dstq, dstmp ; delayed dstq/r0 loading
+    VP9_STORE_2X         0,  0,  6,  7,  4,  5 ; dstq,strideq
     lea               dstq, [dstq+2*strideq]
-    VP9_STORE_2X         0,  0,  6,  7,  4,  5
+    VP9_STORE_2X         0,  0,  6,  7,  4,  5 ; dstq,strideq
     RET
 
 .idctfull:
+    ; eobq/coeffq/r3 not used anymore in this branch of
+    ; vp9_idct_idct_4x4_add_10(): TODO
+    movifnidn         dstq, dstmp ; delayed dstq/r0 loading
     mova                m0, [blockq+0*16+0]
     mova                m1, [blockq+1*16+0]
     packssdw            m0, [blockq+0*16+8]
@@ -287,18 +299,21 @@ cglobal vp9_idct_idct_4x4_add_10, 4, 4, 8, dst, stride, block, eob
     mova                m3, [blockq+3*16+0]
     packssdw            m2, [blockq+2*16+8]
     packssdw            m3, [blockq+3*16+8]
+    PIC_BEGIN coefq, 0
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq"
 
 %if cpuflag(ssse3)
-    mova                m6, [pw_11585x2]
+    mova                m6, [pic(pw_11585x2)]
 %endif
-    mova                m7, [pd_8192]       ; rounding
-    VP9_IDCT4_1D
+    mova                m7, [pic(pd_8192)]  ; rounding
+    VP9_IDCT4_1D ; PIC
     TRANSPOSE4x4W  0, 1, 2, 3, 4
-    VP9_IDCT4_1D
+    VP9_IDCT4_1D ; PIC
 
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
     VP9_IDCT4_WRITEOUT ; dstq,strideq; PIC
+    PIC_END ; coefq, no-save
     RET
 %endmacro
 
