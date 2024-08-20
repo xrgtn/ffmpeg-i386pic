@@ -116,7 +116,7 @@ times 576 db 8
 
 SECTION .text
 
-%macro VP9_STORE_2X 6-7 dstq ; reg1, reg2, tmp1, tmp2, min, max, dst
+%macro VP9_STORE_2X 6-7 dstq ; reg1, reg2, tmp1, tmp2, min, max, dst ; dstq*,strideq
     mova               m%3, [%7]
     mova               m%4, [%7+strideq]
     paddw              m%3, m%1
@@ -151,8 +151,12 @@ SECTION .text
 ; since the input is only 14+sign bit, which fits in 15+sign words directly.
 
 %macro IWHT4_FN 2 ; bpp, max
-cglobal vp9_iwht_iwht_4x4_add_%1, 3, 3, 8, dst, stride, block, eob
-    mova                m7, [pw_%2]
+cglobal vp9_iwht_iwht_4x4_add_%1, 2, 3, 8, dst, stride, block, eob
+    PIC_BEGIN blockq, 0 ; no-save, blockq not loaded yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockmp"
+    mova                m7, [pic(pw_%2)]
+    PIC_END
+    movifnidn       blockq, blockmp ; load blockq/r2 from arg[2]
     mova                m0, [blockq+0*16+0]
     mova                m1, [blockq+1*16+0]
 %if %1 >= 12
@@ -193,9 +197,9 @@ cglobal vp9_iwht_iwht_4x4_add_%1, 3, 3, 8, dst, stride, block, eob
     VP9_IWHT4_1D
 
     pxor                m6, m6
-    VP9_STORE_2X         0, 1, 4, 5, 6, 7
+    VP9_STORE_2X         0, 1, 4, 5, 6, 7 ; dstq*,strideq
     lea               dstq, [dstq+strideq*2]
-    VP9_STORE_2X         2, 3, 4, 5, 6, 7
+    VP9_STORE_2X         2, 3, 4, 5, 6, 7 ; dstq*,strideq
     ZERO_BLOCK      blockq, 16, 4, m6
     RET
 %endmacro
