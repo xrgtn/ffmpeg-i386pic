@@ -608,16 +608,19 @@ cglobal vp9_idct_idct_4x4_add_12, 4, 4, 8, dst, stride, block, eob
 
 %macro IADST4_12BPP_FN 4
 cglobal vp9_%1_%3_4x4_add_12, 3, 3, 12, 2 * ARCH_X86_32 * mmsize, dst, stride, block, eob
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq","[rsp+mmsize]"
     mova                m0, [blockq+0*16]
     mova                m1, [blockq+1*16]
     mova                m2, [blockq+2*16]
     mova                m3, [blockq+3*16]
 
-    PRELOAD             10, pd_8192, rnd
-    PRELOAD             11, pd_3fff, mask
-    %2_12BPP_1D    reg_rnd, reg_mask
+    PRELOAD             10, pic(pd_8192), rnd  ; def reg_rnd
+    PRELOAD             11, pic(pd_3fff), mask ; def reg_mask
+    %2_12BPP_1D    reg_rnd, reg_mask ; PIC
     TRANSPOSE4x4D        0, 1, 2, 3, 4
-    %4_12BPP_1D    reg_rnd, reg_mask
+    %4_12BPP_1D    reg_rnd, reg_mask ; PIC
 
     pxor                m4, m4
     ZERO_BLOCK      blockq, 16, 4, m4
@@ -625,9 +628,11 @@ cglobal vp9_%1_%3_4x4_add_12, 3, 3, 12, 2 * ARCH_X86_32 * mmsize, dst, stride, b
     ; writeout
     DEFINE_ARGS dst, stride, stride3
     lea           stride3q, [strideq*3]
-    mova                m5, [pw_4095]
-    mova                m6, [pd_8]
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m4, m5, m6, 4
+    mova                m5, [pic(pw_4095)]
+    mova                m6, [pic(pd_8)]
+    PIC_END ; r4, save/restore
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m4, m5, m6, 4 ; dstq,strideq,stride3q
+    PIC_FREE
     RET
 %endmacro
 
