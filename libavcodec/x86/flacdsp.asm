@@ -94,14 +94,16 @@ LPC_32 sse4
 %macro FLAC_DECORRELATE_16 3-4
 cglobal flac_decorrelate_%1_16, 2, 4, 4, out, in0, in1, len
 %ifidn %1, indep2
-    VBROADCASTI128 m2, [vector]
+    PIC_BEGIN in1q, 0 ; in1q not yet initialized
+    VBROADCASTI128 m2, [pic(vector)]
+    PIC_END
 %endif
 %if ARCH_X86_32
     mov      lend, lenm
 %endif
     movd       m3, r4m
     shl      lend, 2
-    mov      in1q, [in0q + gprsize]
+    mov      in1q, [in0q + gprsize] ; in1q initialized here
     mov      in0q, [in0q]
     mov      outq, [outq]
     add      in1q, lenq
