@@ -1334,7 +1334,7 @@ cglobal vp9_idct_idct_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
 .loop_2:
     IDCT16_1D         ptrq ; ptrq,[rsp+]; PIC
 
-    pxor               m7, m7
+    pxor                m7, m7
     lea               dstq, [dstq+strideq*4]
     ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+64*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
     lea               dstq, [dstq+strideq*4]
@@ -1577,31 +1577,41 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     SWAP                 2, 5, 4, 6, 7, 3
 %endmacro
 
-; TODO
 %macro IADST16_FN 7
 cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
                                 70 * mmsize + ARCH_X86_32 * 8 * mmsize, \
                                 dst, stride, block, eob
-    mova                m0, [pw_1023]
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 is pushed by PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_1023)]
 
 .body:
     mova   [rsp+64*mmsize], m0
     DEFINE_ARGS dst, stride, block, cnt, ptr, skip, dstbak
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","cntq","ptrq",,\
+        "[rsp+64*mmsize]" ; rpic: r5/skipq
 %if ARCH_X86_64
     mov            dstbakq, dstq
     movsxd            cntq, cntd
 %endif
-%ifdef PIC
+%if i386pic
+    movzx             cntd, byte [pic(%7_16x16)+cntq-1]
+%elifdef PIC
     lea               ptrq, [%7_16x16]
     movzx             cntd, byte [ptrq+cntq-1]
 %else
     movzx             cntd, byte [%7_16x16+cntq-1]
 %endif
-    mov              skipd, 4
+    PIC_END ; r5/skipq, no-save
+    mov              skipd, 4 ; r5/skipq is initialzed here
     sub              skipd, cntd
     mov               ptrq, rsp
+    PIC_BEGIN dstq, 1 ; dstq/r0 is not used inside .loop_1: & .loop_z:
+    CHECK_REG_COLLISION "rpic",,"strideq","blockq","cntq","ptrq","skipq",\
+        "[rsp+64*mmsize]","[rsp]" ; rpic: r0/dstq
 .loop_1:
-    %2_1D           blockq
+    %2_1D           blockq ; blockq,[rsp+]; PIC
 
     TRANSPOSE4x4D        0, 1, 2, 3, 7
     mova  [ptrq+ 1*mmsize], m0
@@ -1636,6 +1646,7 @@ cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
     add             blockq, mmsize
     dec               cntd
     jg .loop_1
+    PIC_END ; dstq/r0, save/restore
 
     ; zero-pad the remainder (skipped cols)
     test             skipd, skipd
@@ -1661,17 +1672,20 @@ cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
     lea           stride3q, [strideq*3]
     mov               cntd, 4
     mov               ptrq, rsp
+    PIC_BEGIN blockq ; blockq is not used inside .loop2:
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,\
+        "cntq","ptrq","stride3q","dstm" ; rpic: r2/blockq
 .loop_2:
-    %5_1D             ptrq
+    %5_1D             ptrq ; ptrq,[rsp+]; PIC
 
     pxor                m7, m7
     lea               dstq, [dstq+strideq*4]
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+64*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+64*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
     lea               dstq, [dstq+strideq*4]
     mova                m0, [rsp+65*mmsize]
     mova                m1, [rsp+64*mmsize]
-    mova                m2, [pd_32]
-    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, m1, m2, 6
+    mova                m2, [pic(pd_32)]
+    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, m1, m2, 6 ; dstq,strideq,stride3q
 
 %if ARCH_X86_64
     DEFINE_ARGS dstbak, stride, block, cnt, ptr, stride3, dst
@@ -1682,7 +1696,7 @@ cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
     UNSCRATCH               4, 9, rsp+(%6+1)*mmsize
     UNSCRATCH               5, 10, rsp+(%6+2)*mmsize
     UNSCRATCH               3, 11, rsp+(%6+3)*mmsize
-    ROUND_AND_STORE_4x4  0, 4, 5, 3, m7, m1, m2, 6
+    ROUND_AND_STORE_4x4  0, 4, 5, 3, m7, m1, m2, 6 ; dstq,strideq,stride3q
 %if ARCH_X86_64
     DEFINE_ARGS dst, stride, block, cnt, ptr, stride3, dstbak
     lea               dstq, [dstbakq+stride3q*4]
@@ -1693,7 +1707,7 @@ cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
     UNSCRATCH               5, 13, rsp+(%6+5)*mmsize
     UNSCRATCH               6, 14, rsp+(%6+6)*mmsize
     UNSCRATCH               0, 15, rsp+(%6+7)*mmsize
-    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, m1, m2, 6
+    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, m1, m2, 6 ; dstq,strideq,stride3q
 
     add               ptrq, mmsize
 %if ARCH_X86_64
@@ -1705,16 +1719,24 @@ cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
 %endif
     dec               cntd
     jg .loop_2
+    PIC_END ; r2/blockq, save/restore
 
     ; m7 is still zero
     ZERO_BLOCK blockq-4*mmsize, 64, 16, m7
+    PIC_FREE
     RET
 
 cglobal vp9_%1_%4_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
                                 70 * mmsize + ARCH_X86_32 * 8 * mmsize, \
                                 dst, stride, block, eob
-    mova                m0, [pw_4095]
+    PIC_CONTEXT_PUSH
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 is pushed by PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_4095)]
+    ; jump destination expects "PIC_ALLOC + PIC_BEGIN r5, 0" context:
     jmp mangle(private_prefix %+ _ %+ vp9_%1_%4_16x16_add_10 %+ SUFFIX).body
+    PIC_CONTEXT_POP ; no "unbalanced PIC", no "invalid PIC alloc state"
 %endmacro
 
 INIT_XMM sse2
@@ -1722,8 +1744,10 @@ IADST16_FN idct,  IDCT16,  67, iadst, IADST16, 70, row
 IADST16_FN iadst, IADST16, 70, idct,  IDCT16,  67, col
 IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
 
-%macro IDCT32_1D 2-3 8 * mmsize; pass[1/2], src, src_stride
-    IDCT16_1D %2, 2 * %3, 272, 257
+%macro IDCT32_1D 2-3 8 * mmsize; pass[1/2], src, src_stride ; ptrq*,dstq*,strideq*,stride3q*,dstm*,[rsp+], PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",,%2,,"[rsp+282*mmsize]"
+    IDCT16_1D %2, 2 * %3, 272, 257 ; [rsp+], PIC
 %if ARCH_X86_64
     mova  [rsp+257*mmsize], m8
     mova  [rsp+258*mmsize], m9
@@ -1751,11 +1775,11 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mova                m1, [%2+15*%3]              ; in15
     mova                m2, [%2+17*%3]              ; in17
     mova                m3, [%2+31*%3]              ; in31
-    SUMSUB_MUL           0, 3, 4, 5, 16364,  804    ; m0=t31a, m3=t16a
-    SUMSUB_MUL           2, 1, 4, 5, 11003, 12140   ; m2=t30a, m1=t17a
+    SUMSUB_MUL           0, 3, 4, 5, 16364,  804    ; m0=t31a, m3=t16a ; PIC
+    SUMSUB_MUL           2, 1, 4, 5, 11003, 12140   ; m2=t30a, m1=t17a ; PIC
     SUMSUB_BA         d, 1, 3, 4                    ; m1=t16, m3=t17
     SUMSUB_BA         d, 2, 0, 4                    ; m2=t31, m0=t30
-    SUMSUB_MUL           0, 3, 4, 5, 16069,  3196   ; m0=t30a, m3=t17a
+    SUMSUB_MUL           0, 3, 4, 5, 16069,  3196   ; m0=t30a, m3=t17a ; PIC
     SCRATCH              0, 8, rsp+275*mmsize
     SCRATCH              2, 9, rsp+276*mmsize
 
@@ -1765,11 +1789,11 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mova                m2, [%2+ 9*%3]              ; in9
     mova                m4, [%2+23*%3]              ; in23
     mova                m5, [%2+25*%3]              ; in25
-    SUMSUB_MUL           2, 4, 6, 7, 14811,  7005   ; m2=t29a, m4=t18a
-    SUMSUB_MUL           5, 0, 6, 7,  5520, 15426   ; m5=t28a, m0=t19a
+    SUMSUB_MUL           2, 4, 6, 7, 14811,  7005   ; m2=t29a, m4=t18a ; PIC
+    SUMSUB_MUL           5, 0, 6, 7,  5520, 15426   ; m5=t28a, m0=t19a ; PIC
     SUMSUB_BA         d, 4, 0, 6                    ; m4=t19, m0=t18
     SUMSUB_BA         d, 2, 5, 6                    ; m2=t28, m5=t29
-    SUMSUB_MUL           5, 0, 6, 7,  3196, m16069  ; m5=t29a, m0=t18a
+    SUMSUB_MUL           5, 0, 6, 7,  3196, m16069  ; m5=t29a, m0=t18a ; PIC
 
     ; end of stage 1-3 second quart
 
@@ -1781,8 +1805,8 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mova  [rsp+274*mmsize], m0
     SUMSUB_BA         d, 2, 7, 0                    ; m2=t31a, m7=t28a
     SUMSUB_BA         d, 5, 6, 0                    ; m5=t30, m6=t29
-    SUMSUB_MUL           6, 3, 0, 4, 15137,  6270   ; m6=t29a, m3=t18a
-    SUMSUB_MUL           7, 1, 0, 4, 15137,  6270   ; m7=t28, m1=t19
+    SUMSUB_MUL           6, 3, 0, 4, 15137,  6270   ; m6=t29a, m3=t18a ; PIC
+    SUMSUB_MUL           7, 1, 0, 4, 15137,  6270   ; m7=t28, m1=t19   ; PIC
     SCRATCH              3, 10, rsp+277*mmsize
     SCRATCH              1, 11, rsp+278*mmsize
     SCRATCH              7, 12, rsp+279*mmsize
@@ -1796,11 +1820,11 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mova                m1, [%2+11*%3]              ; in11
     mova                m2, [%2+21*%3]              ; in21
     mova                m3, [%2+27*%3]              ; in27
-    SUMSUB_MUL           0, 3, 4, 5, 15893,  3981   ; m0=t27a, m3=t20a
-    SUMSUB_MUL           2, 1, 4, 5,  8423, 14053   ; m2=t26a, m1=t21a
+    SUMSUB_MUL           0, 3, 4, 5, 15893,  3981   ; m0=t27a, m3=t20a ; PIC
+    SUMSUB_MUL           2, 1, 4, 5,  8423, 14053   ; m2=t26a, m1=t21a ; PIC
     SUMSUB_BA         d, 1, 3, 4                    ; m1=t20, m3=t21
     SUMSUB_BA         d, 2, 0, 4                    ; m2=t27, m0=t26
-    SUMSUB_MUL           0, 3, 4, 5,  9102, 13623   ; m0=t26a, m3=t21a
+    SUMSUB_MUL           0, 3, 4, 5,  9102, 13623   ; m0=t26a, m3=t21a ; PIC
     SCRATCH              0, 8, rsp+275*mmsize
     SCRATCH              2, 9, rsp+276*mmsize
 
@@ -1810,11 +1834,11 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mova                m2, [%2+13*%3]              ; in13
     mova                m4, [%2+19*%3]              ; in19
     mova                m5, [%2+29*%3]              ; in29
-    SUMSUB_MUL           2, 4, 6, 7, 13160,  9760   ; m2=t25a, m4=t22a
-    SUMSUB_MUL           5, 0, 6, 7,  2404, 16207   ; m5=t24a, m0=t23a
+    SUMSUB_MUL           2, 4, 6, 7, 13160,  9760   ; m2=t25a, m4=t22a ; PIC
+    SUMSUB_MUL           5, 0, 6, 7,  2404, 16207   ; m5=t24a, m0=t23a ; PIC
     SUMSUB_BA         d, 4, 0, 6                    ; m4=t23, m0=t22
     SUMSUB_BA         d, 2, 5, 6                    ; m2=t24, m5=t25
-    SUMSUB_MUL           5, 0, 6, 7, 13623, m9102   ; m5=t25a, m0=t22a
+    SUMSUB_MUL           5, 0, 6, 7, 13623, m9102   ; m5=t25a, m0=t22a ; PIC
 
     ; end of stage 1-3 fourth quart
 
@@ -1826,8 +1850,8 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     SCRATCH              1, 9, rsp+276*mmsize
     SUMSUB_BA         d, 7, 2, 1                    ; m7=t24a, m2=t27a
     SUMSUB_BA         d, 6, 5, 1                    ; m6=t25, m5=t26
-    SUMSUB_MUL           2, 4, 1, 3,  6270, m15137  ; m2=t27, m4=t20
-    SUMSUB_MUL           5, 0, 1, 3,  6270, m15137  ; m5=t26a, m0=t21a
+    SUMSUB_MUL           2, 4, 1, 3,  6270, m15137  ; m2=t27, m4=t20   ; PIC
+    SUMSUB_MUL           5, 0, 1, 3,  6270, m15137  ; m5=t26a, m0=t21a ; PIC
 
     ; end of stage 4-5 second half
 
@@ -1871,14 +1895,17 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     UNSCRATCH            4, 11, rsp+278*mmsize      ; t25a
     SCRATCH              1, 10, rsp+277*mmsize
     SCRATCH              3, 11, rsp+278*mmsize
-    SUMSUB_MUL           0, 2, 1, 3, 11585, 11585   ; m0=t24a, m2=t23a
-    SUMSUB_MUL           4, 5, 1, 3, 11585, 11585   ; m4=t25, m5=t22
+    SUMSUB_MUL           0, 2, 1, 3, 11585, 11585   ; m0=t24a, m2=t23a ; PIC
+    SUMSUB_MUL           4, 5, 1, 3, 11585, 11585   ; m4=t25, m5=t22   ; PIC
     UNSCRATCH            1, 12, rsp+279*mmsize      ; t26
     UNSCRATCH            3, 13, rsp+280*mmsize      ; t27a
     SCRATCH              0, 12, rsp+279*mmsize
     SCRATCH              4, 13, rsp+280*mmsize
-    SUMSUB_MUL           3, 7, 0, 4, 11585, 11585   ; m3=t27, m7=t20
-    SUMSUB_MUL           1, 6, 0, 4, 11585, 11585   ; m1=t26a, m6=t21a
+    SUMSUB_MUL           3, 7, 0, 4, 11585, 11585   ; m3=t27, m7=t20   ; PIC
+    SUMSUB_MUL           1, 6, 0, 4, 11585, 11585   ; m1=t26a, m6=t21a ; PIC
+%if %1 == 1
+    PIC_END
+%endif
 
     ; end of stage 7
 
@@ -1896,25 +1923,25 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
 
 %if %1 == 1
     TRANSPOSE4x4D        2, 5, 6, 7, 0
-    mova  [ptrq+ 2*mmsize], m2
+    mova  [ptrq+ 2*mmsize], m2 ; ptrq
     mova  [ptrq+10*mmsize], m5
     mova  [ptrq+18*mmsize], m6
     mova  [ptrq+26*mmsize], m7
 %else ; %1 == 2
     pxor                m0, m0
     lea               dstq, [dstq+strideq*8]
-    ROUND_AND_STORE_4x4  2, 5, 6, 7, m0, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  2, 5, 6, 7, m0, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %endif
     mova                m2, [rsp+271*mmsize]
 %if %1 == 1
     TRANSPOSE4x4D        1, 3, 4, 2, 0
-    mova  [ptrq+ 5*mmsize], m1
+    mova  [ptrq+ 5*mmsize], m1 ; ptrq
     mova  [ptrq+13*mmsize], m3
     mova  [ptrq+21*mmsize], m4
     mova  [ptrq+29*mmsize], m2
 %else ; %1 == 2
     lea               dstq, [dstq+stride3q*4]
-    ROUND_AND_STORE_4x4  1, 3, 4, 2, m0, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  1, 3, 4, 2, m0, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %endif
 
     ; end of last stage + store for out8-11 and out20-23
@@ -1948,7 +1975,7 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mov               dstq, dstm
     lea               dstq, [dstq+stride3q*4]
 %endif
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %endif
     UNSCRATCH            0, 8, rsp+275*mmsize       ; out19
 %if %1 == 1
@@ -1959,7 +1986,7 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mova  [ptrq+28*mmsize], m0
 %else ; %1 == 2
     lea               dstq, [dstq+strideq*4]
-    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %endif
 
     ; end of last stage + store for out12-19
@@ -1994,7 +2021,7 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     pxor                m0, m0
 %endif
     lea               dstq, [dstq+stride3q*4]
-    ROUND_AND_STORE_4x4  4, 5, 6, 7, m0, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  4, 5, 6, 7, m0, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %endif
     UNSCRATCH            7, 9, rsp+276*mmsize       ; out0
 %if %1 == 1
@@ -2009,7 +2036,7 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
 %else ; x86-32
     mov               dstq, dstm
 %endif
-    ROUND_AND_STORE_4x4  7, 1, 2, 3, m0, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  7, 1, 2, 3, m0, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %if ARCH_X86_64
     DEFINE_ARGS dst, stride, block, cnt, ptr, stride3, dstbak
 %endif
@@ -2048,7 +2075,7 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     pxor                m7, m7
     lea               dstq, [dstq+strideq*4]
 %endif
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m7, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
 %endif
     UNSCRATCH            0, 9, rsp+276*mmsize       ; out27
 %if %1 == 1
@@ -2064,12 +2091,14 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     mov               dstq, dstm
     lea               dstq, [dstq+stride3q*8]
 %endif
-    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, [rsp+256*mmsize], [pd_32], 6
+    ROUND_AND_STORE_4x4  4, 5, 6, 0, m7, [rsp+256*mmsize], [pic(pd_32)], 6 ; dstq,strideq,stride3q; PIC
+    PIC_END
 %endif
 
     ; end of last stage + store for out4-7 and out24-27
 %endmacro
 
+; TODO
 INIT_XMM sse2
 cglobal vp9_idct_idct_32x32_add_10, 4, 6 + ARCH_X86_64, 16, \
                                     275 * mmsize + ARCH_X86_32 * 8 * mmsize, \
