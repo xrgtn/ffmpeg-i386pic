@@ -1415,21 +1415,22 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     PIC_FREE
     RET
 
-; TODO
 ; r65-69 are available for spills
 ; r70-77 are available on x86-32 only (x86-64 should use m8-15)
 ; output should be in m8-11|r70-73, m0-6,r65 and m12-15|r74-77
-%macro IADST16_1D 1 ; src
+%macro IADST16_1D 1 ; src ; [rsp+], PIC
     mova                m0, [%1+ 0*4*mmsize]        ; in0
     mova                m1, [%1+ 7*4*mmsize]        ; in7
     mova                m2, [%1+ 8*4*mmsize]        ; in8
     mova                m3, [%1+15*4*mmsize]        ; in15
-    SUMSUB_MUL_D         3, 0, 4, 5, 16364,  804    ; m3/4=t0, m0/5=t1
-    SUMSUB_MUL_D         1, 2, 6, 7, 11003, 12140   ; m1/6=t8, m2/7=t9
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,"[rsp+75*mmsize]"
+    SUMSUB_MUL_D         3, 0, 4, 5, 16364,  804    ; m3/4=t0, m0/5=t1 ; PIC
+    SUMSUB_MUL_D         1, 2, 6, 7, 11003, 12140   ; m1/6=t8, m2/7=t9 ; PIC
     SCRATCH              0, 8, rsp+70*mmsize
-    SUMSUB_PACK_D        1, 3, 6, 4, 0              ; m1=t0a, m3=t8a
+    SUMSUB_PACK_D        1, 3, 6, 4, 0              ; m1=t0a, m3=t8a   ; PIC
     UNSCRATCH            0, 8, rsp+70*mmsize
-    SUMSUB_PACK_D        2, 0, 7, 5, 4              ; m2=t1a, m0=t9a
+    SUMSUB_PACK_D        2, 0, 7, 5, 4              ; m2=t1a, m0=t9a   ; PIC
     mova   [rsp+67*mmsize], m1
     SCRATCH              2, 9, rsp+71*mmsize
     SCRATCH              3, 12, rsp+74*mmsize
@@ -1439,23 +1440,23 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     mova                m1, [%1+ 4*4*mmsize]        ; in4
     mova                m2, [%1+11*4*mmsize]        ; in11
     mova                m3, [%1+12*4*mmsize]        ; in12
-    SUMSUB_MUL_D         2, 1, 4, 5, 14811,  7005   ; m2/4=t4, m1/5=t5
-    SUMSUB_MUL_D         0, 3, 6, 7,  5520, 15426   ; m0/6=t12, m3/7=t13
+    SUMSUB_MUL_D         2, 1, 4, 5, 14811,  7005   ; m2/4=t4, m1/5=t5 ; PIC
+    SUMSUB_MUL_D         0, 3, 6, 7,  5520, 15426   ; m0/6=t12, m3/7=t13 ; PIC
     SCRATCH              1, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        0, 2, 6, 4, 1              ; m0=t4a, m2=t12a
+    SUMSUB_PACK_D        0, 2, 6, 4, 1              ; m0=t4a, m2=t12a  ; PIC
     UNSCRATCH            1, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        3, 1, 7, 5, 4              ; m3=t5a, m1=t13a
+    SUMSUB_PACK_D        3, 1, 7, 5, 4              ; m3=t5a, m1=t13a  ; PIC
     SCRATCH              0, 15, rsp+77*mmsize
     SCRATCH              3, 11, rsp+73*mmsize
 
     UNSCRATCH            0, 12, rsp+74*mmsize       ; t8a
     UNSCRATCH            3, 13, rsp+75*mmsize       ; t9a
-    SUMSUB_MUL_D         0, 3, 4, 5, 16069,  3196   ; m0/4=t8, m3/5=t9
-    SUMSUB_MUL_D         1, 2, 6, 7,  3196, 16069   ; m1/6=t13, m2/7=t12
+    SUMSUB_MUL_D         0, 3, 4, 5, 16069,  3196   ; m0/4=t8, m3/5=t9 ; PIC
+    SUMSUB_MUL_D         1, 2, 6, 7,  3196, 16069   ; m1/6=t13, m2/7=t12 ; PIC
     SCRATCH              1, 12, rsp+74*mmsize
-    SUMSUB_PACK_D        2, 0, 7, 4, 1              ; m2=t8a, m0=t12a
+    SUMSUB_PACK_D        2, 0, 7, 4, 1              ; m2=t8a, m0=t12a  ; PIC
     UNSCRATCH            1, 12, rsp+74*mmsize
-    SUMSUB_PACK_D        1, 3, 6, 5, 4              ; m1=t9a, m3=t13a
+    SUMSUB_PACK_D        1, 3, 6, 5, 4              ; m1=t9a, m3=t13a  ; PIC
     mova   [rsp+65*mmsize], m2
     mova   [rsp+66*mmsize], m1
     SCRATCH              0, 8, rsp+70*mmsize
@@ -1465,12 +1466,12 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     mova                m1, [%1+ 5*4*mmsize]        ; in5
     mova                m2, [%1+10*4*mmsize]        ; in10
     mova                m3, [%1+13*4*mmsize]        ; in13
-    SUMSUB_MUL_D         3, 0, 4, 5, 15893,  3981   ; m3/4=t2, m0/5=t3
-    SUMSUB_MUL_D         1, 2, 6, 7,  8423, 14053   ; m1/6=t10, m2/7=t11
+    SUMSUB_MUL_D         3, 0, 4, 5, 15893,  3981   ; m3/4=t2, m0/5=t3 ; PIC
+    SUMSUB_MUL_D         1, 2, 6, 7,  8423, 14053   ; m1/6=t10, m2/7=t11 ; PIC
     SCRATCH              0, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        1, 3, 6, 4, 0              ; m1=t2a, m3=t10a
+    SUMSUB_PACK_D        1, 3, 6, 4, 0              ; m1=t2a, m3=t10a  ; PIC
     UNSCRATCH            0, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        2, 0, 7, 5, 4              ; m2=t3a, m0=t11a
+    SUMSUB_PACK_D        2, 0, 7, 5, 4              ; m2=t3a, m0=t11a  ; PIC
     mova   [rsp+68*mmsize], m1
     mova   [rsp+69*mmsize], m2
     SCRATCH              3, 13, rsp+75*mmsize
@@ -1480,35 +1481,35 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     mova                m1, [%1+ 6*4*mmsize]        ; in6
     mova                m2, [%1+ 9*4*mmsize]        ; in9
     mova                m3, [%1+14*4*mmsize]        ; in14
-    SUMSUB_MUL_D         2, 1, 4, 5, 13160,  9760   ; m2/4=t6, m1/5=t7
-    SUMSUB_MUL_D         0, 3, 6, 7,  2404, 16207   ; m0/6=t14, m3/7=t15
+    SUMSUB_MUL_D         2, 1, 4, 5, 13160,  9760   ; m2/4=t6, m1/5=t7 ; PIC
+    SUMSUB_MUL_D         0, 3, 6, 7,  2404, 16207   ; m0/6=t14, m3/7=t15 ; PIC
     SCRATCH              1, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        0, 2, 6, 4, 1              ; m0=t6a, m2=t14a
+    SUMSUB_PACK_D        0, 2, 6, 4, 1              ; m0=t6a, m2=t14a  ; PIC
     UNSCRATCH            1, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        3, 1, 7, 5, 4              ; m3=t7a, m1=t15a
+    SUMSUB_PACK_D        3, 1, 7, 5, 4              ; m3=t7a, m1=t15a  ; PIC
 
     UNSCRATCH            4, 13, rsp+75*mmsize       ; t10a
     UNSCRATCH            5, 14, rsp+76*mmsize       ; t11a
     SCRATCH              0, 13, rsp+75*mmsize
     SCRATCH              3, 14, rsp+76*mmsize
-    SUMSUB_MUL_D         4, 5, 6, 7,  9102, 13623   ; m4/6=t10, m5/7=t11
-    SUMSUB_MUL_D         1, 2, 0, 3, 13623,  9102   ; m1/0=t15, m2/3=t14
+    SUMSUB_MUL_D         4, 5, 6, 7,  9102, 13623   ; m4/6=t10, m5/7=t11 ; PIC
+    SUMSUB_MUL_D         1, 2, 0, 3, 13623,  9102   ; m1/0=t15, m2/3=t14 ; PIC
     SCRATCH              0, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        2, 4, 3, 6, 0              ; m2=t10a, m4=t14a
+    SUMSUB_PACK_D        2, 4, 3, 6, 0              ; m2=t10a, m4=t14a ; PIC
     UNSCRATCH            0, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        1, 5, 0, 7, 6              ; m1=t11a, m5=t15a
+    SUMSUB_PACK_D        1, 5, 0, 7, 6              ; m1=t11a, m5=t15a ; PIC
 
     UNSCRATCH            0, 8, rsp+70*mmsize        ; t12a
     UNSCRATCH            3, 12, rsp+74*mmsize       ; t13a
     SCRATCH              2, 8, rsp+70*mmsize
     SCRATCH              1, 12, rsp+74*mmsize
-    SUMSUB_MUL_D         0, 3, 1, 2, 15137,  6270   ; m0/1=t12, m3/2=t13
-    SUMSUB_MUL_D         5, 4, 7, 6,  6270, 15137   ; m5/7=t15, m4/6=t14
+    SUMSUB_MUL_D         0, 3, 1, 2, 15137,  6270   ; m0/1=t12, m3/2=t13 ; PIC
+    SUMSUB_MUL_D         5, 4, 7, 6,  6270, 15137   ; m5/7=t15, m4/6=t14 ; PIC
     SCRATCH              2, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        4, 0, 6, 1, 2              ; m4=out2, m0=t14a
+    SUMSUB_PACK_D        4, 0, 6, 1, 2              ; m4=out2, m0=t14a ; PIC
     UNSCRATCH            2, 10, rsp+72*mmsize
-    SUMSUB_PACK_D        5, 3, 7, 2, 1              ; m5=-out13, m3=t15a
-    NEGD                m5                          ; m5=out13
+    SUMSUB_PACK_D        5, 3, 7, 2, 1              ; m5=-out13, m3=t15a ; PIC
+    NEGD                m5                          ; m5=out13         ; PIC
 
     UNSCRATCH            1, 9, rsp+71*mmsize        ; t1a
     mova                m2, [rsp+68*mmsize]         ; t2a
@@ -1531,13 +1532,13 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     mova   [rsp+67*mmsize], m5
     mova   [rsp+68*mmsize], m6
     mova   [rsp+69*mmsize], m7
-    SUMSUB_MUL_D         0, 1, 4, 5, 15137,  6270   ; m0/4=t4a, m1/5=t5a
-    SUMSUB_MUL_D         3, 2, 7, 6,  6270, 15137   ; m3/7=t7a, m2/6=t6a
+    SUMSUB_MUL_D         0, 1, 4, 5, 15137,  6270   ; m0/4=t4a, m1/5=t5a ; PIC
+    SUMSUB_MUL_D         3, 2, 7, 6,  6270, 15137   ; m3/7=t7a, m2/6=t6a ; PIC
     SCRATCH              1, 11, rsp+73*mmsize
-    SUMSUB_PACK_D        2, 0, 6, 4, 1              ; m2=-out3, m0=t6
-    NEGD                m2                          ; m2=out3
+    SUMSUB_PACK_D        2, 0, 6, 4, 1              ; m2=-out3, m0=t6  ; PIC
+    NEGD                m2                          ; m2=out3          ; PIC
     UNSCRATCH            1, 11, rsp+73*mmsize
-    SUMSUB_PACK_D        3, 1, 7, 5, 4              ; m3=out12, m1=t7
+    SUMSUB_PACK_D        3, 1, 7, 5, 4              ; m3=out12, m1=t7  ; PIC
     SCRATCH              2, 11, rsp+73*mmsize
     UNSCRATCH            2, 12, rsp+74*mmsize       ; t11a
     SCRATCH              3, 12, rsp+74*mmsize
@@ -1546,18 +1547,18 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     mova                m4, [rsp+65*mmsize]         ; t8a
     mova                m5, [rsp+66*mmsize]         ; t9a
     SUMSUB_BA         d, 3, 4, 6                    ; m3=-out1, m4=t10
-    NEGD                m3                          ; m3=out1
+    NEGD                m3                          ; m3=out1          ; PIC
     SUMSUB_BA         d, 2, 5, 6                    ; m2=out14, m5=t11
     UNSCRATCH            6, 9, rsp+71*mmsize        ; t0
     UNSCRATCH            7, 14, rsp+76*mmsize       ; t14a
     SCRATCH              3, 9, rsp+71*mmsize
     SCRATCH              2, 14, rsp+76*mmsize
 
-    SUMSUB_MUL           1, 0, 2, 3, 11585, 11585   ; m1=out4, m0=out11
+    SUMSUB_MUL           1, 0, 2, 3, 11585, 11585   ; m1=out4, m0=out11 ; PIC
     mova   [rsp+65*mmsize], m0
-    SUMSUB_MUL           5, 4, 2, 3, 11585, 11585   ; m5=out6, m4=out9
+    SUMSUB_MUL           5, 4, 2, 3, 11585, 11585   ; m5=out6, m4=out9 ; PIC
     UNSCRATCH            0, 15, rsp+77*mmsize       ; t15a
-    SUMSUB_MUL           7, 0, 2, 3, 11585, m11585  ; m7=out10, m0=out5
+    SUMSUB_MUL           7, 0, 2, 3, 11585, m11585  ; m7=out10, m0=out5 ; PIC
 
     mova                m2, [rsp+68*mmsize]         ; t2
     SUMSUB_BA         d, 2, 6, 3                    ; m2=out0, m6=t2a
@@ -1566,15 +1567,17 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     mova                m3, [rsp+69*mmsize]         ; t3
     mova   [rsp+67*mmsize], m7
     SUMSUB_BA         d, 3, 2, 7                    ; m3=-out15, m2=t3a
-    NEGD                m3                          ; m3=out15
+    NEGD                m3                          ; m3=out15         ; PIC
     SCRATCH              3, 15, rsp+77*mmsize
-    SUMSUB_MUL           6, 2, 7, 3, 11585, m11585  ; m6=out8, m2=out7
+    SUMSUB_MUL           6, 2, 7, 3, 11585, m11585  ; m6=out8, m2=out7 ; PIC
+    PIC_END
     mova                m7, [rsp+67*mmsize]
 
     SWAP                 0, 1
     SWAP                 2, 5, 4, 6, 7, 3
 %endmacro
 
+; TODO
 %macro IADST16_FN 7
 cglobal vp9_%1_%4_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
                                 70 * mmsize + ARCH_X86_32 * 8 * mmsize, \
