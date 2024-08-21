@@ -728,7 +728,7 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     ; ff_vp9_idct_idct_8x8_add_12_SUFFIX, thus we make both of them to expect
     ; "PIC_ALLOC + PIC_BEGIN r5,0" context at this point:
 .idctfull:
-    SCRATCH              0, 12, rsp+16*mmsize, max
+    SCRATCH              0, 12, rsp+16*mmsize, max ; def reg_max
     DEFINE_ARGS dst, stride, block, cnt, ptr, skip, dstbak
 %if ARCH_X86_64
     mov            dstbakq, dstq
@@ -737,21 +737,21 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
 %if i386pic
     ; eobq > 1: eobq => cntq
     movzx             cntd, byte [pic(default_8x8)+cntq-1]
-    PIC_END ; r5/skipq, no-save
 %elifdef PIC
     lea               ptrq, [default_8x8]
     movzx             cntd, byte [ptrq+cntq-1]
 %else
     movzx             cntd, byte [default_8x8+cntq-1]
 %endif
+    PIC_END ; r5/skipq, no-save
     mov              skipd, 2 ; r5/skipq initialized here
     sub              skipd, cntd
     mov               ptrq, rsp
     PIC_BEGIN dstq, 1 ; dstq/r0 is not used inside .loop_1: & .loop_z:
     CHECK_REG_COLLISION "rpic","strideq","blockq","cntq","ptrq","skipq"
-    PRELOAD             10, pic(pd_8192), rnd
-    PRELOAD             11, pic(pd_3fff), mask
-    PRELOAD             13, pic(pd_16), srnd
+    PRELOAD             10, pic(pd_8192), rnd  ; def reg_rnd
+    PRELOAD             11, pic(pd_3fff), mask ; def reg_mask
+    PRELOAD             13, pic(pd_16), srnd   ; def reg_srnd
 .loop_1:
     IDCT8_1D        blockq, reg_rnd, reg_mask ; blockq,[rsp+]; PIC
 
@@ -793,12 +793,13 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     mov               cntd, 2
     mov               ptrq, rsp
     PIC_BEGIN blockq ; blockq is not used inside .loop2:
-    CHECK_REG_COLLISION "rpic","dstq","strideq","cntq","ptrq","stride3q","dstm"
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,\
+        "cntq","ptrq","stride3q","dstm"
 .loop_2:
     IDCT8_1D          ptrq, reg_rnd, reg_mask ; ptrq,[rsp+]; PIC
 
     pxor                m6, m6
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m6, reg_max, reg_srnd, 5 ; dstq,strideq,stride3q
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m6, reg_max, reg_srnd, 5 ; dstq,strideq,stride3q; PIC
     lea               dstq, [dstq+strideq*4]
     UNSCRATCH            0, 8, rsp+17*mmsize
     UNSCRATCH            1, 12, rsp+16*mmsize, max ; undef reg_max
@@ -929,7 +930,7 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
 
 ; the following line has not been executed at the end of this macro:
 ; UNSCRATCH            6, 8, rsp+17*mmsize
-%macro IADST8_1D 1-3 [pic(pd_8192)], [pic(pd_3fff)] ; src, rnd, mask
+%macro IADST8_1D 1-3 [pic(pd_8192)], [pic(pd_3fff)] ; src, rnd, mask ; [rsp+], PIC
     mova                m0, [%1+ 0*mmsize]
     mova                m3, [%1+ 6*mmsize]
     mova                m4, [%1+ 8*mmsize]
@@ -994,33 +995,43 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     SWAP                 2, 7, 6
 %endmacro
 
-; TODO
 %macro IADST8_FN 5
 cglobal vp9_%1_%3_8x8_add_10, 4, 6 + ARCH_X86_64, 16, \
                               16 * mmsize + ARCH_X86_32 * 6 * mmsize, \
                               dst, stride, block, eob
-    mova                m0, [pw_1023]
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 is pushed by PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_1023)]
 
 .body:
-    SCRATCH              0, 13, rsp+16*mmsize, max
+    SCRATCH              0, 13, rsp+16*mmsize, max ; def reg_max
     DEFINE_ARGS dst, stride, block, cnt, ptr, skip, dstbak
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","cntq","ptrq",,\
+        "[rsp+16*mmsize]"
 %if ARCH_X86_64
     mov            dstbakq, dstq
     movsxd            cntq, cntd
 %endif
-%ifdef PIC
+%if i386pic
+    movzx             cntd, byte [pic(%5_8x8)+cntq-1]
+%elifdef PIC
     lea               ptrq, [%5_8x8]
     movzx             cntd, byte [ptrq+cntq-1]
 %else
     movzx             cntd, byte [%5_8x8+cntq-1]
 %endif
-    mov              skipd, 2
+    PIC_END ; r5/skipq, no-save
+    mov              skipd, 2 ; r5/skipq is initialzed here
     sub              skipd, cntd
     mov               ptrq, rsp
-    PRELOAD             14, pd_8192, rnd
-    PRELOAD             15, pd_3fff, mask
+    PIC_BEGIN dstq, 1 ; dstq/r0 is not used inside .loop_1: & .loop_z:
+    CHECK_REG_COLLISION "rpic",,"strideq","blockq","cntq","ptrq","skipq",\
+        "[rsp+16*mmsize]","[rsp]"
+    PRELOAD             14, pic(pd_8192), rnd  ; def reg_rnd
+    PRELOAD             15, pic(pd_3fff), mask ; def reg_mask
 .loop_1:
-    %2_1D           blockq, reg_rnd, reg_mask
+    %2_1D           blockq, reg_rnd, reg_mask ; blockq,[rsp+]; PIC
 
     TRANSPOSE4x4D        0, 1, 2, 3, 6
     mova  [ptrq+ 0*mmsize], m0
@@ -1037,6 +1048,7 @@ cglobal vp9_%1_%3_8x8_add_10, 4, 6 + ARCH_X86_64, 16, \
     add             blockq, mmsize
     dec               cntd
     jg .loop_1
+    PIC_END ; dstq/r0, save/restore
 
     ; zero-pad the remainder (skipped cols)
     test             skipd, skipd
@@ -1058,17 +1070,20 @@ cglobal vp9_%1_%3_8x8_add_10, 4, 6 + ARCH_X86_64, 16, \
     lea           stride3q, [strideq*3]
     mov               cntd, 2
     mov               ptrq, rsp
+    PIC_BEGIN blockq ; blockq is not used inside .loop2:
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,\
+        "cntq","ptrq","stride3q","dstm"
 .loop_2:
-    %4_1D             ptrq, reg_rnd, reg_mask
+    %4_1D             ptrq, reg_rnd, reg_mask ; ptrq,[rsp+]; PIC
 
     pxor                m6, m6
-    PRELOAD              9, pd_16, srnd
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m6, reg_max, reg_srnd, 5
+    PRELOAD              9, pic(pd_16), srnd       ; def reg_srnd
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m6, reg_max, reg_srnd, 5 ; dstq,strideq,stride3q; PIC
     lea               dstq, [dstq+strideq*4]
     UNSCRATCH            0, 8, rsp+17*mmsize
-    UNSCRATCH            1, 13, rsp+16*mmsize, max
-    UNSCRATCH            2, 9, pd_16, srnd
-    ROUND_AND_STORE_4x4  4, 5, 0, 7, m6, m1, m2, 5
+    UNSCRATCH            1, 13, rsp+16*mmsize, max ; undef reg_max
+    UNSCRATCH            2, 9, pic(pd_16), srnd    ; undef reg_srnd
+    ROUND_AND_STORE_4x4  4, 5, 0, 7, m6, m1, m2, 5 ; dstq,strideq,stride3q
     add               ptrq, 16
 %if ARCH_X86_64
     lea               dstq, [dstbakq+8]
@@ -1078,16 +1093,24 @@ cglobal vp9_%1_%3_8x8_add_10, 4, 6 + ARCH_X86_64, 16, \
 %endif
     dec               cntd
     jg .loop_2
+    PIC_END ; blockq/r2, save/restore
 
     ; m6 is still zero
     ZERO_BLOCK blockq-2*mmsize, 32, 8, m6
+    PIC_FREE
     RET
 
 cglobal vp9_%1_%3_8x8_add_12, 4, 6 + ARCH_X86_64, 16, \
                               16 * mmsize + ARCH_X86_32 * 6 * mmsize, \
                               dst, stride, block, eob
-    mova                m0, [pw_4095]
+    PIC_CONTEXT_PUSH
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 is pushed by PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_4095)]
+    ; jump destination expects "PIC_ALLOC + PIC_BEGIN r5, 0" context:
     jmp mangle(private_prefix %+ _ %+ vp9_%1_%3_8x8_add_10 %+ SUFFIX).body
+    PIC_CONTEXT_POP ; no "unbalanced PIC", no "invalid PIC alloc state"
 %endmacro
 
 INIT_XMM sse2
@@ -1095,6 +1118,7 @@ IADST8_FN idct,  IDCT8,  iadst, IADST8, row
 IADST8_FN iadst, IADST8, idct,  IDCT8,  col
 IADST8_FN iadst, IADST8, iadst, IADST8, default
 
+; TODO
 %macro IDCT16_1D 1-4 4 * mmsize, 65, 67 ; src, src_stride, stack_offset, mm32bit_stack_offset
     IDCT8_1D            %1, [pd_8192], [pd_3fff], %2 * 2, %4    ; m0-3=t0-3a, m4-5/m8|r67/m7=t4-7
     ; SCRATCH            6, 8, rsp+(%4+0)*mmsize    ; t6
