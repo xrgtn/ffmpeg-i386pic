@@ -886,7 +886,7 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
 ;
 ; dst1[hi]:dst3[lo] = src1 * coef1 + src2 * coef2
 ; dst2[hi]:dst4[lo] = src1 * coef2 - src2 * coef1
-%macro SUMSUB_MUL_D 6-7 [pic(pd_3fff)] ; src/dst 1-2, dst3-4, coef1-2, mask
+%macro SUMSUB_MUL_D 6-7 [pic(pd_3fff)] ; src/dst 1-2, dst3-4, coef1-2, mask ; PIC
     PIC_BEGIN r4
     pand               m%3, m%1, %7 ; PIC*
     pand               m%4, m%2, %7 ; PIC*
@@ -903,29 +903,31 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     PIC_END
 %endmacro
 
-; TODO
 ; dst1 = src2[hi]:src4[lo] + src1[hi]:src3[lo] + rnd >> 14
 ; dst2 = src2[hi]:src4[lo] - src1[hi]:src3[lo] + rnd >> 14
-%macro SUMSUB_PACK_D 5-6 [pd_8192] ; src/dst 1-2, src3-4, tmp, rnd
+%macro SUMSUB_PACK_D 5-6 [pic(pd_8192)] ; src/dst 1-2, src3-4, tmp, rnd ; PIC*
     SUMSUB_BA        d, %1, %2, %5
     SUMSUB_BA        d, %3, %4, %5
-    paddd              m%3, %6
-    paddd              m%4, %6
+    paddd              m%3, %6 ; PIC*
+    paddd              m%4, %6 ; PIC*
     psrad              m%3, 14
     psrad              m%4, 14
     paddd              m%1, m%3
     paddd              m%2, m%4
 %endmacro
 
-%macro NEGD 1
+%macro NEGD 1 ; PIC
+    PIC_BEGIN r4
 %if cpuflag(ssse3)
-    psignd              %1, [pw_m1]
+    psignd              %1, [pic(pw_m1)]
 %else
-    pxor                %1, [pw_m1]
-    paddd               %1, [pd_1]
+    pxor                %1, [pic(pw_m1)]
+    paddd               %1, [pic(pd_1)]
 %endif
+    PIC_END
 %endmacro
 
+; TODO
 ; the following line has not been executed at the end of this macro:
 ; UNSCRATCH            6, 8, rsp+17*mmsize
 %macro IADST8_1D 1-3 [pd_8192], [pd_3fff] ; src, rnd, mask
