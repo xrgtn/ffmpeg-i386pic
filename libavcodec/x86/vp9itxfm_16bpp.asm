@@ -1398,7 +1398,6 @@ cglobal vp9_idct_idct_16x16_add_12, 4, 6 + ARCH_X86_64, 16, \
     ; dc-only - unfortunately, this one can overflow, since coefs are 19+sign
     ; bpp, and 19+14+sign does not fit in 32bit, so we do 2-stage multiplies
     DEFINE_ARGS dst, stride, block, coef, coefl
-    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","coefq","coeflq"
     pxor                m2, m2
     DC_ONLY_64BIT        6, m2 ; blockq,cntq,coefq,coeflq
     movd                m1, coefd
@@ -2098,12 +2097,14 @@ IADST16_FN iadst, IADST16, 70, iadst, IADST16, 70, default
     ; end of last stage + store for out4-7 and out24-27
 %endmacro
 
-; TODO
 INIT_XMM sse2
 cglobal vp9_idct_idct_32x32_add_10, 4, 6 + ARCH_X86_64, 16, \
                                     275 * mmsize + ARCH_X86_32 * 8 * mmsize, \
                                     dst, stride, block, eob
-    mova                m0, [pw_1023]
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 pushed in PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_1023)]
     cmp               eobd, 1
     jg .idctfull
 
@@ -2112,7 +2113,7 @@ cglobal vp9_idct_idct_32x32_add_10, 4, 6 + ARCH_X86_64, 16, \
     ; fits in 32bit
     DEFINE_ARGS dst, stride, block, coef
     pxor                m2, m2
-    DC_ONLY              6, m2
+    DC_ONLY              6, m2 ; coefq,blockq
     movd                m1, coefd
     pshuflw             m1, m1, q0000
     punpcklqdq          m1, m1
@@ -2124,31 +2125,44 @@ cglobal vp9_idct_idct_32x32_add_10, 4, 6 + ARCH_X86_64, 16, \
     add               dstq, strideq
     dec               cntd
     jg .loop_dc
+    PIC_CONTEXT_PUSH
+    PIC_END ; r5, no-save
+    PIC_FREE
     RET
+    PIC_CONTEXT_POP
 
 .idctfull:
     mova  [rsp+256*mmsize], m0
     DEFINE_ARGS dst, stride, block, cnt, ptr, skip, dstbak
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","cntq","ptrq",,\
+        "[rsp+256*mmsize]" ; rpic: r5/skipq
 %if ARCH_X86_64
     mov            dstbakq, dstq
     movsxd            cntq, cntd
 %endif
-%ifdef PIC
+%if i386pic
+    movzx             cntd, byte [pic(default_32x32)+cntq-1]
+%elifdef PIC
     lea               ptrq, [default_32x32]
     movzx             cntd, byte [ptrq+cntq-1]
 %else
     movzx             cntd, byte [default_32x32+cntq-1]
 %endif
+    PIC_END ; r5/skipq, no-save
     mov              skipd, 8
     sub              skipd, cntd
     mov               ptrq, rsp
+    PIC_BEGIN dstq, 1 ; dstq/r0 is not used inside .loop_1: & .loop_z:
+    CHECK_REG_COLLISION "rpic",,"strideq","blockq","cntq","ptrq","skipq",\
+        "[rsp+256*mmsize]","[rsp]" ; rpic: r0/dstq
 .loop_1:
-    IDCT32_1D            1, blockq
+    IDCT32_1D            1, blockq ; blockq,ptrq,[rsp+]; PIC
 
     add               ptrq, 32 * mmsize
     add             blockq, mmsize
     dec               cntd
     jg .loop_1
+    PIC_END ; dstq/r0, save/restore
 
     ; zero-pad the remainder (skipped cols)
     test             skipd, skipd
@@ -2174,8 +2188,11 @@ cglobal vp9_idct_idct_32x32_add_10, 4, 6 + ARCH_X86_64, 16, \
     lea           stride3q, [strideq*3]
     mov               cntd, 8
     mov               ptrq, rsp
+    PIC_BEGIN blockq ; blockq is not used inside .loop2:
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,\
+        "cntq","ptrq","stride3q","dstm" ; rpic: r2/blockq
 .loop_2:
-    IDCT32_1D            2, ptrq
+    IDCT32_1D            2, ptrq ; ptrq,dstq,strideq,stride3q,dstm,[rsp+]; PIC
 
     add               ptrq, mmsize
 %if ARCH_X86_64
@@ -2187,24 +2204,31 @@ cglobal vp9_idct_idct_32x32_add_10, 4, 6 + ARCH_X86_64, 16, \
 %endif
     dec               cntd
     jg .loop_2
+    PIC_END ; r2/blockq, save/restore
 
     ; m7 is still zero
     ZERO_BLOCK blockq-8*mmsize, 128, 32, m7
+    PIC_FREE
     RET
 
 INIT_XMM sse2
 cglobal vp9_idct_idct_32x32_add_12, 4, 6 + ARCH_X86_64, 16, \
                                     275 * mmsize + ARCH_X86_32 * 8 * mmsize, \
                                     dst, stride, block, eob
-    mova                m0, [pw_4095]
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 pushed in PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_4095)]
     cmp               eobd, 1
+    ; jump destination expects "PIC_ALLOC + PIC_BEGIN r5, 0" context:
     jg mangle(private_prefix %+ _ %+ vp9_idct_idct_32x32_add_10 %+ SUFFIX).idctfull
+    PIC_END ; r5, no-save
 
     ; dc-only - unfortunately, this one can overflow, since coefs are 19+sign
     ; bpp, and 19+14+sign does not fit in 32bit, so we do 2-stage multiplies
     DEFINE_ARGS dst, stride, block, coef, coefl
     pxor                m2, m2
-    DC_ONLY_64BIT        6, m2
+    DC_ONLY_64BIT        6, m2 ; blockq,cntq,coefq,coeflq
     movd                m1, coefd
     pshuflw             m1, m1, q0000
     punpcklqdq          m1, m1
@@ -2216,4 +2240,5 @@ cglobal vp9_idct_idct_32x32_add_12, 4, 6 + ARCH_X86_64, 16, \
     add               dstq, strideq
     dec               cntd
     jg .loop_dc
+    PIC_FREE
     RET
