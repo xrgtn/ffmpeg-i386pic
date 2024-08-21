@@ -719,7 +719,7 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     dec               cntd
     jg .loop_dc
     PIC_CONTEXT_PUSH
-    PIC_END ; r4, no-save
+    PIC_END ; r5, no-save
     PIC_FREE
     RET
     PIC_CONTEXT_POP
@@ -882,6 +882,7 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     PIC_FREE
     RET
 
+; TODO
 ; inputs and outputs are dwords, coefficients are words
 ;
 ; dst1[hi]:dst3[lo] = src1 * coef1 + src2 * coef2
