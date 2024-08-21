@@ -882,26 +882,28 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     PIC_FREE
     RET
 
-; TODO
 ; inputs and outputs are dwords, coefficients are words
 ;
 ; dst1[hi]:dst3[lo] = src1 * coef1 + src2 * coef2
 ; dst2[hi]:dst4[lo] = src1 * coef2 - src2 * coef1
-%macro SUMSUB_MUL_D 6-7 [pd_3fff] ; src/dst 1-2, dst3-4, coef1-2, mask
-    pand               m%3, m%1, %7
-    pand               m%4, m%2, %7
+%macro SUMSUB_MUL_D 6-7 [pic(pd_3fff)] ; src/dst 1-2, dst3-4, coef1-2, mask
+    PIC_BEGIN r4
+    pand               m%3, m%1, %7 ; PIC*
+    pand               m%4, m%2, %7 ; PIC*
     psrad              m%1, 14
     psrad              m%2, 14
     packssdw           m%4, m%2
     packssdw           m%3, m%1
     punpckhwd          m%2, m%4, m%3
     punpcklwd          m%4, m%3
-    pmaddwd            m%3, m%4, [pw_%6_%5]
-    pmaddwd            m%1, m%2, [pw_%6_%5]
-    pmaddwd            m%4, [pw_m%5_%6]
-    pmaddwd            m%2, [pw_m%5_%6]
+    pmaddwd            m%3, m%4, [pic(pw_%6_%5)]
+    pmaddwd            m%1, m%2, [pic(pw_%6_%5)]
+    pmaddwd            m%4, [pic(pw_m%5_%6)]
+    pmaddwd            m%2, [pic(pw_m%5_%6)]
+    PIC_END
 %endmacro
 
+; TODO
 ; dst1 = src2[hi]:src4[lo] + src1[hi]:src3[lo] + rnd >> 14
 ; dst2 = src2[hi]:src4[lo] - src1[hi]:src3[lo] + rnd >> 14
 %macro SUMSUB_PACK_D 5-6 [pd_8192] ; src/dst 1-2, src3-4, tmp, rnd
