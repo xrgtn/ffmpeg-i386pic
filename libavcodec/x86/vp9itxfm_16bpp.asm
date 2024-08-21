@@ -1118,9 +1118,10 @@ IADST8_FN idct,  IDCT8,  iadst, IADST8, row
 IADST8_FN iadst, IADST8, idct,  IDCT8,  col
 IADST8_FN iadst, IADST8, iadst, IADST8, default
 
-; TODO
-%macro IDCT16_1D 1-4 4 * mmsize, 65, 67 ; src, src_stride, stack_offset, mm32bit_stack_offset
-    IDCT8_1D            %1, [pd_8192], [pd_3fff], %2 * 2, %4    ; m0-3=t0-3a, m4-5/m8|r67/m7=t4-7
+%macro IDCT16_1D 1-4 4 * mmsize, 65, 67 ; src, src_stride, stack_offset, mm32bit_stack_offset ; [rsp+], PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,,,,"[rsp+74*mmsize]"
+    IDCT8_1D            %1, [pic(pd_8192)], [pic(pd_3fff)], %2 * 2, %4    ; m0-3=t0-3a, m4-5/m8|r67/m7=t4-7 ; [rsp+], PIC
     ; SCRATCH            6, 8, rsp+(%4+0)*mmsize    ; t6
     SCRATCH              0, 15, rsp+(%4+7)*mmsize   ; t0a
     SCRATCH              1, 14, rsp+(%4+6)*mmsize   ; t1a
@@ -1135,11 +1136,11 @@ IADST8_FN iadst, IADST8, iadst, IADST8, default
     mova                m4, [%1+ 9*%2]              ; in9
     mova                m7, [%1+15*%2]              ; in15
 
-    SUMSUB_MUL           0, 7, 1, 2, 16305,  1606   ; m0=t15a, m7=t8a
-    SUMSUB_MUL           4, 3, 1, 2, 10394, 12665   ; m4=t14a, m3=t9a
+    SUMSUB_MUL           0, 7, 1, 2, 16305,  1606   ; m0=t15a, m7=t8a ; PIC
+    SUMSUB_MUL           4, 3, 1, 2, 10394, 12665   ; m4=t14a, m3=t9a ; PIC
     SUMSUB_BA         d, 3, 7, 1                    ; m3=t8, m7=t9
     SUMSUB_BA         d, 4, 0, 1                    ; m4=t15,m0=t14
-    SUMSUB_MUL           0, 7, 1, 2, 15137,  6270   ; m0=t14a, m7=t9a
+    SUMSUB_MUL           0, 7, 1, 2, 15137,  6270   ; m0=t14a, m7=t9a ; PIC
 
     mova                m1, [%1+ 3*%2]              ; in3
     mova                m2, [%1+ 5*%2]              ; in5
@@ -1149,23 +1150,24 @@ IADST8_FN iadst, IADST8, iadst, IADST8, default
     SCRATCH              0,  9, rsp+(%4+1)*mmsize
     SCRATCH              7, 10, rsp+(%4+2)*mmsize
 
-    SUMSUB_MUL           2, 5, 0, 7, 14449,  7723   ; m2=t13a, m5=t10a
-    SUMSUB_MUL           6, 1, 0, 7,  4756, 15679   ; m6=t12a, m1=t11a
+    SUMSUB_MUL           2, 5, 0, 7, 14449,  7723   ; m2=t13a, m5=t10a ; PIC
+    SUMSUB_MUL           6, 1, 0, 7,  4756, 15679   ; m6=t12a, m1=t11a ; PIC
     SUMSUB_BA         d, 5, 1, 0                    ; m5=t11,m1=t10
     SUMSUB_BA         d, 2, 6, 0                    ; m2=t12,m6=t13
-    NEGD                m1                          ; m1=-t10
-    SUMSUB_MUL           1, 6, 0, 7, 15137,  6270   ; m1=t13a, m6=t10a
+    NEGD                m1                          ; m1=-t10          ; PIC
+    SUMSUB_MUL           1, 6, 0, 7, 15137,  6270   ; m1=t13a, m6=t10a ; PIC
 
     UNSCRATCH            7, 10, rsp+(%4+2)*mmsize
     SUMSUB_BA         d, 5, 3, 0                    ; m5=t8a, m3=t11a
     SUMSUB_BA         d, 6, 7, 0                    ; m6=t9,  m7=t10
     SUMSUB_BA         d, 2, 4, 0                    ; m2=t15a,m4=t12a
     SCRATCH              5, 10, rsp+(%4+2)*mmsize
-    SUMSUB_MUL           4, 3, 0, 5, 11585, 11585   ; m4=t12, m3=t11
+    SUMSUB_MUL           4, 3, 0, 5, 11585, 11585   ; m4=t12, m3=t11   ; PIC
     UNSCRATCH            0, 9, rsp+(%4+1)*mmsize
     SUMSUB_BA         d, 1, 0, 5                    ; m1=t14, m0=t13
     SCRATCH              6, 9, rsp+(%4+1)*mmsize
-    SUMSUB_MUL           0, 7, 6, 5, 11585, 11585   ; m0=t13a,m7=t10a
+    SUMSUB_MUL           0, 7, 6, 5, 11585, 11585   ; m0=t13a,m7=t10a  ; PIC
+    PIC_END
 
     ; order: 15|r74,14|r73,13|r72,12|r71,11|r70,r65,8|r67,r66,10|r69,9|r68,7,3,4,0,1,2
     ; free: 6,5
@@ -1205,6 +1207,7 @@ IADST8_FN iadst, IADST8, iadst, IADST8, default
     ;               12-15|r71-74=out12-15
 %endmacro
 
+; TODO
 INIT_XMM sse2
 cglobal vp9_idct_idct_16x16_add_10, 4, 6 + ARCH_X86_64, 16, \
                                     67 * mmsize + ARCH_X86_32 * 8 * mmsize, \
