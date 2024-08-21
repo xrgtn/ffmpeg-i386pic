@@ -927,20 +927,21 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     PIC_END
 %endmacro
 
-; TODO
 ; the following line has not been executed at the end of this macro:
 ; UNSCRATCH            6, 8, rsp+17*mmsize
-%macro IADST8_1D 1-3 [pd_8192], [pd_3fff] ; src, rnd, mask
+%macro IADST8_1D 1-3 [pic(pd_8192)], [pic(pd_3fff)] ; src, rnd, mask
     mova                m0, [%1+ 0*mmsize]
     mova                m3, [%1+ 6*mmsize]
     mova                m4, [%1+ 8*mmsize]
     mova                m7, [%1+14*mmsize]
-    SUMSUB_MUL_D         7, 0, 1, 2, 16305,  1606, %3   ; m7/1=t0a, m0/2=t1a
-    SUMSUB_MUL_D         3, 4, 5, 6, 10394, 12665, %3   ; m3/5=t4a, m4/6=t5a
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,,,"[rsp+21*mmsize]"
+    SUMSUB_MUL_D         7, 0, 1, 2, 16305,  1606, %3   ; m7/1=t0a, m0/2=t1a ; PIC
+    SUMSUB_MUL_D         3, 4, 5, 6, 10394, 12665, %3   ; m3/5=t4a, m4/6=t5a ; PIC
     SCRATCH              0, 8, rsp+17*mmsize
-    SUMSUB_PACK_D        3, 7, 5, 1, 0, %2              ; m3=t0, m7=t4
+    SUMSUB_PACK_D        3, 7, 5, 1, 0, %2              ; m3=t0, m7=t4 ; PIC*
     UNSCRATCH            0, 8, rsp+17*mmsize
-    SUMSUB_PACK_D        4, 0, 6, 2, 1, %2              ; m4=t1, m0=t5
+    SUMSUB_PACK_D        4, 0, 6, 2, 1, %2              ; m4=t1, m0=t5 ; PIC*
 
     SCRATCH              3, 8, rsp+17*mmsize
     SCRATCH              4, 9, rsp+18*mmsize
@@ -951,27 +952,27 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     mova                m2, [%1+ 4*mmsize]
     mova                m5, [%1+10*mmsize]
     mova                m6, [%1+12*mmsize]
-    SUMSUB_MUL_D         5, 2, 3, 4, 14449,  7723, %3   ; m5/8=t2a, m2/9=t3a
-    SUMSUB_MUL_D         1, 6, 7, 0,  4756, 15679, %3   ; m1/10=t6a, m6/11=t7a
+    SUMSUB_MUL_D         5, 2, 3, 4, 14449,  7723, %3   ; m5/8=t2a, m2/9=t3a ; PIC
+    SUMSUB_MUL_D         1, 6, 7, 0,  4756, 15679, %3   ; m1/10=t6a, m6/11=t7a ; PIC
     SCRATCH              2, 12, rsp+21*mmsize
-    SUMSUB_PACK_D        1, 5, 7, 3, 2, %2              ; m1=t2, m5=t6
+    SUMSUB_PACK_D        1, 5, 7, 3, 2, %2              ; m1=t2, m5=t6 ; PIC*
     UNSCRATCH            2, 12, rsp+21*mmsize
-    SUMSUB_PACK_D        6, 2, 0, 4, 3, %2              ; m6=t3, m2=t7
+    SUMSUB_PACK_D        6, 2, 0, 4, 3, %2              ; m6=t3, m2=t7 ; PIC*
 
     UNSCRATCH            7, 10, rsp+19*mmsize
     UNSCRATCH            0, 11, rsp+20*mmsize
     SCRATCH              1, 10, rsp+19*mmsize
     SCRATCH              6, 11, rsp+20*mmsize
 
-    SUMSUB_MUL_D         7, 0, 3, 4, 15137,  6270, %3   ; m7/8=t4a, m0/9=t5a
-    SUMSUB_MUL_D         2, 5, 1, 6,  6270, 15137, %3   ; m2/10=t7a, m5/11=t6a
+    SUMSUB_MUL_D         7, 0, 3, 4, 15137,  6270, %3   ; m7/8=t4a, m0/9=t5a ; PIC
+    SUMSUB_MUL_D         2, 5, 1, 6,  6270, 15137, %3   ; m2/10=t7a, m5/11=t6a ; PIC
     SCRATCH              2, 12, rsp+21*mmsize
-    SUMSUB_PACK_D        5, 7, 6, 3, 2, %2              ; m5=-out1, m7=t6
+    SUMSUB_PACK_D        5, 7, 6, 3, 2, %2              ; m5=-out1, m7=t6 ; PIC*
     UNSCRATCH            2, 12, rsp+21*mmsize
-    NEGD                m5                              ; m5=out1
-    SUMSUB_PACK_D        2, 0, 1, 4, 3, %2              ; m2=out6, m0=t7
-    SUMSUB_MUL           7, 0, 3, 4, 11585, 11585, %2, %3   ; m7=out2, m0=-out5
-    NEGD                m0                              ; m0=out5
+    NEGD                m5                              ; m5=out1 ; PIC
+    SUMSUB_PACK_D        2, 0, 1, 4, 3, %2              ; m2=out6, m0=t7 ; PIC*
+    SUMSUB_MUL           7, 0, 3, 4, 11585, 11585, %2, %3   ; m7=out2, m0=-out5 ; PIC
+    NEGD                m0                              ; m0=out5 ; PIC
 
     UNSCRATCH            3, 8, rsp+17*mmsize
     UNSCRATCH            4, 9, rsp+18*mmsize
@@ -983,8 +984,9 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     SUMSUB_BA         d, 1, 3,  2                       ; m1=out0, m3=t2
     SUMSUB_BA         d, 6, 4,  2                       ; m6=-out7, m4=t3
     NEGD                m6                              ; m6=out7
-    SUMSUB_MUL           3, 4,  2,  0, 11585, 11585, %2, %3 ; m3=-out3, m4=out4
-    NEGD                m3                              ; m3=out3
+    SUMSUB_MUL           3, 4,  2,  0, 11585, 11585, %2, %3 ; m3=-out3, m4=out4 ; PIC
+    NEGD                m3                              ; m3=out3 ; PIC
+    PIC_END
 
     UNSCRATCH            0, 9, rsp+18*mmsize
 
@@ -992,6 +994,7 @@ cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
     SWAP                 2, 7, 6
 %endmacro
 
+; TODO
 %macro IADST8_FN 5
 cglobal vp9_%1_%3_8x8_add_10, 4, 6 + ARCH_X86_64, 16, \
                               16 * mmsize + ARCH_X86_32 * 6 * mmsize, \
