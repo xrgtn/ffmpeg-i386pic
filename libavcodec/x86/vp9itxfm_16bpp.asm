@@ -693,7 +693,10 @@ INIT_XMM sse2
 cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
                                   16 * mmsize + 3 * ARCH_X86_32 * mmsize, \
                                   dst, stride, block, eob
-    mova                m0, [pw_1023]
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 pushed in PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_1023)]
     cmp               eobd, 1
     jg .idctfull
 
@@ -701,20 +704,29 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     ; coef values are 16+sign bit, and the coef is 14bit, so 30+sign easily
     ; fits in 32bit
     DEFINE_ARGS dst, stride, block, coef
+    CHECK_REG_COLLISION "rpic","coefq"
     pxor                m2, m2
-    DC_ONLY              5, m2
+    DC_ONLY              5, m2 ; coefq,blockq
     movd                m1, coefd
     pshuflw             m1, m1, q0000
     punpcklqdq          m1, m1
     DEFINE_ARGS dst, stride, cnt
-    mov               cntd, 4
+    CHECK_REG_COLLISION "rpic","cntq"
+    mov               cntd, 4 ; TODO: unroll the loop?
 .loop_dc:
-    STORE_2x8            3, 4, 1, m2, m0
+    STORE_2x8            3, 4, 1, m2, m0 ; dstq,strideq
     lea               dstq, [dstq+strideq*2]
     dec               cntd
     jg .loop_dc
+    PIC_CONTEXT_PUSH
+    PIC_END ; r4, no-save
+    PIC_FREE
     RET
+    PIC_CONTEXT_POP
 
+    ; NOTE: ff_vp9_idct_idct_8x8_add_10_SUFFIX.idctfull: accepts jumps from
+    ; ff_vp9_idct_idct_8x8_add_12_SUFFIX, thus we make both of them to expect
+    ; "PIC_ALLOC + PIC_BEGIN r5,0" context at this point:
 .idctfull:
     SCRATCH              0, 12, rsp+16*mmsize, max
     DEFINE_ARGS dst, stride, block, cnt, ptr, skip, dstbak
@@ -722,18 +734,24 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     mov            dstbakq, dstq
     movsxd            cntq, cntd
 %endif
-%ifdef PIC
+%if i386pic
+    ; eobq > 1: eobq => cntq
+    movzx             cntd, byte [pic(default_8x8)+cntq-1]
+    PIC_END ; r5/skipq, no-save
+%elifdef PIC
     lea               ptrq, [default_8x8]
     movzx             cntd, byte [ptrq+cntq-1]
 %else
     movzx             cntd, byte [default_8x8+cntq-1]
 %endif
-    mov              skipd, 2
+    mov              skipd, 2 ; r5/skipq initialized here
     sub              skipd, cntd
     mov               ptrq, rsp
-    PRELOAD             10, pd_8192, rnd
-    PRELOAD             11, pd_3fff, mask
-    PRELOAD             13, pd_16, srnd
+    PIC_BEGIN dstq, 1 ; dstq/r0 is not used inside .loop_1: & .loop_z:
+    CHECK_REG_COLLISION "rpic","strideq","blockq","cntq","ptrq","skipq"
+    PRELOAD             10, pic(pd_8192), rnd
+    PRELOAD             11, pic(pd_3fff), mask
+    PRELOAD             13, pic(pd_16), srnd
 .loop_1:
     IDCT8_1D        blockq, reg_rnd, reg_mask ; blockq,[rsp+]; PIC
 
@@ -752,6 +770,7 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     add             blockq, mmsize
     dec               cntd
     jg .loop_1
+    PIC_END ; dstq/r0, save/restore
 
     ; zero-pad the remainder (skipped cols)
     test             skipd, skipd
@@ -773,16 +792,18 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
     lea           stride3q, [strideq*3]
     mov               cntd, 2
     mov               ptrq, rsp
+    PIC_BEGIN blockq ; blockq is not used inside .loop2:
+    CHECK_REG_COLLISION "rpic","dstq","strideq","cntq","ptrq","stride3q","dstm"
 .loop_2:
-    IDCT8_1D          ptrq, reg_rnd, reg_mask
+    IDCT8_1D          ptrq, reg_rnd, reg_mask ; ptrq,[rsp+]; PIC
 
     pxor                m6, m6
-    ROUND_AND_STORE_4x4  0, 1, 2, 3, m6, reg_max, reg_srnd, 5
+    ROUND_AND_STORE_4x4  0, 1, 2, 3, m6, reg_max, reg_srnd, 5 ; dstq,strideq,stride3q
     lea               dstq, [dstq+strideq*4]
     UNSCRATCH            0, 8, rsp+17*mmsize
-    UNSCRATCH            1, 12, rsp+16*mmsize, max
-    UNSCRATCH            2, 13, pd_16, srnd
-    ROUND_AND_STORE_4x4  4, 5, 0, 7, m6, m1, m2, 5
+    UNSCRATCH            1, 12, rsp+16*mmsize, max ; undef reg_max
+    UNSCRATCH            2, 13, pic(pd_16), srnd   ; undef reg_srnd
+    ROUND_AND_STORE_4x4  4, 5, 0, 7, m6, m1, m2, 5 ; dstq,strideq,stride3q
     add               ptrq, 16
 %if ARCH_X86_64
     lea               dstq, [dstbakq+8]
@@ -792,12 +813,14 @@ cglobal vp9_idct_idct_8x8_add_10, 4, 6 + ARCH_X86_64, 14, \
 %endif
     dec               cntd
     jg .loop_2
+    PIC_END ; blockq/r2, save/restore
 
     ; m6 is still zero
     ZERO_BLOCK blockq-2*mmsize, 32, 8, m6
+    PIC_FREE
     RET
 
-%macro DC_ONLY_64BIT 2 ; shift, zero
+%macro DC_ONLY_64BIT 2 ; shift, zero ; blockq,cntq,coefq,coeflq
 %if ARCH_X86_64
     movsxd           coefq, dword [blockq]
     movd          [blockq], %2
@@ -832,25 +855,31 @@ INIT_XMM sse2
 cglobal vp9_idct_idct_8x8_add_12, 4, 6 + ARCH_X86_64, 14, \
                                   16 * mmsize + 3 * ARCH_X86_32 * mmsize, \
                                   dst, stride, block, eob
-    mova                m0, [pw_4095]
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; r5 pushed by PROLOGUE but not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","blockq","eobq"
+    mova                m0, [pic(pw_4095)]
     cmp               eobd, 1
+    ; jump destination expects "PIC_ALLOC + PIC_BEGIN r5, 0" context:
     jg mangle(private_prefix %+ _ %+ vp9_idct_idct_8x8_add_10 %+ SUFFIX).idctfull
+    PIC_END ; r5, no-save
 
     ; dc-only - unfortunately, this one can overflow, since coefs are 18+sign
     ; bpp, and 18+14+sign does not fit in 32bit, so we do 2-stage multiplies
     DEFINE_ARGS dst, stride, block, coef, coefl
     pxor                m2, m2
-    DC_ONLY_64BIT        5, m2
+    DC_ONLY_64BIT        5, m2 ; blockq,cntq,coefq,coeflq
     movd                m1, coefd
     pshuflw             m1, m1, q0000
     punpcklqdq          m1, m1
     DEFINE_ARGS dst, stride, cnt
     mov               cntd, 4
 .loop_dc:
-    STORE_2x8            3, 4, 1, m2, m0
+    STORE_2x8            3, 4, 1, m2, m0 ; dstq,strideq
     lea               dstq, [dstq+strideq*2]
     dec               cntd
     jg .loop_dc
+    PIC_FREE
     RET
 
 ; inputs and outputs are dwords, coefficients are words
