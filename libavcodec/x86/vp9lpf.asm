@@ -470,7 +470,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova           [Q6], m14
     mova           [Q7], m15
 %endif ; %2
-%else ; x86-32
+%else ; x86-32 ; !def m8
 %if %2 == 16
     TRANSPOSE8x8B    0, 1, 2, 3, 4, 5, 6, 7, [P1], u, [rsp+%3+%4], [rsp+64], [rsp+80]
     DEFINE_TRANSPOSED_P7_TO_Q7
@@ -560,8 +560,10 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova           [Q2], m5
     mova           [Q3], m7
 %endif ; %2
-%endif ; x86-32/64
+%endif ; x86-32/64 ; ifdef m8 / !def m8
 %endif ; %1 == h
+
+    ; TODO: PIC starts from here (no PIC memory-accesses above)
 
     ; calc fm mask
 %if %2 == 16 || mmsize == 8
@@ -587,9 +589,9 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova                m8, [P3]
     mova                m9, [P2]
     mova               m10, [P1]
-    mova               m11, [P0]
+    mova               m11, [P0] ; XXX:stride3q
     mova               m12, [Q0]
-    mova               m13, [Q1]
+    mova               m13, [Q1] ; XXX:mstride3q
     mova               m14, [Q2]
     mova               m15, [Q3]
 %else
@@ -608,7 +610,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %define rq1 m13
 %define rq2 m14
 %define rq3 m15
-%else
+%else ; !def m8
 %define rp3 [P3]
 %define rp2 [P2]
 %define rp1 [P1]
@@ -617,21 +619,21 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %define rq1 [Q1]
 %define rq2 [Q2]
 %define rq3 [Q3]
-%endif
+%endif ; ifdef m8 / !def m8
     ABSSUB_GT           m5, rp3, rp2, m2, m7, m0        ; m5 = abs(p3-p2) <= I
     ABSSUB_GT           m1, rp2, rp1, m2, m7, m0        ; m1 = abs(p2-p1) <= I
     por                 m5, m1
-    ABSSUB_GT           m1, rp1, rp0, m2, m7, m0        ; m1 = abs(p1-p0) <= I
+    ABSSUB_GT           m1, rp1, rp0, m2, m7, m0        ; m1 = abs(p1-p0) <= I ; XXX:stride3q
     por                 m5, m1
-    ABSSUB_GT           m1, rq0, rq1, m2, m7, m0        ; m1 = abs(q1-q0) <= I
+    ABSSUB_GT           m1, rq0, rq1, m2, m7, m0        ; m1 = abs(q1-q0) <= I ; XXX:mstride3q
     por                 m5, m1
-    ABSSUB_GT           m1, rq1, rq2, m2, m7, m0        ; m1 = abs(q2-q1) <= I
+    ABSSUB_GT           m1, rq1, rq2, m2, m7, m0        ; m1 = abs(q2-q1) <= I ; XXX:mstride3q
     por                 m5, m1
     ABSSUB_GT           m1, rq2, rq3, m2, m7, m0        ; m1 = abs(q3-q2) <= I
     por                 m5, m1
-    ABSSUB              m1, rp0, rq0, m7                ; abs(p0-q0)
+    ABSSUB              m1, rp0, rq0, m7                ; abs(p0-q0) ; XXX:stride3q
     paddusb             m1, m1                          ; abs(p0-q0) * 2
-    ABSSUB              m2, rp1, rq1, m7                ; abs(p1-q1)
+    ABSSUB              m2, rp1, rq1, m7                ; abs(p1-q1) ; XXX:mstride3q
     pand                m2, [pb_fe]                     ; drop lsb so shift can work
     psrlq               m2, 1                           ; abs(p1-q1)/2
     paddusb             m1, m2                          ; abs(p0-q0)*2 + abs(p1-q1)/2
@@ -645,16 +647,16 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     ; calc flat8in (if not 44_16) and hev masks
 %if %2 != 44 && %2 != 4
     mova                m6, [pb_81]                     ; [1 1 1 1 ...] ^ 0x80
-    ABSSUB_GT           m2, rp3, rp0, m6, m5            ; abs(p3 - p0) <= 1 ; PIC
+    ABSSUB_GT           m2, rp3, rp0, m6, m5            ; abs(p3 - p0) <= 1 ; PIC ; XXX:stride3q
 %ifdef m8
     mova                m8, [pb_80]
 %define rb80 m8
 %else
 %define rb80 [pb_80]
 %endif
-    ABSSUB_GT           m1, rp2, rp0, m6, m5, rb80      ; abs(p2 - p0) <= 1 ; PIC*
+    ABSSUB_GT           m1, rp2, rp0, m6, m5, rb80      ; abs(p2 - p0) <= 1 ; PIC* ; XXX:stride3q
     por                 m2, m1
-    ABSSUB              m4, rp1, rp0, m5                ; abs(p1 - p0)
+    ABSSUB              m4, rp1, rp0, m5                ; abs(p1 - p0) ; XXX:stride3q
 %if %2 <= 16
 %if cpuflag(ssse3)
     pxor                m0, m0
@@ -669,7 +671,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     pcmpgtb             m0, m4, m7                      ; abs(p1 - p0) > H (1/2 hev condition)
     CMP_GT              m4, m6                          ; abs(p1 - p0) <= 1
     por                 m2, m4                          ; (flat8in)
-    ABSSUB              m4, rq1, rq0, m1                ; abs(q1 - q0)
+    ABSSUB              m4, rq1, rq0, m1                ; abs(q1 - q0) ; XXX:mstride3q
     pxor                m4, rb80
     pcmpgtb             m5, m4, m7                      ; abs(q1 - q0) > H (2/2 hev condition)
     por                 m0, m5                          ; hev final value
@@ -696,10 +698,10 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     SPLATB_REG          m7, H, m0                       ; H H H H ...
 %endif
     pxor                m7, m6
-    ABSSUB              m4, rp1, rp0, m1                ; abs(p1 - p0)
+    ABSSUB              m4, rp1, rp0, m1                ; abs(p1 - p0) ; XXX:stride3q
     pxor                m4, m6
     pcmpgtb             m0, m4, m7                      ; abs(p1 - p0) > H (1/2 hev condition)
-    ABSSUB              m4, rq1, rq0, m1                ; abs(q1 - q0)
+    ABSSUB              m4, rq1, rq0, m1                ; abs(q1 - q0) ; XXX:mstride3q
     pxor                m4, m6
     pcmpgtb             m5, m4, m7                      ; abs(q1 - q0) > H (2/2 hev condition)
     por                 m0, m5                          ; hev final value
@@ -710,15 +712,15 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     ; calc flat8out mask
 %ifdef m8
     mova                m8, [P7]
-    mova                m9, [P6]
+    mova                m9, [P6] ; XXX:mstride3q
 %define rp7 m8
-%define rp6 m9
+%define rp6 m9 ; XXX:mstride3q
 %else
 %define rp7 [P7]
-%define rp6 [P6]
+%define rp6 [P6] ; XXX:mstride3q
 %endif
-    ABSSUB_GT           m1, rp7, rp0, m6, m5            ; abs(p7 - p0) <= 1 ; PIC
-    ABSSUB_GT           m7, rp6, rp0, m6, m5            ; abs(p6 - p0) <= 1 ; PIC
+    ABSSUB_GT           m1, rp7, rp0, m6, m5            ; abs(p7 - p0) <= 1 ; PIC ; XXX:stride3q
+    ABSSUB_GT           m7, rp6, rp0, m6, m5            ; abs(p6 - p0) <= 1 ; PIC ; XXX:mstride3q ; XXX:stride3q
     por                 m1, m7
 %ifdef m8
     mova                m8, [P5]
@@ -729,9 +731,9 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %define rp5 [P5]
 %define rp4 [P4]
 %endif
-    ABSSUB_GT           m7, rp5, rp0, m6, m5            ; abs(p5 - p0) <= 1 ; PIC
+    ABSSUB_GT           m7, rp5, rp0, m6, m5            ; abs(p5 - p0) <= 1 ; PIC ; XXX:stride3q
     por                 m1, m7
-    ABSSUB_GT           m7, rp4, rp0, m6, m5            ; abs(p4 - p0) <= 1 ; PIC
+    ABSSUB_GT           m7, rp4, rp0, m6, m5            ; abs(p4 - p0) <= 1 ; PIC ; XXX:stride3q
     por                 m1, m7
 %ifdef m8
     mova                m14, [Q4]
@@ -748,16 +750,16 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     por                 m1, m7
 %ifdef m8
     mova                m14, [Q6]
-    mova                m15, [Q7]
+    mova                m15, [Q7] ; XXX:stride3q
 %define rq6 m14
-%define rq7 m15
+%define rq7 m15 ; XXX:stride3q
 %else
 %define rq6 [Q6]
-%define rq7 [Q7]
+%define rq7 [Q7] ; XXX:stride3q
 %endif
     ABSSUB_GT           m7, rq6, rq0, m6, m5            ; abs(q4 - q0) <= 1 ; PIC
     por                 m1, m7
-    ABSSUB_GT           m7, rq7, rq0, m6, m5            ; abs(q5 - q0) <= 1 ; PIC
+    ABSSUB_GT           m7, rq7, rq0, m6, m5            ; abs(q5 - q0) <= 1 ; PIC ; XXX:stride3q
     por                 m1, m7                          ; flat8out final value
     pxor                m1, [pb_ff]
 %endif
@@ -784,10 +786,10 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %endif
 %endif
     pxor                m2, m6, rq0                     ; q0 ^ 0x80
-    pxor                m4, m6, rp0                     ; p0 ^ 0x80
+    pxor                m4, m6, rp0                     ; p0 ^ 0x80 ; XXX:stride3q
     psubsb              m2, m4                          ; (signed) q0 - p0
     pxor                m4, m6, rp1                     ; p1 ^ 0x80
-    pxor                m5, m6, rq1                     ; q1 ^ 0x80
+    pxor                m5, m6, rq1                     ; q1 ^ 0x80 ; XXX:mstride3q
     psubsb              m4, m5                          ; (signed) p1 - q1
     paddsb              m4, m2                          ;   (q0 - p0) + (p1 - q1)
     paddsb              m4, m2                          ; 2*(q0 - p0) + (p1 - q1)
@@ -802,7 +804,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %endif
     SRSHIFT3B_2X        m6, m4, rb10, m7                ; f1 and f2 sign byte shift by 3 ; PIC
     SIGN_SUB            m7, rq0, m6, m5                 ; m7 = q0 - f1
-    SIGN_ADD            m1, rp0, m4, m5                 ; m1 = p0 + f2
+    SIGN_ADD            m1, rp0, m4, m5                 ; m1 = p0 + f2 ; XXX:stride3q
 %if %2 != 44 && %2 != 4
 %ifdef m8
     pandn               m6, m15, m3                     ;  ~mask(in) & mask(fm)
@@ -815,7 +817,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     pand                m6, m3, m0
 %endif
     MASK_APPLY          m7, rq0, m6, m5                 ; m7 = filter2(q0) & mask / we write it in filter4()
-    MASK_APPLY          m1, rp0, m6, m5                 ; m1 = filter2(p0) & mask / we write it in filter4()
+    MASK_APPLY          m1, rp0, m6, m5                 ; m1 = filter2(p0) & mask / we write it in filter4() ; XXX:stride3q
 
     ; (m0: hev, m1: p0', m2: q0-p0, m3: fm, m7: q0', [m8: flat8out], m10..13: p1 p0 q0 q1, m14: pb_10, [m15: flat8in], )
     ; filter4()
@@ -833,19 +835,19 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     pandn               m5, m3
 %endif
     pandn               m0, m5                          ; ~mask(hev) & (~mask(in) & mask(fm))
-%else
+%else ; %2 in {44,4}
     pandn               m0, m3
-%endif
+%endif ; %2 !in {44,4} / %2 in {44,4}
     SIGN_SUB            m5, rq0, m6, m4                 ; q0 - f1
     MASK_APPLY          m5, m7, m0, m4                  ; filter4(q0) & mask
     mova                [Q0], m5
-    SIGN_ADD            m7, rp0, m2, m4                 ; p0 + f2
+    SIGN_ADD            m7, rp0, m2, m4                 ; p0 + f2 ; XXX:stride3q
     MASK_APPLY          m7, m1, m0, m4                  ; filter4(p0) & mask
-    mova                [P0], m7
+    mova                [P0], m7 ; XXX:stride3q
     paddb               m6, [pb_80]                     ;
     pxor                m1, m1                          ;   f=(f1+1)>>1
     pavgb               m6, m1                          ;
-    psubb               m6, [pb_40]                     ;
+    psubb               m6, [pb_40]                     ;                        ; last PIC?
     SIGN_ADD            m1, rp1, m6, m2                 ; p1 + f
     SIGN_SUB            m4, rq1, m6, m2                 ; q1 - f
     MASK_APPLY          m1, rp1, m0, m2                 ; m1 = filter4(p1)
@@ -863,7 +865,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     pxor                m0, m0
 %if %2 != 16
     pand                m3, m2
-%else
+%else ; 2 == 16
     pand                m2, m3                          ;               mask(fm) & mask(in)
 %ifdef m8
     pandn               m3, m8, m2                      ; ~mask(out) & (mask(fm) & mask(in))
@@ -871,7 +873,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova                m3, [rsp+%3+%4+16]
     pandn               m3, m2
 %endif
-%endif
+%endif ; %2 != 16 / %2 == 16
 %ifdef m8
     mova               m14, [P3]
     mova                m9, [Q3]
@@ -889,7 +891,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     FILTER_UPDATE       m4, m5, m6, m7, [Q0], %4, 0, 3, 4, 7, 3, m3,  "", rq3, "", 1 ; [q0] -p3 -p0 +q0 +q3
     FILTER_UPDATE       m4, m5, m6, m7, [Q1], %4, 1, 4, 5, 7, 3, m3,  ""             ; [q1] -p2 -q0 +q1 +q3
     FILTER_UPDATE       m4, m5, m6, m7, [Q2], %4, 2, 5, 6, 7, 3, m3,  m1             ; [q2] -p1 -q1 +q2 +q3
-%endif
+%endif ; %2 !in {44,4}
 
 %if %2 == 16
     UNSCRATCH            1,  8, rsp+%3+%4+16
@@ -935,7 +937,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %define rq4s m8
 %define rq5s m9
 %define rq6s m14
-%else
+%else ; !def m8
 %define rp5 [P5]
 %define rp4 [P4]
 %define rp5s ""
@@ -948,7 +950,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %define rq4s ""
 %define rq5s ""
 %define rq6s ""
-%endif
+%endif ; ifdef m8 / !def m8
     FILTER_INIT     m4, m5, m6, m7, [P6], %4, 14,                m1,  m3            ; [p6]
     FILTER_UPDATE   m4, m5, m6, m7, [P5], %4,  8,  9, 10,  5, 4, m1, rp5s           ; [p5] -p7 -p6 +p5 +q1
     FILTER_UPDATE   m4, m5, m6, m7, [P4], %4,  8, 10, 11,  6, 4, m1, rp4s           ; [p4] -p7 -p5 +p4 +q2
@@ -963,7 +965,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     FILTER_UPDATE   m4, m5, m6, m7, [Q4], %4,  0,  7, 12, 15, 4, m1, rq4s           ; [q4] -p3 -q3 +q4 +q7
     FILTER_UPDATE   m4, m5, m6, m7, [Q5], %4,  1, 12, 13, 15, 4, m1, rq5s           ; [q5] -p2 -q4 +q5 +q7
     FILTER_UPDATE   m4, m5, m6, m7, [Q6], %4,  2, 13, 14, 15, 4, m1, rq6s           ; [q6] -p1 -q5 +q6 +q7
-%endif
+%endif ; if %2 == 16
 
 %ifidn %1, h
 %if %2 == 16
@@ -1004,7 +1006,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     movu  [Q5], m13
     movu  [Q6], m14
     movu  [Q7], m15
-%else
+%else ; !ARCH_X86_64
     DEFINE_REAL_P7_TO_Q7
     TRANSPOSE8x8B 0, 1, 2, 3, 4, 5, 6, 7, [rsp+32], a, [rsp+%3+%4], [Q0], [Q1]
     movh   [P7],  m0
@@ -1045,7 +1047,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     movhps [Q3],  m5
     movhps [Q5],  m6
     movhps [Q7],  m7
-%endif
+%endif ; ARCH_X86_64 / !ARCH_X86_64
 %elif %2 == 44 || %2 == 4
     SWAP 0, 1   ; m0 = p1
     SWAP 1, 7   ; m1 = p0
@@ -1085,7 +1087,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     movd  [P0], m2
     movd  [Q3], m1
     movd  [Q7], m3
-%else
+%else ; mmsize != 16
     movd  [P7], m0
     movd  [P5], m2
     movd  [P3], m1
@@ -1098,8 +1100,8 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     movd  [P4], m2
     movd  [P2], m1
     movd  [P0], m3
-%endif
-%else
+%endif ; mmsize == 16 / mmsize != 16
+%else ; %2 !in {16,44,4}
     ; the following code do a transpose of 8 full lines to 16 half
     ; lines (high part). It is inlined to avoid the need of a staging area
     mova                    m0, [P3]
@@ -1126,7 +1128,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     SBUTTERFLY  dq,  1,  5, 8
     SBUTTERFLY  dq,  2,  6, 8
     SBUTTERFLY  dq,  3,  7, 8
-%else
+%else ; !def m8
     SBUTTERFLY  bw,  0,  1, 6
     mova [rsp+mmsize*4], m1
     mova        m6, [rsp+mmsize*6]
@@ -1150,7 +1152,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova        m2, [rsp+mmsize*6]
     SBUTTERFLY  dq,  2,  6, 1
     SBUTTERFLY  dq,  3,  7, 1
-%endif
+%endif ; ifdef m8 / !def m8
     SWAP         3, 6
     SWAP         1, 4
 %if mmsize == 16
@@ -1180,9 +1182,9 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova      [P2], m5
     mova      [P1], m6
     mova      [P0], m7
-%endif
-%endif
-%endif
+%endif ; mmsize == 16 / mmsize != 16
+%endif ; %2 == 16 / %2 in {44,4} / %2 !in {16,44,4}
+%endif ; ifidn %1,h
 
     RET
 %endmacro
