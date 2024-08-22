@@ -405,7 +405,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %else
     lea                   dstq, [dstq + 4*mstrideq]
 %endif
-    ; FIXME we shouldn't need two dts registers if mmsize == 8
+    ; FIXME we shouldn't need two dst registers if mmsize == 8
     lea                  dst2q, [dstq + 8*strideq]
 
     DEFINE_REAL_P7_TO_Q7
