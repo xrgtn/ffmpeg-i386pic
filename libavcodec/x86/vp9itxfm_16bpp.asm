@@ -289,7 +289,7 @@ cglobal vp9_idct_idct_4x4_add_10, 0, 4, 8, dst, stride, block, eob
 
 .idctfull:
     ; eobq/coeffq/r3 not used anymore in this branch of
-    ; vp9_idct_idct_4x4_add_10(): TODO
+    ; vp9_idct_idct_4x4_add_10():
     movifnidn         dstq, dstmp ; delayed dstq/r0 loading
     mova                m0, [blockq+0*16+0]
     mova                m1, [blockq+1*16+0]
