@@ -90,7 +90,7 @@ SECTION .text
 %endmacro
 
 ; %1 = abs(%2-%3) > %4
-%macro ABSSUB_GT 5-6 [pic(pb_80)]; dst, src1, src2, cmp, tmp, [pb_80] ; PIC*
+%macro ABSSUB_GT 5-6 [pb_80]; dst, src1, src2, cmp, tmp, [pb_80] ; PIC* ; TODO: [pic(pb_80)]
     ABSSUB              %1, %2, %3, %5      ; dst = abs(src1-src2)
     CMP_GT              %1, %4, %6          ; dst > cmp
 %endmacro
