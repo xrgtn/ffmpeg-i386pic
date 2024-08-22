@@ -158,16 +158,16 @@ SECTION .text
     mova                %5, %1
 %endmacro
 
-%macro SRSHIFT3B_2X 4 ; reg1, reg2, [pb_10], tmp
+%macro SRSHIFT3B_2X 4 ; reg1, reg2, [pb_10], tmp ; PIC
     mova                %4, [pb_f8]
     pand                %1, %4
     pand                %2, %4
     psrlq               %1, 3
     psrlq               %2, 3
-    pxor                %1, %3
-    pxor                %2, %3
-    psubb               %1, %3
-    psubb               %2, %3
+    pxor                %1, %3 ; PIC*
+    pxor                %2, %3 ; PIC*
+    psubb               %1, %3 ; PIC*
+    psubb               %2, %3 ; PIC*
 %endmacro
 
 %macro EXTRACT_POS_NEG 3 ; i8, neg, pos
@@ -355,7 +355,7 @@ SECTION .text
 %endmacro
 
 ; ..............AB -> AAAAAAAABBBBBBBB
-%macro SPLATB_MIX 1-2 [mask_mix]
+%macro SPLATB_MIX 1-2 [mask_mix] ; PIC*
 %if cpuflag(ssse3)
     pshufb     %1, %2
 %else
@@ -662,7 +662,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     SPLATB_REG          m7, H, m0                       ; H H H H ...
 %else
     movd                m7, Hd
-    SPLATB_MIX          m7
+    SPLATB_MIX          m7                              ; PIC*[ssse3]
 %endif
     pxor                m7, rb80
     pxor                m4, rb80
@@ -688,7 +688,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     mova                m6, [pb_80]
 %if %2 == 44
     movd                m7, Hd
-    SPLATB_MIX          m7
+    SPLATB_MIX          m7                              ; PIC*[ssse3]
 %else
 %if cpuflag(ssse3)
     pxor                m0, m0
@@ -800,7 +800,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %else
 %define rb10 [pb_10]
 %endif
-    SRSHIFT3B_2X        m6, m4, rb10, m7                ; f1 and f2 sign byte shift by 3
+    SRSHIFT3B_2X        m6, m4, rb10, m7                ; f1 and f2 sign byte shift by 3 ; PIC
     SIGN_SUB            m7, rq0, m6, m5                 ; m7 = q0 - f1
     SIGN_ADD            m1, rp0, m4, m5                 ; m1 = p0 + f2
 %if %2 != 44 && %2 != 4
@@ -824,7 +824,7 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
     paddsb              m2, m4                          ; 3 * (q0 - p0)
     paddsb              m6, m2, [pb_4]                  ; m6:  f1 = clip(f + 4, 127)
     paddsb              m2, [pb_3]                      ; m2: f2 = clip(f + 3, 127)
-    SRSHIFT3B_2X        m6, m2, rb10, m4                ; f1 and f2 sign byte shift by 3
+    SRSHIFT3B_2X        m6, m2, rb10, m4                ; f1 and f2 sign byte shift by 3 ; PIC
 %if %2 != 44 && %2 != 4
 %ifdef m8
     pandn               m5, m15, m3                     ;               ~mask(in) & mask(fm)
