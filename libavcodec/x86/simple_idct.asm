@@ -908,8 +908,12 @@ cglobal simple_idct_put, 3, 5, 8, 128, pixels, lsize, block, lsize3, t0
     PUT_PIXELS_CLAMPED_HALF 64 ; blockq,pixelsq,lsizeq,lsize3q
 RET
 
-cglobal simple_idct_add, 3, 4, 8, 128, pixels, lsize, block, t0
+cglobal simple_idct_add, 1, 4, 8, 128, pixels, lsize, block, t0
+    movifnidn blockq, blockmp ; load blockq/r2 from arg[2]
+    PIC_BEGIN lsizeq, 0
     IDCT ; [blockq+],t0,[rsp+]; PIC
+    PIC_END ; lsizeq, no-save
+    movifnidn lsizeq, lsizemp ; delayed loading of lsizeq/r1 from arg[1]
     pxor       m4, m4
     ADD_PIXELS_CLAMPED 0 ; blockq,pixelsq,lsizeq
     lea        pixelsq, [pixelsq+lsizeq*2]
