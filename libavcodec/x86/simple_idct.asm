@@ -898,8 +898,11 @@ RET
 INIT_XMM sse2
 
 cglobal simple_idct_put, 3, 5, 8, 128, pixels, lsize, block, lsize3, t0
+    PIC_BEGIN lsize3q, 0 ; lsize3q saved by PROLOGUE, but not yet initialized
+    CHECK_REG_COLLISION "rpic","pixelsq","lsizeq","blockq","t0d"
     IDCT ; [blockq+],t0,[rsp+]; PIC
-    lea lsize3q, [lsizeq*3]
+    PIC_END ; lsize3q, no-save
+    lea lsize3q, [lsizeq*3] ; lsize3q is initialized here
     PUT_PIXELS_CLAMPED_HALF 0 ; blockq,pixelsq,lsizeq,lsize3q
     lea pixelsq, [pixelsq+lsizeq*4]
     PUT_PIXELS_CLAMPED_HALF 64 ; blockq,pixelsq,lsizeq,lsize3q
