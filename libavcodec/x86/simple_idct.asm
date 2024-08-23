@@ -898,22 +898,22 @@ RET
 INIT_XMM sse2
 
 cglobal simple_idct_put, 3, 5, 8, 128, pixels, lsize, block, lsize3, t0
-    IDCT
+    IDCT ; [blockq+],t0,[rsp+]; PIC
     lea lsize3q, [lsizeq*3]
-    PUT_PIXELS_CLAMPED_HALF 0
+    PUT_PIXELS_CLAMPED_HALF 0 ; blockq,pixelsq,lsizeq,lsize3q
     lea pixelsq, [pixelsq+lsizeq*4]
-    PUT_PIXELS_CLAMPED_HALF 64
+    PUT_PIXELS_CLAMPED_HALF 64 ; blockq,pixelsq,lsizeq,lsize3q
 RET
 
 cglobal simple_idct_add, 3, 4, 8, 128, pixels, lsize, block, t0
-    IDCT
+    IDCT ; [blockq+],t0,[rsp+]; PIC
     pxor       m4, m4
-    ADD_PIXELS_CLAMPED 0
+    ADD_PIXELS_CLAMPED 0 ; blockq,pixelsq,lsizeq
     lea        pixelsq, [pixelsq+lsizeq*2]
-    ADD_PIXELS_CLAMPED 32
+    ADD_PIXELS_CLAMPED 32 ; blockq,pixelsq,lsizeq
     lea        pixelsq, [pixelsq+lsizeq*2]
-    ADD_PIXELS_CLAMPED 64
+    ADD_PIXELS_CLAMPED 64 ; blockq,pixelsq,lsizeq
     lea        pixelsq, [pixelsq+lsizeq*2]
-    ADD_PIXELS_CLAMPED 96
+    ADD_PIXELS_CLAMPED 96 ; blockq,pixelsq,lsizeq
 RET
 %endif
