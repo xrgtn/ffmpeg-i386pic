@@ -1578,6 +1578,8 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     %undef rpicsave
     %undef lpiccache
     %assign lpiccf 0
+    %undef dpic
+    %undef dpiclf
     %assign amd64pic 0
     %undef rpic64
     %undef lpic64
