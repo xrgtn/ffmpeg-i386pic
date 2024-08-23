@@ -745,7 +745,7 @@ SECTION .text
     movq      [80 + %5], mm0
 %endmacro
 
-%macro IDCT 0 ; blockq,t0,[rsp+]; PIC
+%macro IDCT 0 ; [blockq+],t0,[rsp+]; PIC
     PIC_BEGIN r4
     CHECK_REG_COLLISION "rpic","blockq","t0","[rsp+120]"
 
@@ -890,8 +890,9 @@ SECTION .text
 INIT_MMX mmx
 
 cglobal simple_idct, 1, 2, 8, 128, block, t0
-    DESIGNATE_RPIC r2 ; unused scratch reg
-    IDCT
+    PIC_BEGIN r2, 0 ; unused scratch reg
+    IDCT ; [blockq+],t0,[rsp+]; PIC
+    PIC_END
 RET
 
 INIT_XMM sse2
