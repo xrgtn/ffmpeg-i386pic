@@ -10,7 +10,8 @@ Given that ffmpeg's asm codebase is about 3 times that of libx264, it will take
 several months of hacking.
 
 3 days went to converting vp9itxfm\_16bpp.o and vp9itxfm.o to PIC (2440 and
-8144 relocations respectively). 1.5 days to vp9lpf.o. 1 day to simple\_idct.o.
+8144 relocations respectively); 1.5 days to vp9lpf.o; 1 day to simple\_idct.o;
+half a day to vp9lpf\_16bpp.asm.
 
 At the moment the next files still have R\_386\_32 (absolute address)
 relocations in .text:
@@ -88,7 +89,6 @@ user@localhost ~/ffmpeg $ find . -name \*.o | while read O; do n=`objdump -dr "$
 270	./libavcodec/x86/qpeldsp.o
 370	./libavcodec/x86/hevc_sao_10bit.o
 504	./libavcodec/x86/cavsdsp.o
-696	./libavcodec/x86/vp9lpf_16bpp.o
 user@localhost ~/ffmpeg $ 
 ```
 
