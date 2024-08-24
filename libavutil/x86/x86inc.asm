@@ -782,7 +782,8 @@ lpic:           pop rpic
 %macro DESIGNATE_RPIC 0-2
     %if i386pic
         %if picb > 0
-            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
+                %str(current_function))
         %endif
         %if %0 >= 1
             ; designate %1 register for no-save rpic
@@ -873,10 +874,11 @@ lpic:           pop rpic
     %if i386pic
         ASSERT (stack_size_padded >= stack_size)
         %if picb > 0
-            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
+                %str(current_function))
         %elif picallocd != 0
             %error %strcat(%?, " in non-zero PIC_ALLOC state (",\
-                picallocd, ")")
+                picallocd, "), in ", %str(current_function))
         %endif
         ; Estimate required stack %%wpad (used on WIN64)
         %assign %%wpad 0
@@ -1003,7 +1005,8 @@ lpic:           pop rpic
     %if i386pic
         ASSERT (stack_size_padded >= stack_size)
         %if picb > 0
-            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block")
+            %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
+                %str(current_function))
         %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
             %fatal %strcat(%?, " can't free w/rstkm")
         %else
@@ -1030,7 +1033,7 @@ lpic:           pop rpic
                 %assign stack_size        0
             %else
                 %error %strcat(%?, " in invalid PIC_ALLOC state (",\
-                    picallocd, ")")
+                    picallocd, "), in ", %str(current_function))
             %endif
             %undef  rpicsave
             %undef  lpiccache
