@@ -255,7 +255,7 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     ; After loading into m3, Hd/r4 isn't used in horizontal mode anymore: the
     ; next horizontal DEFINE_ARGS takes 4 regs only (r0..r3). Finally, RET pops
     ; r4 from stack. Thus we forego saving:
-    PIC_BEGIN Hd, 0 ; PIC0+1+2+3 cover: Hd(r4), no-save
+    PIC_BEGIN Hd, 0 ; PIC0+1+2+3 cover/container: Hd(r4), no-save
     CHECK_REG_COLLISION "rpic","r0","strideq","r2","r3"
 %endif
 %if cpuflag(ssse3)
@@ -333,7 +333,7 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
 %endif
 %else ; %1 == h
     DEFINE_ARGS dst0, stride, stride3, dst4
-    ; rpic == former Hd (r4), assert the following:
+    ; rpic == former Hd(r4), assert the following:
     CHECK_REG_COLLISION "rpic","dst0q","strideq","stride3q","dst4q"
     lea           stride3q, [strideq*3]
     lea              dst4q, [dst0q+strideq*4]
@@ -765,7 +765,7 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
 %endif
     PIC_END ; PIC0: Hd(r4), no-save / PIC1: r4, no-save / PIC3: dst0q(r4)
 %ifidn %1, h
-    PIC_END ; PIC0+1+2+3 cover: Hd/r4, no-save
+    PIC_END ; PIC0+1+2+3 cover/container: Hd(r4), no-save
 %endif
     paddw               m7, m3                       ; p1+f
     psubw               m6, m3                       ; q1-f
