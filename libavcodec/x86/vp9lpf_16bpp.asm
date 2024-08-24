@@ -79,7 +79,7 @@ SECTION .text
 %endmacro
 
 ; calculate p or q portion of flat8out
-%macro FLAT8OUT_HALF 0
+%macro FLAT8OUT_HALF 0 ; reg_F
     psubw               m4, m0                      ; q4-q0
     psubw               m5, m0                      ; q5-q0
     psubw               m6, m0                      ; q6-q0
@@ -96,7 +96,7 @@ SECTION .text
 %endmacro
 
 ; calculate p or q portion of flat8in/hev/fm (excluding mb_edge condition)
-%macro FLAT8IN_HALF 1
+%macro FLAT8IN_HALF 1 ; reg_F*[%1>4],H,I
 %if %1 > 4
     psubw               m4, m3, m0                  ; q3-q0
     psubw               m5, m2, m0                  ; q2-q0
@@ -135,7 +135,7 @@ SECTION .text
 ;
 ; if dont_store is set, don't write the result into memory, instead keep the
 ; values in register so we can write it out later
-%macro FILTER_STEP 6-10 "", "", "", 0 ; tmp, reg, mask, shift, dst, \
+%macro FILTER_STEP 6-10 "", "", "", 0 ; tmp, reg, mask, shift, dst, ; reg_%3 \
                                       ; src/sub1, sub2, add1, add2, dont_store
     psrlw               %1, %2, %4
     psubw               %1, %6                      ; abs->delta
@@ -219,16 +219,57 @@ SECTION .text
 %endif ; %3
 
 cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem, dst, stride, E, I, H
+%ifidn %1, h
+    ; Joint no-save PIC0+1+2+3 block, no PIC_ALLOC needed:
+    ; h, %2 == 16,  ssse3:   PIC0+1+2+3:nsv{PIC0:nsv + PIC1 + PIC2 + PIC2}
+    ; h, %2 == 16, !ssse3:   PIC0+1+2+3:nsv{           PIC1 + PIC2 + PIC2}
+    ; h, %2  < 16,  ssse3:   PIC0+1+2+3:nsv{PIC0:nsv.....................}
+    ; h, %2  < 16, !ssse3:   PIC0+1+2+3:nsv{           PIC1:nsv..........}
+%elif %2 == 16 ; vertical/16
+    ; v, %2 == 16,  ssse3:  PIC_ALLOC +     PIC0:nsv + PIC1 + PIC2 + PIC2
+    ; v, %2 == 16, !ssse3:  PIC_ALLOC +                PIC1 + PIC2 + PIC2
+    PIC_ALLOC
+%else ; vertical/not-16
+    ; Single no-save PIC0 or single no-save PIC1, no PIC_ALLOC needed:
+    ; v, %2  < 16,  ssse3:                  PIC0:nsv.....................
+    ; v, %2  < 16, !ssse3:                             PIC1:nsv..........
+%endif
+    ; Mark dst0q, dst4q, dst8q, dst12q, strideq and stride3q usage by P0..P7 &
+    ; Q0..Q7 (d0:p4-7  d4:p0-3  d8:q0-3  d12:q4-7  s1:p1256q1256  s3:p04q37):
+    ; :1;/PIC[X]/;/PIC[X]/:s/ *; XXX:.*$//
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\( *[^ %;][^;]*\<\(reg_\)\?[pPqQ][0-7]\>.*\)$/\1 ; XXX:/
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\([^;]*\<\(reg_\)\?\([pP][4-7]\)\>.*; XXX:.*\)$/\1d0/
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\([^;]*\<\(reg_\)\?\([pP][0-3]\)\>.*; XXX:.*\)$/\1d4/
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\([^;]*\<\(reg_\)\?\([qQ][0-3]\)\>.*; XXX:.*\)$/\1d8/
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\([^;]*\<\(reg_\)\?\([qQ][4-7]\)\>.*; XXX:.*\)$/\1d12/
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\([^;]*\<\(reg_\)\?\([pP][1256]\|[qQ][1256]\)\>.*; XXX:.*\)$/\1s1/
+    ; :1;/PIC[X]/;/PIC[X]/:s/^\([^;]*\<\(reg_\)\?\([pP][04]\|[qQ][37]\)\>.*; XXX:.*\)$/\1s3/
+
     ; prepare E, I and H masks
     shl                 Ed, %3-8
     shl                 Id, %3-8
     shl                 Hd, %3-8
-%if cpuflag(ssse3)
-    mova                m0, [pw_256]
-%endif
     movd                m1, Ed
-    movd                m2, Id
     movd                m3, Hd
+%ifidn %1, h
+    ; After loading into m3, Hd/r4 isn't used in horizontal mode anymore: the
+    ; next horizontal DEFINE_ARGS takes 4 regs only (r0..r3). Finally, RET pops
+    ; r4 from stack. Thus we forego saving:
+    PIC_BEGIN Hd, 0 ; PIC0+1+2+3 cover: Hd(r4), no-save
+    CHECK_REG_COLLISION "rpic","r0","strideq","r2","r3"
+%endif
+%if cpuflag(ssse3)
+    ; Hd/r4 isn't used until next DEFINE_ARGS, where it's either redefined and
+    ; re-initialized as dst0q (vertical/16) or not used until RET where it's
+    ; popped from stack. Both cases can omit saving:
+    PIC_BEGIN Hd, 0 ; PIC0: Hd(r4), no-save
+    CHECK_REG_COLLISION "rpic","dstq","strideq","Ed","Id"
+    mova                m0, [pic(pw_256)]
+%if %2 == 16
+    PIC_END ; PIC0: Hd(r4), no-save
+%endif
+%endif ; ssse3
+    movd                m2, Id
 %if cpuflag(ssse3)
     pshufb              m1, m0                      ; E << (bit_depth - 8)
     pshufb              m2, m0                      ; I << (bit_depth - 8)
@@ -240,17 +281,22 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     pshufd              m1, m1, q0000
     pshufd              m2, m2, q0000
     pshufd              m3, m3, q0000
-%endif
-    SCRATCH              1,  8, rsp+(%%off+0)*mmsize,  E
-    SCRATCH              2,  9, rsp+(%%off+1)*mmsize,  I
-    SCRATCH              3, 10, rsp+(%%off+2)*mmsize,  H
+%endif ; ssse3 / !ssse3
+    SCRATCH              1,  8, rsp+(%%off+0)*mmsize,  E ; def reg_E
+    SCRATCH              2,  9, rsp+(%%off+1)*mmsize,  I ; def reg_I
+    SCRATCH              3, 10, rsp+(%%off+2)*mmsize,  H ; def reg_H
 %if %2 > 4
-    PRELOAD                 11, pw_ %+ %%maxf, F
+    PRELOAD                 11, pic(pw_ %+ %%maxf),    F ; def reg_F [pic(pw_4/_16)]
 %endif
 
     ; set up variables to load data
 %ifidn %1, v
-    DEFINE_ARGS dst8, stride, stride3, dst0, dst4, dst12
+%if %2 == 16
+    ; only vertical/16 uses dst0q and dst12q:
+    DEFINE_ARGS dst8, stride, stride3, dst4, dst0, dst12
+%else
+    DEFINE_ARGS dst8, stride, stride3, dst4
+%endif
     lea           stride3q, [strideq*3]
     neg            strideq
 %if %2 == 16
@@ -264,6 +310,7 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     lea              dst4q, [dst0q+strideq*4]
 %endif
 
+; d0:p4-7  d4:p0-3  d8:q0-3  d12:q4-7  s1:p1256q1256  s3:p04q37
 %if %2 == 16
 %define %%p7 dst0q
 %define %%p6 dst0q+strideq
@@ -286,6 +333,8 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
 %endif
 %else ; %1 == h
     DEFINE_ARGS dst0, stride, stride3, dst4
+    ; rpic == former Hd (r4), assert the following:
+    CHECK_REG_COLLISION "rpic","dst0q","strideq","stride3q","dst4q"
     lea           stride3q, [strideq*3]
     lea              dst4q, [dst0q+strideq*4]
 
@@ -396,26 +445,33 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
 
     ; FIXME investigate if we can _not_ load q0|q4-7 below if h, and adjust register
     ; order here accordingly
-%endif ; %2
-%endif ; %1
+%endif ; %2 < 16 / %2 == 16
+%endif ; %1 == v / %1 == h
+
+%if %2 == 16
+    PIC_BEGIN dst0q, 1 ; PIC1: dst0q(r4)
+%elif !cpuflag(ssse3)
+    PIC_BEGIN r4, 0 ; PIC1: r4, no-save
+%endif ; in case "ssse3 && !16" we still have PIC0 active
 
     ; load q0|q4-7 data
-    mova                m0, [%%q0]
+    ; PICX ; start marking d0d4d8d12s1s3
+    mova                m0, [%%q0] ; XXX:d8
 %if %2 == 16
-    mova                m4, [%%q4]
-    mova                m5, [%%q5]
-    mova                m6, [%%q6]
-    mova                m7, [%%q7]
+    mova                m4, [%%q4] ; XXX:d12
+    mova                m5, [%%q5] ; XXX:d12s1
+    mova                m6, [%%q6] ; XXX:d12s1
+    mova                m7, [%%q7] ; XXX:d12s3
 
     ; flat8out q portion
-    FLAT8OUT_HALF
+    FLAT8OUT_HALF ; reg_F ; PIC
     SCRATCH              7, 15, rsp+(%%off+6)*mmsize, F8O
 %endif
 
     ; load q1-3 data
-    mova                m1, [%%q1]
-    mova                m2, [%%q2]
-    mova                m3, [%%q3]
+    mova                m1, [%%q1] ; XXX:d8s1
+    mova                m2, [%%q2] ; XXX:d8s1
+    mova                m3, [%%q3] ; XXX:d8s3
 
     ; r6-8|pw_4[m8-11]=reg_E/I/H/F
     ; r9[m15]=!flatout[q]
@@ -424,7 +480,7 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     ; m4-7=free
 
     ; flat8in|fm|hev q portion
-    FLAT8IN_HALF        %2
+    FLAT8IN_HALF        %2 ; reg_F*,H,I ; PIC*[%2>4]
     SCRATCH              7, 13, rsp+(%%off+4)*mmsize, HEV
 %if %2 > 4
     SCRATCH              4, 14, rsp+(%%off+5)*mmsize, F8I
@@ -440,8 +496,8 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     ; m12=free
 
     ; load p0-1
-    mova                m3, [%%p0]
-    mova                m4, [%%p1]
+    mova                m3, [%%p0] ; XXX:d4s3
+    mova                m4, [%%p1] ; XXX:d4s1
 
     ; fm mb_edge portion
     psubw               m5, m3, m0                  ; q0-p0
@@ -470,14 +526,20 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     ; load p4-7 data
     SWAP                 3, 0                       ; p0
     SWAP                 4, 1                       ; p1
+
 %if %2 == 16
-    mova                m7, [%%p7]
-    mova                m6, [%%p6]
-    mova                m5, [%%p5]
-    mova                m4, [%%p4]
+    PIC_END          ; PIC1: dst0q(r4)
+    PIC_BEGIN dst12q ; PIC2: dst12q(r5)
+%endif
+
+%if %2 == 16
+    mova                m7, [%%p7] ; XXX:d0
+    mova                m6, [%%p6] ; XXX:d0s1
+    mova                m5, [%%p5] ; XXX:d0s1
+    mova                m4, [%%p4] ; XXX:d0s3
 
     ; flat8out p portion
-    FLAT8OUT_HALF
+    FLAT8OUT_HALF ; reg_F ; PIC
     por                 m7, reg_F8O
     SCRATCH              7, 15, rsp+(%%off+6)*mmsize, F8O
 %endif
@@ -491,11 +553,11 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     ; m1-7=free
 
     ; load p2-3 data
-    mova                m2, [%%p2]
-    mova                m3, [%%p3]
+    mova                m2, [%%p2] ; XXX:d4s1
+    mova                m3, [%%p3] ; XXX:d4
 
     ; flat8in|fm|hev p portion
-    FLAT8IN_HALF        %2
+    FLAT8IN_HALF        %2 ; reg_F*,H,I ; PIC*[%2>4]
     por                 m7, reg_HEV
 %if %2 > 4
     por                 m4, reg_F8I
@@ -507,18 +569,18 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     por                 m5, m4, reg_F8O             ; !flat16|!fm
     pandn               m2, m4                      ; filter4_mask
     pandn               m4, m5                      ; filter8_mask
-    pxor                m5, [pw_m1]                 ; filter16_mask
-    SCRATCH              5, 15, rsp+(%%off+6)*mmsize, F16M
-%else
+    pxor                m5, [pic(pw_m1)]            ; filter16_mask
+    SCRATCH              5, 15, rsp+(%%off+6)*mmsize, F16M ; def reg_F16M
+%else ; %2 != 16
     pandn               m2, m4                      ; filter4_mask
-    pxor                m4, [pw_m1]                 ; filter8_mask
-%endif
-    SCRATCH              4, 14, rsp+(%%off+5)*mmsize, F8M
-%else
-    pxor                m2, [pw_m1]                 ; filter4_mask
-%endif
-    SCRATCH              7, 13, rsp+(%%off+4)*mmsize, HEV
-    SCRATCH              2, 12, rsp+(%%off+3)*mmsize, F4M
+    pxor                m4, [pic(pw_m1)]            ; filter8_mask
+%endif ; %2 == 16 / %2 != 16
+    SCRATCH              4, 14, rsp+(%%off+5)*mmsize, F8M ; def reg_F8M
+%else ; %2 <= 4
+    pxor                m2, [pic(pw_m1)]            ; filter4_mask
+%endif ; %2 > 4 / %2 <= 4
+    SCRATCH              7, 13, rsp+(%%off+4)*mmsize, HEV ; def reg_HEV
+    SCRATCH              2, 12, rsp+(%%off+3)*mmsize, F4M ; def reg_F4M
 
     ; r9[m15]=filter16_mask
     ; r10[m13]=hev
@@ -531,80 +593,82 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
 %if %2 > 4
 %if %2 == 16
     ; filter_14
-    mova                m2, [%%p7]
-    mova                m3, [%%p6]
-    mova                m6, [%%p5]
-    mova                m7, [%%p4]
-    PRELOAD              8, %%p3, P3
-    PRELOAD              9, %%p2, P2
-%endif
-    PRELOAD             10, %%q0, Q0
-    PRELOAD             11, %%q1, Q1
+    mova                m2, [%%p7] ; XXX:d0
+    mova                m3, [%%p6] ; XXX:d0s1
+    mova                m6, [%%p5] ; XXX:d0s1
+    mova                m7, [%%p4] ; XXX:d0s3
+    PRELOAD              8, %%p3, P3 ; XXX:d4
+    PRELOAD              9, %%p2, P2 ; XXX:d4s1
+%endif ; %2 == 16
+    PRELOAD             10, %%q0, Q0 ; XXX:d8
+    PRELOAD             11, %%q1, Q1 ; XXX:d8s1
 %if %2 == 16
     psllw               m4, m2, 3
     paddw               m5, m3, m3
     paddw               m4, m6
     paddw               m5, m7
-    paddw               m4, reg_P3
-    paddw               m5, reg_P2
+    paddw               m4, reg_P3 ; XXX:d4
+    paddw               m5, reg_P2 ; XXX:d4s1
     paddw               m4, m1
     paddw               m5, m0
-    paddw               m4, reg_Q0                  ; q0+p1+p3+p5+p7*8
+    paddw               m4, reg_Q0                  ; q0+p1+p3+p5+p7*8 ; XXX:d8
     psubw               m5, m2                      ; p0+p2+p4+p6*2-p7
-    paddw               m4, [pw_8]
+    paddw               m4, [pic(pw_8)]
+    PIC_END ; PIC2: dst12q(r5)
     paddw               m5, m4                      ; q0+p0+p1+p2+p3+p4+p5+p6*2+p7*7+8
 
     ; below, we use r0-5 for storing pre-filter pixels for subsequent subtraction
     ; at the end of the filter
 
     mova    [rsp+0*mmsize], m3
-    FILTER_STEP         m4, m5, F16M, 4, %%p6, m3,     m2,             m6,     reg_Q1
-%endif
-    mova                m3, [%%q2]
+    FILTER_STEP         m4, m5, F16M, 4, %%p6, m3,     m2,             m6,     reg_Q1 ; XXX:d0d8s1
+%endif ; %2 == 16
+    mova                m3, [%%q2] ; XXX:d8s1
 %if %2 == 16
     mova    [rsp+1*mmsize], m6
-    FILTER_STEP         m4, m5, F16M, 4, %%p5, m6,     m2,             m7,     m3
-%endif
-    mova                m6, [%%q3]
+    FILTER_STEP         m4, m5, F16M, 4, %%p5, m6,     m2,             m7,     m3 ; XXX:d0s1
+%endif ; %2 == 16
+    mova                m6, [%%q3] ; XXX:d8s3
 %if %2 == 16
     mova    [rsp+2*mmsize], m7
-    FILTER_STEP         m4, m5, F16M, 4, %%p4, m7,     m2,             reg_P3, m6
-    mova                m7, [%%q4]
+    FILTER_STEP         m4, m5, F16M, 4, %%p4, m7,     m2,             reg_P3, m6 ; XXX:d0d4s3
+    PIC_BEGIN dst0q ; PIC3: dst0q(r4)
+    mova                m7, [%%q4] ; XXX:d12
 %if ARCH_X86_64
     mova    [rsp+3*mmsize], reg_P3
 %else
-    mova                m4, reg_P3
+    mova                m4, reg_P3 ; XXX:d4
     mova    [rsp+3*mmsize], m4
 %endif
-    FILTER_STEP         m4, m5, F16M, 4, %%p3, reg_P3, m2,             reg_P2, m7
-    PRELOAD              8, %%q5, Q5
+    FILTER_STEP         m4, m5, F16M, 4, %%p3, reg_P3, m2,             reg_P2, m7 ; XXX:d4s1
+    PRELOAD              8, %%q5, Q5 ; XXX:d12s1
 %if ARCH_X86_64
     mova    [rsp+4*mmsize], reg_P2
 %else
-    mova                m4, reg_P2
+    mova                m4, reg_P2 ; XXX:d4s1
     mova    [rsp+4*mmsize], m4
 %endif
-    FILTER_STEP         m4, m5, F16M, 4, %%p2, reg_P2, m2,             m1,     reg_Q5
-    PRELOAD              9, %%q6, Q6
+    FILTER_STEP         m4, m5, F16M, 4, %%p2, reg_P2, m2,             m1,     reg_Q5 ; XXX:d4d12s1
+    PRELOAD              9, %%q6, Q6 ; XXX:d12s1
     mova    [rsp+5*mmsize], m1
-    FILTER_STEP         m4, m5, F16M, 4, %%p1, m1,     m2,             m0,     reg_Q6
-    mova                m1, [%%q7]
-    FILTER_STEP         m4, m5, F16M, 4, %%p0, m0,     m2,             reg_Q0, m1,     1
-    FILTER_STEP         m4, m5, F16M, 4, %%q0, reg_Q0, [rsp+0*mmsize], reg_Q1, m1,     ARCH_X86_64
-    FILTER_STEP         m4, m5, F16M, 4, %%q1, reg_Q1, [rsp+1*mmsize], m3,     m1,     ARCH_X86_64
-    FILTER_STEP         m4, m5, F16M, 4, %%q2, m3,     [rsp+2*mmsize], m6,     m1,     1
-    FILTER_STEP         m4, m5, F16M, 4, %%q3, m6,     [rsp+3*mmsize], m7,     m1
-    FILTER_STEP         m4, m5, F16M, 4, %%q4, m7,     [rsp+4*mmsize], reg_Q5, m1
-    FILTER_STEP         m4, m5, F16M, 4, %%q5, reg_Q5, [rsp+5*mmsize], reg_Q6, m1
-    FILTER_STEP         m4, m5, F16M, 4, %%q6, reg_Q6
+    FILTER_STEP         m4, m5, F16M, 4, %%p1, m1,     m2,             m0,     reg_Q6 ; XXX:d4d12s1
+    mova                m1, [%%q7] ; XXX:d12s3
+    FILTER_STEP         m4, m5, F16M, 4, %%p0, m0,     m2,             reg_Q0, m1,     1 ; XXX:d4d8s3
+    FILTER_STEP         m4, m5, F16M, 4, %%q0, reg_Q0, [rsp+0*mmsize], reg_Q1, m1,     ARCH_X86_64 ; XXX:d8s1
+    FILTER_STEP         m4, m5, F16M, 4, %%q1, reg_Q1, [rsp+1*mmsize], m3,     m1,     ARCH_X86_64 ; XXX:d8s1
+    FILTER_STEP         m4, m5, F16M, 4, %%q2, m3,     [rsp+2*mmsize], m6,     m1,     1 ; XXX:d8s1
+    FILTER_STEP         m4, m5, F16M, 4, %%q3, m6,     [rsp+3*mmsize], m7,     m1 ; XXX:d8s3
+    FILTER_STEP         m4, m5, F16M, 4, %%q4, m7,     [rsp+4*mmsize], reg_Q5, m1 ; XXX:d12s1
+    FILTER_STEP         m4, m5, F16M, 4, %%q5, reg_Q5, [rsp+5*mmsize], reg_Q6, m1 ; XXX:d12s1
+    FILTER_STEP         m4, m5, F16M, 4, %%q6, reg_Q6 ; XXX:d12s1
 
-    mova                m7, [%%p1]
-%else
+    mova                m7, [%%p1] ; XXX:d4s1
+%else ; %2 != 16
     SWAP                 1, 7
-%endif
+%endif ; %2 == 16 / %2 != 16
 
-    mova                m2, [%%p3]
-    mova                m1, [%%p2]
+    mova                m2, [%%p3] ; XXX:d4
+    mova                m1, [%%p2] ; XXX:d4s1
 
     ; reg_Q0-1 (m10-m11)
     ; m0=p0
@@ -622,8 +686,8 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     paddw               m4, m7
     psubw               m5, m2
     paddw               m4, m0
-    paddw               m5, reg_Q0
-    paddw               m4, [pw_4]
+    paddw               m5, reg_Q0 ; XXX:d8
+    paddw               m4, [pic(pw_4)]
     paddw               m5, m4
 
 %if ARCH_X86_64
@@ -634,28 +698,28 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     mova    [rsp+1*mmsize], m7
 %endif
 %ifidn %1, v
-    FILTER_STEP         m4, m5, F8M, 3, %%p2, m1,     m2,             m7,     reg_Q1
+    FILTER_STEP         m4, m5, F8M, 3, %%p2, m1,     m2,             m7,     reg_Q1 ; XXX:d4d8s1
 %else
-    FILTER_STEP         m4, m5, F8M, 3, %%p2, m1,     m2,             m7,     reg_Q1, 1
+    FILTER_STEP         m4, m5, F8M, 3, %%p2, m1,     m2,             m7,     reg_Q1, 1 ; XXX:d4d8s1
 %endif
-    FILTER_STEP         m4, m5, F8M, 3, %%p1, m7,     m2,             m0,     m3, 1
-    FILTER_STEP         m4, m5, F8M, 3, %%p0, m0,     m2,             reg_Q0, m6, 1
+    FILTER_STEP         m4, m5, F8M, 3, %%p1, m7,     m2,             m0,     m3, 1 ; XXX:d4s1
+    FILTER_STEP         m4, m5, F8M, 3, %%p0, m0,     m2,             reg_Q0, m6, 1 ; XXX:d4d8s3
 %if ARCH_X86_64
     FILTER_STEP         m4, m5, F8M, 3, %%q0, reg_Q0, m8,             reg_Q1, m6, ARCH_X86_64
     FILTER_STEP         m4, m5, F8M, 3, %%q1, reg_Q1, m9,             m3,     m6, ARCH_X86_64
 %else
-    FILTER_STEP         m4, m5, F8M, 3, %%q0, reg_Q0, [rsp+0*mmsize], reg_Q1, m6, ARCH_X86_64
-    FILTER_STEP         m4, m5, F8M, 3, %%q1, reg_Q1, [rsp+1*mmsize], m3,     m6, ARCH_X86_64
+    FILTER_STEP         m4, m5, F8M, 3, %%q0, reg_Q0, [rsp+0*mmsize], reg_Q1, m6, ARCH_X86_64 ; XXX:d8s1
+    FILTER_STEP         m4, m5, F8M, 3, %%q1, reg_Q1, [rsp+1*mmsize], m3,     m6, ARCH_X86_64 ; XXX:d8s1
 %endif
-    FILTER_STEP         m4, m5, F8M, 3, %%q2, m3
+    FILTER_STEP         m4, m5, F8M, 3, %%q2, m3 ; XXX:d8s1
 
-    UNSCRATCH            2, 10, %%q0
-    UNSCRATCH            6, 11, %%q1
-%else
+    UNSCRATCH            2, 10, %%q0 ; XXX:d8
+    UNSCRATCH            6, 11, %%q1 ; XXX:d8s1
+%else ; %2 <= 4
     SWAP                 1, 7
-    mova                m2, [%%q0]
-    mova                m6, [%%q1]
-%endif
+    mova                m2, [%%q0] ; XXX:d8
+    mova                m6, [%%q1] ; XXX:d8s1
+%endif ; %2 > 4 / %2 <= 4
     UNSCRATCH            3, 13, rsp+(%%off+4)*mmsize, HEV
 
     ; m0=p0
@@ -667,40 +731,44 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     ; m7=p1
 
     ; filter_4
-    psubw               m4, m7, m6              ; p1-q1
-    psubw               m5, m2, m0              ; q0-p0
+    psubw               m4, m7, m6                   ; p1-q1
+    psubw               m5, m2, m0                   ; q0-p0
     pand                m4, m3
-    pminsw              m4, [pw_ %+ %%maxsgn]
-    pmaxsw              m4, [pw_ %+ %%minsgn]   ; clip_intp2(p1-q1, 9) -> f
+    pminsw              m4, [pic(pw_ %+ %%maxsgn)]
+    pmaxsw              m4, [pic(pw_ %+ %%minsgn)]   ; clip_intp2(p1-q1, 9) -> f
     paddw               m4, m5
     paddw               m5, m5
-    paddw               m4, m5                  ; 3*(q0-p0)+f
-    pminsw              m4, [pw_ %+ %%maxsgn]
-    pmaxsw              m4, [pw_ %+ %%minsgn]   ; clip_intp2(3*(q0-p0)+f, 9) -> f
+    paddw               m4, m5                       ; 3*(q0-p0)+f
+    pminsw              m4, [pic(pw_ %+ %%maxsgn)]
+    pmaxsw              m4, [pic(pw_ %+ %%minsgn)]   ; clip_intp2(3*(q0-p0)+f, 9) -> f
     pand                m4, reg_F4M
-    paddw               m5, m4, [pw_4]
-    paddw               m4, [pw_3]
-    pminsw              m5, [pw_ %+ %%maxsgn]
-    pminsw              m4, [pw_ %+ %%maxsgn]
-    psraw               m5, 3                   ; min_intp2(f+4, 9)>>3 -> f1
-    psraw               m4, 3                   ; min_intp2(f+3, 9)>>3 -> f2
-    psubw               m2, m5                  ; q0-f1
-    paddw               m0, m4                  ; p0+f2
-    pandn               m3, m5                  ; f1 & !hev (for p1/q1 adj)
+    paddw               m5, m4, [pic(pw_4)]
+    paddw               m4, [pic(pw_3)]
+    pminsw              m5, [pic(pw_ %+ %%maxsgn)]
+    pminsw              m4, [pic(pw_ %+ %%maxsgn)]
+    psraw               m5, 3                        ; min_intp2(f+4, 9)>>3 -> f1
+    psraw               m4, 3                        ; min_intp2(f+3, 9)>>3 -> f2
+    psubw               m2, m5                       ; q0-f1
+    paddw               m0, m4                       ; p0+f2
+    pandn               m3, m5                       ; f1 & !hev (for p1/q1 adj)
     pxor                m4, m4
-    mova                m5, [pw_ %+ %%maxusgn]
+    mova                m5, [pic(pw_ %+ %%maxusgn)]
     pmaxsw              m2, m4
     pmaxsw              m0, m4
     pminsw              m2, m5
     pminsw              m0, m5
 %if cpuflag(ssse3)
-    pmulhrsw            m3, [pw_16384]          ; (f1+1)>>1
+    pmulhrsw            m3, [pic(pw_16384)]          ; (f1+1)>>1
 %else
-    paddw               m3, [pw_1]
+    paddw               m3, [pic(pw_1)] ; last PIC memory access
     psraw               m3, 1
 %endif
-    paddw               m7, m3                  ; p1+f
-    psubw               m6, m3                  ; q1-f
+    PIC_END ; PIC0: Hd(r4), no-save / PIC1: r4, no-save / PIC3: dst0q(r4)
+%ifidn %1, h
+    PIC_END ; PIC0+1+2+3 cover: Hd/r4, no-save
+%endif
+    paddw               m7, m3                       ; p1+f
+    psubw               m6, m3                       ; q1-f
     pmaxsw              m7, m4
     pmaxsw              m6, m4
     pminsw              m7, m5
@@ -708,10 +776,11 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
 
     ; store
 %ifidn %1, v
-    mova            [%%p1], m7
-    mova            [%%p0], m0
-    mova            [%%q0], m2
-    mova            [%%q1], m6
+    mova            [%%p1], m7 ; XXX:d4s1
+    mova            [%%p0], m0 ; XXX:d4s3
+    mova            [%%q0], m2 ; XXX:d8
+    mova            [%%q1], m6 ; XXX:d8s1
+    ; PICX ; stop marking d0d4d8d12s1s3
 %else ; %1 == h
 %if %2 == 4
     TRANSPOSE4x4W        7, 0, 2, 6, 1
@@ -797,8 +866,11 @@ cglobal vp9_loop_filter_%1_%2_%3, 5, %%num_gpr_regs, %%num_xmm_regs, %%stack_mem
     mova [dst4q+strideq*1], m4
     mova [dst4q+strideq*2], m5
     mova [dst4q+stride3q ], m7
-%endif ; %2
-%endif ; %1
+%endif ; %2 == 4 / %2 == 8 / %2 !in {4,8} (%2==16)
+%endif ; %1 == v / %1 != v
+%if %isnidn(%1, h) && %2 == 16 ; PIC_ALLOC is used only in vertical/16
+    PIC_FREE
+%endif
     RET
 %endmacro
 
