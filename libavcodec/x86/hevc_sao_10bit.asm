@@ -39,7 +39,7 @@ SECTION .text
 ;SAO Band Filter
 ;******************************************************************************
 
-%macro HEVC_SAO_BAND_FILTER_INIT 1
+%macro HEVC_SAO_BAND_FILTER_INIT 1 ; leftq,heightq,[offsetq+],r7m,[rsp+]; PIC:heightd,0
     and            leftq, 31
     movd             xm0, leftd
     add            leftq, 1
@@ -81,7 +81,10 @@ SECTION .text
     mova  [rsp+mmsize*4], m4
     mova  [rsp+mmsize*5], m5
     mova  [rsp+mmsize*6], m6
-    mova              m1, [pw_mask %+ %1]
+    CHECK_REG_COLLISION "rpic",,,,,"offsetq","leftq",,,"[rsp+mmsize*6]"
+    PIC_BEGIN r5, 0 ; r5/heightd is reloaded from r7m below
+    mova              m1, [pic(pw_mask %+ %1)]
+    PIC_END
     pxor              m0, m0
     %define m14 m0
     %define m13 m1
@@ -89,6 +92,7 @@ SECTION .text
     %define  m8 m3
 %endif ; ARCH
 DEFINE_ARGS dst, src, dststride, srcstride, offset, height
+    CHECK_REG_COLLISION "rpic",,,,,,"heightd",,"r7m"
     mov          heightd, r7m
 %endmacro
 
@@ -96,7 +100,7 @@ DEFINE_ARGS dst, src, dststride, srcstride, offset, height
 ;                                                   int16_t *sao_offset_val, int sao_left_class, int width, int height);
 %macro HEVC_SAO_BAND_FILTER 3
 cglobal hevc_sao_band_filter_%2_%1, 6, 6, 15, 7*mmsize*ARCH_X86_32, dst, src, dststride, srcstride, offset, left
-    HEVC_SAO_BAND_FILTER_INIT %1
+    HEVC_SAO_BAND_FILTER_INIT %1 ; leftq,heightq,[offsetq+],r7m,[rsp+]; PIC:heightd,0
 
 align 16
 .loop:
