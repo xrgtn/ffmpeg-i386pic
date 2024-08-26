@@ -729,13 +729,16 @@ lpic:           pop rpic
 %endmacro
 ; PIC_END closes current PIC_BEGIN/END block and decrements picb.
 ; When closing last (topmost) block:
-; * PIC_END updates lpiccache if it's defined and lpiccf==0;
+; * PIC_END updates lpiccache if it's defined and lpiccf is unset, and
+;   sets lpiccf flag after update;
+; * if dpic is defined as the same register as rpic, sets dpiclf flag;
 ; * restores previous value of register used for rpic, if rpicsf is set:
-;   - if dpiclf is defined when restoring rpic, clears dpiclf;
+;   - if dpic is defined as the same register as rpic when restoring rpic,
+;     unsets dpiclf;
+; * if lpiccf or dpiclf is set, keeps lpic defined:
+;   - otherwize (if both are unset) undefines lpic;
 ; * undefines rpic and rpicsf;
-; * undefines lpic, if lpiccache is not defined;
-;   - otherwize it keeps lpic defined after PIC_BEGIN/END block is finished;
-; * leaves dpic/dpiclf without changes.
+; * leaves dpic without changes.
 %macro PIC_END 0
     %if i386pic
         %assign picb picb-1
@@ -751,8 +754,11 @@ lpic:           pop rpic
                     %assign lpiccf 1
                 %endif
             %else
-                %undef lpic
                 %assign lpiccf 0
+            %endif
+            %assign %%dpiclf -1 ; -1 inicates "undef"
+            %ifidn dpic, rpic
+                %assign %%dpiclf 1
             %endif
             %if rpicsf
                 %ifndef rpicsave
@@ -763,18 +769,29 @@ lpic:           pop rpic
                 %else
                     mov rpic, rpicsave
                 %endif
-                %ifdef dpiclf
-                    %assign dpiclf 0 ; dpic is unloaded
-                %endif
                 %ifidn rpic, lpiccache
                     ; restoring into lpiccache invalidates cache; having
                     ; rpicsf set while rpic==lpiccache is an error:
                     %error %strcat("rpicsf set while rpic=lpiccache=", \
                         lpiccache)
                 %endif
+                %ifidn dpic, rpic
+                    %assign %%dpiclf 0
+                %endif
+            %endif
+            %if !lpiccf && %%dpiclf != 1
+                %undef lpic
             %endif
             %undef rpic
             %undef rpicsf
+            ; commit %%dpiclf (local) to dpiclf (global):
+            %if %%dpiclf == 1
+                %assign dpiclf 1
+            %elif %%dpiclf == 0
+                %assign dpiclf 0
+            %else
+                %undef dpiclf
+            %endif
         %endif
     %endif
 %endmacro
