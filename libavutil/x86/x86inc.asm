@@ -960,10 +960,7 @@ lpic:           pop rpic
             ; undefined at the moment when rpicsave/lpiccache are being
             ; xdef-ed: this way it becomes impossible to expand
             ; rstk/stack_offset tokens any further, so they are left as-is):
-            %xdefine %%rstk  rstk
-            %xdefine %%stko  stack_offset
-            %undef stack_offset
-            %undef rstk
+            STK_CONTEXT_PUSH_UNDEF ; stack_offset/size/padded, rstk/m
             %if %%ak==1
                 %xdefine rpicsave  [rstk+stack_offset-%%ao]
             %elif %%ak==2
@@ -972,8 +969,7 @@ lpic:           pop rpic
                 %xdefine rpicsave  [rstk+stack_offset-%%ao]
                 %xdefine lpiccache [rstk+stack_offset-%%ao2]
             %endif
-            %xdefine stack_offset %%stko
-            %xdefine rstk %%rstk
+            STK_CONTEXT_POP ; stack_offset/size/padded, rstk/m
         %endif
     %endif
 %endmacro
