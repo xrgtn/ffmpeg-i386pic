@@ -1644,6 +1644,23 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
     DEFINE_ARGS ; DEFINE_ARGS without params undefines previous args
     %ifnidn %3, ""
         PROLOGUE %3
+        VALIDATE_STACK_POINTER %3
+    %endif
+%endmacro
+
+; Undefine rstk when it's certainly invalid:
+%macro VALIDATE_STACK_POINTER 0-*
+    %if %0 >= 4
+        %ifnum %4
+            %if (%4) < 0 && (required_stack_alignment) > (STACK_ALIGNMENT)
+                ; Check if PROLOGUE loaded arg[reg_used-1] into rstk register:
+                %if num_args >= regs_used
+                    ; Make stack references like r0m == [rstk + x],
+                    ; r1m == [rstk + y] etc trigger an error when used:
+                    %undef rstk
+                %endif
+            %endif
+        %endif
     %endif
 %endmacro
 
