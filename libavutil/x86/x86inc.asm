@@ -487,22 +487,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     ; rstk+stack_xxx into reg+numeric-value-at-this-moment by undefining these
     ; params, xdef-ing context-local copies with params unexpanded, then
     ; restoring params:
-    %ifdef rstk
-        %xdefine %$rstk rstk
-    %endif
-    %undef rstk
-    %ifdef stack_offset
-        %xdefine %$stack_offset stack_offset
-    %endif
-    %undef stack_offset
-    %ifdef stack_size
-        %xdefine %$stack_size stack_size
-    %endif
-    %undef stack_size
-    %ifdef stack_size_padded
-        %xdefine %$stack_size_padded stack_size_padded
-    %endif
-    %undef stack_size_padded
+    STK_CONTEXT_STORE_UNDEF
     %assign %$picb picb
     %ifdef rpic
         %xdefine %$rpic rpic
@@ -530,18 +515,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %endif
     %assign %$picallocd picallocd
     ; restore rstk/stack_params:
-    %ifdef %$rstk
-        %xdefine rstk %$rstk
-    %endif
-    %ifdef %$stack_offset
-        %xdefine stack_offset %$stack_offset
-    %endif
-    %ifdef %$stack_size
-        %xdefine stack_size %$stack_size
-    %endif
-    %ifdef %$stack_size_padded
-        %xdefine stack_size_padded %$stack_size_padded
-    %endif
+    STK_CONTEXT_LOAD
 %endmacro
 %macro PIC_CONTEXT_POP 0
     ; Assume that %$rpicsave and %$lpiccache are defined WRT
