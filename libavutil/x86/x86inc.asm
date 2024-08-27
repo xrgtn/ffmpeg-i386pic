@@ -522,10 +522,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     ; rstk/rsp+stack_offset/stack_size/stack_size_padded -- avoid expansion of
     ; rstk+stack_xxx into reg+numeric-value-at-this-moment by undefining these
     ; params first and restoring them from context-local copies last:
-    %undef rstk
-    %undef stack_offset
-    %undef stack_size
-    %undef stack_size_padded
+    STK_CONTEXT_UNDEF
     %assign picb %$picb
     %ifdef %$rpic
         %xdefine rpic %$rpic
@@ -569,18 +566,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %endif
     %assign picallocd %$picallocd
     ; restore rstk/stack_params last:
-    %ifdef %$rstk
-        %xdefine rstk %$rstk
-    %endif
-    %ifdef %$stack_offset
-        %xdefine stack_offset %$stack_offset
-    %endif
-    %ifdef %$stack_size
-        %xdefine stack_size %$stack_size
-    %endif
-    %ifdef %$stack_size_padded
-        %xdefine stack_size_padded %$stack_size_padded
-    %endif
+    STK_CONTEXT_LOAD
     %pop pic_context
 %endmacro
 
