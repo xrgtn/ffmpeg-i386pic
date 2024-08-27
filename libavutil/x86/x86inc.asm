@@ -1212,6 +1212,71 @@ DECLARE_REG_ID ah, ch, dh, bh
 %define vzeroupper_required (mmsize > 16 && (ARCH_X86_64 == 0 || xmm_regs_used > 16 || notcpuflag(avx512)))
 %define high_mm_regs (16*cpuflag(avx512))
 
+%macro STK_CONTEXT_STORE_UNDEF 0-1 5
+    %ifdef stack_offset
+        %xdefine %$stack_offset stack_offset
+    %endif
+    %if %1 >= 1
+        %undef stack_offset
+    %endif
+    %ifdef stack_size
+        %xdefine %$stack_size stack_size
+    %endif
+    %if %1 >= 2
+        %undef stack_size
+    %endif
+    %ifdef stack_size_padded
+        %xdefine %$stack_size_padded stack_size_padded
+    %endif
+    %if %1 >= 3
+        %undef stack_size_padded
+    %endif
+    %ifdef rstk
+        %xdefine %$rstk rstk
+    %endif
+    %if %1 >= 4
+        %undef rstk
+    %endif
+    %ifdef rstkm
+        %xdefine %$rstkm rstkm
+    %endif
+    %if %1 >= 5
+        %undef rstkm
+    %endif
+%endmacro
+%macro STK_CONTEXT_UNDEF 0
+    %undef stack_offset
+    %undef stack_size
+    %undef stack_size_padded
+    %undef rstk
+    %undef rstkm
+%endmacro
+%macro STK_CONTEXT_LOAD 0 ; shouldn't be used w/o STK_CONTEXT_UNDEF
+    %ifdef %$rstk
+        %xdefine rstk %$rstk
+    %endif
+    %ifdef %$rstkm
+        %xdefine rstkm %$rstkm
+    %endif
+    %ifdef %$stack_size_padded
+        %xdefine stack_size_padded %$stack_size_padded
+    %endif
+    %ifdef %$stack_size
+        %xdefine stack_size %$stack_size
+    %endif
+    %ifdef %$stack_offset
+        %xdefine stack_offset %$stack_offset
+    %endif
+%endmacro
+%macro STK_CONTEXT_PUSH_UNDEF 0
+    %push stk_context
+    STK_CONTEXT_STORE_UNDEF
+%endmacro
+%macro STK_CONTEXT_POP 0
+    STK_CONTEXT_LOAD
+    %pop stk_context
+%endmacro
+
 %macro ALLOC_STACK 1-2 0 ; stack_size, n_xmm_regs (for win64 only)
     %ifnum %1
         %if %1 != 0
