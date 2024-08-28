@@ -1168,68 +1168,178 @@ DECLARE_REG_ID ah, ch, dh, bh
 %define vzeroupper_required (mmsize > 16 && (ARCH_X86_64 == 0 || xmm_regs_used > 16 || notcpuflag(avx512)))
 %define high_mm_regs (16*cpuflag(avx512))
 
-%macro STK_CONTEXT_STORE_UNDEF 0-1 5
+%macro STK_CONTEXT_STORE_UNDEF 0-1 10
+    ; 1. gprsize
+    %ifdef gprsize
+        %xdefine %$gprsize gprsize
+    %endif
+    %if (%1) >= 1
+        %undef  gprsize
+    %endif
+    ; 2. STACK_ALIGNMENT
+    %ifdef STACK_ALIGNMENT
+        %xdefine %$STACK_ALIGNMENT STACK_ALIGNMENT
+    %endif
+    %if (%1) >= 2
+        %undef  STACK_ALIGNMENT
+    %endif
+    ; 3. mmsize
+    %ifdef mmsize
+        %xdefine %$mmsize mmsize
+    %endif
+    %if (%1) >= 3
+        %undef  mmsize
+    %endif
+    ; 4. required_stack_alignment
+    %ifdef required_stack_alignment
+        %xdefine %$required_stack_alignment required_stack_alignment
+    %endif
+    %if (%1) >= 4
+        %undef  required_stack_alignment
+    %endif
+    ; 5. stack_offset
     %ifdef stack_offset
         %xdefine %$stack_offset stack_offset
     %endif
-    %if %1 >= 1
-        %undef stack_offset
+    %if (%1) >= 5
+        %undef  stack_offset
     %endif
+    ; 6. stack_size
     %ifdef stack_size
         %xdefine %$stack_size stack_size
     %endif
-    %if %1 >= 2
-        %undef stack_size
+    %if (%1) >= 6
+        %undef  stack_size
     %endif
+    ; 7. stack_size_padded
     %ifdef stack_size_padded
         %xdefine %$stack_size_padded stack_size_padded
     %endif
-    %if %1 >= 3
-        %undef stack_size_padded
+    %if (%1) >= 7
+        %undef  stack_size_padded
     %endif
+    ; 8. rsp
+    %ifdef rsp
+        %xdefine %$rsp rsp
+    %endif
+    %if (%1) >= 8
+        %undef  rsp
+    %endif
+    ; 9. rstk
     %ifdef rstk
         %xdefine %$rstk rstk
     %endif
-    %if %1 >= 4
-        %undef rstk
+    %if (%1) >= 9
+        %undef  rstk
     %endif
+    ; 10. rstkm
     %ifdef rstkm
         %xdefine %$rstkm rstkm
     %endif
-    %if %1 >= 5
-        %undef rstkm
+    %if (%1) >= 10
+        %undef  rstkm
     %endif
 %endmacro
-%macro STK_CONTEXT_UNDEF 0
-    %undef stack_offset
-    %undef stack_size
-    %undef stack_size_padded
-    %undef rstk
-    %undef rstkm
+%macro STK_CONTEXT_UNDEF 0-1 10
+    %if (%1) >= 1
+        %undef  gprsize
+    %endif
+    %if (%1) >= 2
+        %undef  STACK_ALIGNMENT
+    %endif
+    %if (%1) >= 3
+        %undef  mmsize
+    %endif
+    %if (%1) >= 4
+        %undef  required_stack_alignment
+    %endif
+    %if (%1) >= 5
+        %undef  stack_offset
+    %endif
+    %if (%1) >= 6
+        %undef  stack_size
+    %endif
+    %if (%1) >= 7
+        %undef  stack_size_padded
+    %endif
+    %if (%1) >= 8
+        %undef  rsp
+    %endif
+    %if (%1) >= 9
+        %undef  rstk
+    %endif
+    %if (%1) >= 10
+        %undef  rstkm
+    %endif
 %endmacro
-%macro STK_CONTEXT_LOAD 0 ; shouldn't be used w/o STK_CONTEXT_UNDEF
-    %ifdef %$rstk
-        %xdefine rstk %$rstk
+%macro STK_CONTEXT_LOAD 0-1 10 ; shouldn't be used w/o STK_CONTEXT_UNDEF
+    ; 10. rstkm
+    %if (%1) >= 10
+        %ifdef %$rstkm
+            %xdefine rstkm %$rstkm
+        %endif
     %endif
-    %ifdef %$rstkm
-        %xdefine rstkm %$rstkm
+    ; 9. rstk
+    %if (%1) >= 9
+        %ifdef %$rstk
+            %xdefine rstk %$rstk
+        %endif
     %endif
-    %ifdef %$stack_size_padded
-        %xdefine stack_size_padded %$stack_size_padded
+    ; 8. rsp
+    %if (%1) >= 8
+        %ifdef %$rsp
+            %xdefine rsp %$rsp
+        %endif
     %endif
-    %ifdef %$stack_size
-        %xdefine stack_size %$stack_size
+    ; 7. stack_size_padded
+    %if (%1) >= 7
+        %ifdef %$stack_size_padded
+            %xdefine stack_size_padded %$stack_size_padded
+        %endif
     %endif
-    %ifdef %$stack_offset
-        %xdefine stack_offset %$stack_offset
+    ; 6. stack_size
+    %if (%1) >= 6
+        %ifdef %$stack_size
+            %xdefine stack_size %$stack_size
+        %endif
+    %endif
+    ; 5. stack_offset
+    %if (%1) >= 5
+        %ifdef %$stack_offset
+            %xdefine stack_offset %$stack_offset
+        %endif
+    %endif
+    ; 4. required_stack_alignment
+    %if (%1) >= 4
+        %ifdef %$required_stack_alignment
+            %xdefine required_stack_alignment %$required_stack_alignment
+        %endif
+    %endif
+    ; 3. mmsize
+    %if (%1) >= 3
+        %ifdef %$mmsize
+            %xdefine mmsize %$mmsize
+        %endif
+    %endif
+    ; 2. STACK_ALIGNMENT
+    %if (%1) >= 2
+        %ifdef %$STACK_ALIGNMENT
+            %xdefine STACK_ALIGNMENT %$STACK_ALIGNMENT
+        %endif
+    %endif
+    ; 1. gprsize
+    %if (%1) >= 1
+        %ifdef %$gprsize
+            %xdefine gprsize %$gprsize
+        %endif
     %endif
 %endmacro
-%macro STK_CONTEXT_PUSH_UNDEF 0
+%macro STK_CONTEXT_PUSH_UNDEF 0-1 10
     %push stk_context
-    STK_CONTEXT_STORE_UNDEF
+    STK_CONTEXT_STORE_UNDEF %1
 %endmacro
-%macro STK_CONTEXT_POP 0
-    STK_CONTEXT_LOAD
+%macro STK_CONTEXT_POP 0-1 10
+    STK_CONTEXT_LOAD %1
     %pop stk_context
 %endmacro
 
