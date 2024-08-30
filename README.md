@@ -9,9 +9,11 @@ Currently only several .asm and .c files (with inline asm) have been fixed.
 Given that ffmpeg's asm codebase is about 3 times that of libx264, it will take
 several months of hacking.
 
-3 days went to converting vp9itxfm\_16bpp.o and vp9itxfm.o to PIC (2440 and
-8144 relocations respectively); 1.5 days to vp9lpf.o; 1 day to simple\_idct.o;
-half a day to vp9lpf\_16bpp.asm.
+3 days went to converting vp9itxfm\_16bpp.asm and vp9itxfm.asm to PIC (2440 and
+8144 relocations respectively); 1.5 days to vp9lpf.asm; 1 day to
+simple\_idct.asm; half a day to vp9lpf\_16bpp.asm; day to cavsdsp.c (504); one
+week to add rstkm/alloc support to x86inc.asm and convert hevc\_sao\_10bit.asm
+(370) to PIC.
 
 At the moment the next files still have R\_386\_32 (absolute address)
 relocations in .text:
@@ -87,8 +89,6 @@ user@localhost ~/ffmpeg $ find . -name \*.o | while read O; do n=`objdump -dr "$
 231	./libavcodec/x86/vp9intrapred.o
 248	./libavcodec/x86/hevc_idct.o
 270	./libavcodec/x86/qpeldsp.o
-370	./libavcodec/x86/hevc_sao_10bit.o
-504	./libavcodec/x86/cavsdsp.o
 user@localhost ~/ffmpeg $ 
 ```
 
