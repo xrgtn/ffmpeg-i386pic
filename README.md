@@ -13,7 +13,8 @@ several months of hacking.
 8144 relocations respectively); 1.5 days to vp9lpf.asm; 1 day to
 simple\_idct.asm; half a day to vp9lpf\_16bpp.asm; day to cavsdsp.c (504); one
 week to add rstkm/alloc support to x86inc.asm and convert hevc\_sao\_10bit.asm
-(370) to PIC; half a day to convert qpeldsp.asm (270 relocations).
+(370) to PIC; half a day to convert qpeldsp.asm (270) and hevc\_idct.asm (248
+relocations).
 
 At the moment the next files still have R\_386\_32 (absolute address)
 relocations in .text:
@@ -87,7 +88,6 @@ user@localhost ~/ffmpeg $ find . -name \*.o | while read O; do n=`objdump -dr "$
 163	./libavcodec/x86/imdct36.o
 229	./libavcodec/x86/vp8dsp_loopfilter.o
 231	./libavcodec/x86/vp9intrapred.o
-248	./libavcodec/x86/hevc_idct.o
 user@localhost ~/ffmpeg $ 
 ```
 
