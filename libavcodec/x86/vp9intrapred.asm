@@ -98,15 +98,18 @@ cglobal vp9_ipred_dc_4x4, 4, 4, 0, dst, stride, l, a
     punpckldq               m0, [aq]
     pxor                    m1, m1
     psadbw                  m0, m1
+    PIC_BEGIN lq, 0 ; lq isn't used anymore in this function
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,"aq"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_4096]
+    pmulhrsw                m0, [pic(pw_4096)]
     pshufb                  m0, m1
 %else
-    paddw                   m0, [pw_4]
+    paddw                   m0, [pic(pw_4)]
     psraw                   m0, 3
     punpcklbw               m0, m0
     pshufw                  m0, m0, q0000
 %endif
+    PIC_END ; lq, no-save
     movd      [dstq+strideq*0], m0
     movd      [dstq+strideq*1], m0
     lea                   dstq, [dstq+strideq*2]
@@ -116,22 +119,25 @@ cglobal vp9_ipred_dc_4x4, 4, 4, 0, dst, stride, l, a
 
 cglobal vp9_ipred_dc_8x8, 4, 4, 0, dst, stride, l, a
     movq                    m0, [lq]
-    movq                    m1, [aq]
+    movq                    m1, [aq] ; last use of aq(r3)
     DEFINE_ARGS dst, stride, stride3
     lea               stride3q, [strideq*3]
     pxor                    m2, m2
     psadbw                  m0, m2
     psadbw                  m1, m2
     paddw                   m0, m1
+    PIC_BEGIN r3, 0 ; r3(aq) pushed in PROLOGUE, unused till RET
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_2048]
+    pmulhrsw                m0, [pic(pw_2048)]
     pshufb                  m0, m2
 %else
-    paddw                   m0, [pw_8]
+    paddw                   m0, [pic(pw_8)]
     psraw                   m0, 4
     punpcklbw               m0, m0
     pshufw                  m0, m0, q0000
 %endif
+    PIC_END ; r3(aq), no-save
     movq      [dstq+strideq*0], m0
     movq      [dstq+strideq*1], m0
     movq      [dstq+strideq*2], m0
