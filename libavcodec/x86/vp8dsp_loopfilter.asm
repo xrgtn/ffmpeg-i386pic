@@ -50,7 +50,7 @@ SECTION .text
 ; first 11 mean the same as READ_8x4_TRANSPOSED above
 ; fifth regular register is scratchspace to reach the bottom 8 rows, it
 ; will be set to second regular register + 8*stride at the end
-%macro READ_16x4_INTERLEAVED 12
+%macro READ_16x4_INTERLEAVED 12 ; r0,2
     ; transpose 16 (A-P) rows of 4 pixels each
     lea           %12, [r0+8*r2]
 
@@ -211,7 +211,7 @@ cglobal vp8_%1_loop_filter_simple, 3, %2, 8, dst, stride, flim, cntr
 %else ; h
     lea         dst2q, [dst1q+ strideq]
 
-    READ_16x4_INTERLEAVED 0, 1, 2, 3, 4, 5, 6, dst1q, dst2q, mstrideq, strideq, dst3q
+    READ_16x4_INTERLEAVED 0, 1, 2, 3, 4, 5, 6, dst1q, dst2q, mstrideq, strideq, dst3q ; r0..4
     TRANSPOSE4x4W         0, 1, 2, 3, 4
 %endif
 
@@ -223,16 +223,18 @@ cglobal vp8_%1_loop_filter_simple, 3, %2, 8, dst, stride, flim, cntr
     por            m1, m2           ; FFABS(p0-q0)
     paddusb        m1, m1           ; m1=FFABS(p0-q0)*2
 
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5, 1
     mova           m4, m3
     mova           m2, m0
     psubusb        m3, m0           ; q1-p1
     psubusb        m0, m4           ; p1-q1
     por            m3, m0           ; FFABS(p1-q1)
-    mova           m0, [pb_80]
+    mova           m0, [pic(pb_80)]
     pxor           m2, m0
     pxor           m4, m0
     psubsb         m2, m4           ; m2=p1-q1 (signed) backup for below
-    pand           m3, [pb_FE]
+    pand           m3, [pic(pb_FE)]
     psrlq          m3, 1            ; m3=FFABS(p1-q1)/2, this can be used signed
     paddusb        m3, m1
     psubusb        m3, m7
@@ -249,10 +251,12 @@ cglobal vp8_%1_loop_filter_simple, 3, %2, 8, dst, stride, flim, cntr
     paddsb         m2, m5           ; a=(p1-q1) + 3*(q0-p0)
     pand           m2, m3           ; apply filter mask (m3)
 
-    mova           m3, [pb_F8]
+    mova           m3, [pic(pb_F8)]
     mova           m1, m2
-    paddsb         m2, [pb_4]       ; f1<<3=a+4
-    paddsb         m1, [pb_3]       ; f2<<3=a+3
+    paddsb         m2, [pic(pb_4)]  ; f1<<3=a+4
+    paddsb         m1, [pic(pb_3)]  ; f2<<3=a+3
+    PIC_END
+    %undef rpicsave ; no more PIC
     pand           m2, m3
     pand           m1, m3           ; cache f2<<3
 
@@ -328,6 +332,7 @@ SIMPLE_LOOPFILTER h, 5
 cglobal vp8_%1_loop_filter8uv_inner, 6, 6, 13, stack_size, dst, dst8, stride, flimE, flimI, hevthr
 %else ; luma
 cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, flimI, hevthr
+    PIC_ALLOC "rpicsave"
 %endif
 
 %if cpuflag(ssse3)
@@ -558,6 +563,12 @@ cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, f
     por              m1, m6          ; abs(q0-p0)
     paddusb          m1, m1          ; m1=2*abs(q0-p0)
 
+%if %2 == 8 ; regs_used:6, r5 pushed in PROLOGUE, unused since last DEFINE_ARGS
+    PIC_BEGIN r5, 0
+%else       ; regs_used:5, r5 not pushed, needs saving
+    PIC_BEGIN r5, 1
+%endif
+    CHECK_REG_COLLISION "rpic","m_flimE","m_maskres"
     mova             m7, m2
     SWAP              7, 2
     mova             m6, m5
@@ -566,7 +577,7 @@ cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, f
     psubusb          m6, m2          ; q1-p1
     por              m7, m6          ; abs(q1-p1)
     pxor             m6, m6
-    pand             m7, [pb_FE]
+    pand             m7, [pic(pb_FE)]
     psrlq            m7, 1           ; abs(q1-p1)/2
     paddusb          m7, m1          ; abs(q0-p0)*2+abs(q1-p1)/2
     psubusb          m7, m_flimE
@@ -578,17 +589,17 @@ cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, f
     mova             m8, [pb_80]
 %define m_pb_80 m8
 %else ; x86-32 or mmx/mmxext
-%define m_pb_80 [pb_80]
+%define m_pb_80 [pic(pb_80)]
 %endif
     mova             m1, m4
     mova             m7, m3
-    pxor             m1, m_pb_80
-    pxor             m7, m_pb_80
+    pxor             m1, m_pb_80     ; PIC
+    pxor             m7, m_pb_80     ; PIC
     psubsb           m1, m7          ; (signed) q0-p0
     mova             m6, m2
     mova             m7, m5
-    pxor             m6, m_pb_80
-    pxor             m7, m_pb_80
+    pxor             m6, m_pb_80     ; PIC
+    pxor             m7, m_pb_80     ; PIC
     psubsb           m6, m7          ; (signed) p1-q1
     mova             m7, m_maskres
     pandn            m7, m6
@@ -597,10 +608,10 @@ cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, f
     paddsb           m7, m1          ; 3*(q0-p0)+is4tap?(p1-q1)
 
     pand             m7, m0
-    mova             m1, [pb_F8]
+    mova             m1, [pic(pb_F8)]
     mova             m6, m7
-    paddsb           m7, [pb_3]
-    paddsb           m6, [pb_4]
+    paddsb           m7, [pic(pb_3)]
+    paddsb           m6, [pic(pb_4)]
     pand             m7, m1
     pand             m6, m1
 
@@ -634,7 +645,8 @@ cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, f
     pxor             m7, m7
     pand             m0, m6
     pand             m1, m6
-    psubusb          m1, [pb_1]
+    psubusb          m1, [pic(pb_1)]
+    PIC_END ; r5, no-save(chroma)/save+restore(luma)
     pavgb            m0, m7          ; a
     pavgb            m1, m7          ; -a
     psubusb          m5, m0
@@ -665,6 +677,9 @@ cglobal vp8_%1_loop_filter16y_inner, 5, 5, 13, stack_size, dst, stride, flimE, f
     WRITE_4x4D        2, 3, 4, 5, dst1q, dst2q, dst8q, mstrideq, strideq, %2
 %endif
 
+%if %2 != 8 ; luma, regs_used:5, PIC_ALLOC performed at start
+    PIC_FREE
+%endif
     RET
 %endmacro
 
@@ -702,6 +717,7 @@ INNER_LOOPFILTER h,  8
 cglobal vp8_%1_loop_filter8uv_mbedge, 6, 6, 15, stack_size, dst1, dst8, stride, flimE, flimI, hevthr
 %else ; luma
 cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE, flimI, hevthr
+    PIC_ALLOC "rpicsave"
 %endif
 
 %if cpuflag(ssse3)
@@ -946,6 +962,12 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     por              m1, m6          ; abs(q0-p0)
     paddusb          m1, m1          ; m1=2*abs(q0-p0)
 
+%if %2 == 8 ; regs_used:6, r5 pushed in PROLOGUE, unused since last DEFINE_ARGS
+    PIC_BEGIN r5, 0
+%else       ; regs_used:5, r5 not pushed, needs saving
+    PIC_BEGIN r5, 1
+%endif
+    CHECK_REG_COLLISION "rpic","m_flimE","m_maskres","m_limres","m_limsign"
     mova             m7, m2
     SWAP              7, 2
     mova             m6, m5
@@ -954,7 +976,7 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     psubusb          m6, m2          ; q1-p1
     por              m7, m6          ; abs(q1-p1)
     pxor             m6, m6
-    pand             m7, [pb_FE]
+    pand             m7, [pic(pb_FE)]
     psrlq            m7, 1           ; abs(q1-p1)/2
     paddusb          m7, m1          ; abs(q0-p0)*2+abs(q1-p1)/2
     psubusb          m7, m_flimE
@@ -966,17 +988,17 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     mova             m8, [pb_80]
 %define m_pb_80 m8
 %else ; x86-32 or mmx/mmxext
-%define m_pb_80 [pb_80]
+%define m_pb_80 [pic(pb_80)]
 %endif
     mova             m1, m4
     mova             m7, m3
-    pxor             m1, m_pb_80
-    pxor             m7, m_pb_80
+    pxor             m1, m_pb_80     ; PIC
+    pxor             m7, m_pb_80     ; PIC
     psubsb           m1, m7          ; (signed) q0-p0
     mova             m6, m2
     mova             m7, m5
-    pxor             m6, m_pb_80
-    pxor             m7, m_pb_80
+    pxor             m6, m_pb_80     ; PIC
+    pxor             m7, m_pb_80     ; PIC
     psubsb           m6, m7          ; (signed) p1-q1
     mova             m7, m_maskres
     paddsb           m6, m1
@@ -993,10 +1015,10 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
 %endif
     pandn            m7, m6          ; 3*(q0-p0)+(p1-q1) masked for filter_common
 
-    mova             m1, [pb_F8]
+    mova             m1, [pic(pb_F8)]
     mova             m6, m7
-    paddsb           m7, [pb_3]
-    paddsb           m6, [pb_4]
+    paddsb           m7, [pic(pb_3)]
+    paddsb           m6, [pic(pb_4)]
     pand             m7, m1
     pand             m6, m1
 
@@ -1024,9 +1046,9 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
 
     ; filter_mbedge (m2-m5 = p1-q1; lim_res carries w)
 %if cpuflag(ssse3)
-    mova             m7, [pb_1]
+    mova             m7, [pic(pb_1)]
 %else
-    mova             m7, [pw_63]
+    mova             m7, [pic(pw_63)]
 %endif
 %ifdef m8
     SWAP              1, 8
@@ -1045,7 +1067,7 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
 %endif
     mova      m_limsign, m0
 %if cpuflag(ssse3)
-    mova             m7, [pb_27_63]
+    mova             m7, [pic(pb_27_63)]
 %ifndef m8
     mova       m_limres, m1
 %endif
@@ -1065,8 +1087,8 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
 %else
     mova      m_maskres, m6         ; backup for later in filter
     mova       m_limres, m1
-    pmullw          m6, [pw_27]
-    pmullw          m1, [pw_27]
+    pmullw          m6, [pic(pw_27)]
+    pmullw          m1, [pic(pw_27)]
     paddw           m6, m7
     paddw           m1, m7
 %endif
@@ -1078,7 +1100,7 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     pand            m1, m0          ; -a0
     pandn           m0, m6          ; +a0
 %if cpuflag(ssse3)
-    mova            m6, [pb_18_63]  ; pipelining
+    mova            m6, [pic(pb_18_63)]  ; pipelining
 %endif
     psubusb         m3, m1
     paddusb         m4, m1
@@ -1104,8 +1126,8 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
 %else
     mova            m6, m_maskres
     mova            m1, m_limres
-    pmullw          m6, [pw_18]
-    pmullw          m1, [pw_18]
+    pmullw          m6, [pic(pw_18)]
+    pmullw          m1, [pic(pw_18)]
     paddw           m6, m7
     paddw           m1, m7
 %endif
@@ -1118,7 +1140,7 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     pand            m1, m0          ; -a1
     pandn           m0, m6          ; +a1
 %if cpuflag(ssse3)
-    mova            m6, [pb_9_63]
+    mova            m6, [pic(pb_9_63)]
 %endif
     psubusb         m2, m1
     paddusb         m5, m1
@@ -1145,11 +1167,12 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     mova            m6, m_maskres
     mova            m1, m_limres
 %endif
-    pmullw          m6, [pw_9]
-    pmullw          m1, [pw_9]
+    pmullw          m6, [pic(pw_9)]
+    pmullw          m1, [pic(pw_9)]
     paddw           m6, m7
     paddw           m1, m7
 %endif
+    PIC_END ; r5, no-save(chroma)/save+restore(luma)
 %ifdef m9
     SWAP             7, 9
 %else
@@ -1214,6 +1237,9 @@ cglobal vp8_%1_loop_filter16y_mbedge, 5, 5, 15, stack_size, dst1, stride, flimE,
     WRITE_8W        m6, dst2q, dst8q, mstrideq, strideq
 %endif
 
+%if %2 != 8 ; luma, regs_used:5, PIC_ALLOC performed at start
+    PIC_FREE
+%endif
     RET
 %endmacro
 
