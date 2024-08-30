@@ -126,7 +126,7 @@ cglobal vp9_ipred_dc_8x8, 4, 4, 0, dst, stride, l, a
     psadbw                  m0, m2
     psadbw                  m1, m2
     paddw                   m0, m1
-    PIC_BEGIN r3, 0 ; r3(aq) pushed in PROLOGUE, unused till RET
+    PIC_BEGIN r3, 0 ; r3(former aq) pushed in PROLOGUE, unused till RET
     CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
     pmulhrsw                m0, [pic(pw_2048)]
@@ -137,7 +137,7 @@ cglobal vp9_ipred_dc_8x8, 4, 4, 0, dst, stride, l, a
     punpcklbw               m0, m0
     pshufw                  m0, m0, q0000
 %endif
-    PIC_END ; r3(aq), no-save
+    PIC_END ; r3(former aq), no-save
     movq      [dstq+strideq*0], m0
     movq      [dstq+strideq*1], m0
     movq      [dstq+strideq*2], m0
