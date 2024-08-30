@@ -1793,10 +1793,10 @@ DECLARE_ARG 7, 8, 9, 10, 11, 12, 13, 14
             ") at end of ", %str(current_function))
         %assign picb 0 ; silence further PIC error messages
     %endif
-    %if picallocd != 0
+    %if %sel(1, %[picallocd]) != 0
         %error %strcat("invalid PIC_ALLOC state (", picallocd,\
-            ") at start of ", %str(current_function))
-        %assign picallocd 0 ; silence further PIC error messages
+            ") at end of ", %str(current_function))
+        %xdefine picallocd 0 ; silence further PIC error messages
     %endif
     %if notcpuflag(ssse3)
         times ((last_branch_adr-$)>>31)+1 rep ; times 1 iff $ == last_branch_adr.
@@ -1886,10 +1886,10 @@ BRANCH_INSTR jz, je, jnz, jne, jl, jle, jnl, jnle, jg, jge, jng, jnge, ja, jae, 
             ") at start of ", %str(current_function))
         %assign picb 0 ; silence further PIC error messages
     %endif
-    %if picallocd != 0
+    %if %sel(1, %[picallocd]) != 0
         %error %strcat("invalid PIC_ALLOC state (", picallocd,\
             ") at start of ", %str(current_function))
-        %assign picallocd 0 ; silence further PIC error messages
+        %xdefine picallocd 0 ; silence further PIC error messages
     %endif
     RESET_MM_PERMUTATION        ; needed for x86-64, also makes disassembly somewhat nicer
     %xdefine rstk rsp           ; copy of the original stack pointer, used when greater alignment than the known stack alignment is required
