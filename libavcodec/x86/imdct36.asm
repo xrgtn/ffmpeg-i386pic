@@ -112,33 +112,40 @@ SECTION .text
 %endif
 %endmacro
 
-%macro BUTTERF 3
+%macro BUTTERF 3 ; PIC
     INVERTHL %2, %1
-    xorps    %1, [ps_p1p1m1m1]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    xorps    %1, [pic(ps_p1p1m1m1)]
     addps    %1, %2
 %if cpuflag(sse3)
-    mulps    %1, %1, [ps_cosh_sse3 + %3]
+    mulps    %1, %1, [pic(ps_cosh_sse3) + %3]
+    PIC_END
     PSHUFD   %2, %1, 0xb1
     addsubps %1, %1, %2
 %else
-    mulps    %1, [ps_cosh + %3]
+    mulps    %1, [pic(ps_cosh) + %3]
     PSHUFD   %2, %1, 0xb1
-    xorps    %1, [ps_p1m1p1m1]
+    xorps    %1, [pic(ps_p1m1p1m1)]
+    PIC_END
     addps    %1, %2
 %endif
 %endmacro
 
-%macro BUTTERF2 3
+%macro BUTTERF2 3 ; PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1}
 %if cpuflag(sse3)
-    mulps    %1, %1, [ps_cosh_sse3 + %3]
+    mulps    %1, %1, [pic(ps_cosh_sse3) + %3]
     PSHUFD   %2, %1, 0xe1
     addsubps %1, %1, %2
 %else
-    mulps    %1, [ps_cosh + %3]
+    mulps    %1, [pic(ps_cosh) + %3]
     PSHUFD   %2, %1, 0xe1
-    xorps    %1, [ps_p1m1p1m1]
+    xorps    %1, [pic(ps_p1m1p1m1)]
     addps    %1, %2
 %endif
+    PIC_END
 %endmacro
 
 %macro STORE 4
@@ -176,7 +183,7 @@ SECTION .text
 %endmacro
 
 %macro DEFINE_IMDCT 0
-cglobal imdct36_float, 4,4,9, out, buf, in, win
+cglobal imdct36_float, 3,4,9, out, buf, in, win
 
     ; for(i=17;i>=1;i--) in[i] += in[i-1];
     LOADA64 m0, inq
@@ -184,8 +191,12 @@ cglobal imdct36_float, 4,4,9, out, buf, in, win
 
     ROTLEFT m5, m0, m1
 
+
+    PIC_BEGIN winq, 0 ; winq loading from arg[3] delayed
+    CHECK_REG_COLLISION "rpic","outq","bufq","inq"
+
     PSHUFD  m6, m0, 0x93
-    andps   m6, m6, [ps_mask]
+    andps   m6, m6, [pic(ps_mask)]
     addps   m0, m0, m6
 
     LOADA64 m2, inq + 32
@@ -208,25 +219,25 @@ cglobal imdct36_float, 4,4,9, out, buf, in, win
 
     ; for(i=17;i>=3;i-=2) in[i] += in[i-2];
     movlhps m5, m5, m0
-    andps   m5, m5, [ps_mask3]
+    andps   m5, m5, [pic(ps_mask3)]
 
     BUILDINVHIGHLOW m7, m0, m1
-    andps   m7, m7, [ps_mask2]
+    andps   m7, m7, [pic(ps_mask2)]
 
     addps   m0, m0, m5
 
     BUILDINVHIGHLOW m6, m1, m2
-    andps   m6, m6, [ps_mask2]
+    andps   m6, m6, [pic(ps_mask2)]
 
     addps  m1, m1, m7
 
     BUILDINVHIGHLOW m7, m2, m3
-    andps   m7, m7, [ps_mask2]
+    andps   m7, m7, [pic(ps_mask2)]
 
     addps   m2, m2, m6
 
     movhlps m6, m6, m3
-    andps   m6, m6, [ps_mask4]
+    andps   m6, m6, [pic(ps_mask4)]
 
     addps  m3, m3, m7
     addps  m4, m4, m6
@@ -241,16 +252,16 @@ cglobal imdct36_float, 4,4,9, out, buf, in, win
     SWAP   m5, m8
 %endif
 
-    mulps  m7, m2, [ps_val1]
+    mulps  m7, m2, [pic(ps_val1)]
 
 %if ARCH_X86_64
     mulps  m5, m8, [ps_val2]
 %else
-    mulps  m5, m5, [ps_val2]
+    mulps  m5, m5, [pic(ps_val2)]
 %endif
     addps  m7, m7, m5
 
-    mulps  m5, m6, [ps_val1]
+    mulps  m5, m6, [pic(ps_val1)]
     subps  m7, m7, m5
 
 %if ARCH_X86_64
@@ -264,26 +275,26 @@ cglobal imdct36_float, 4,4,9, out, buf, in, win
 
     shufps m6, m4, m3, 0xe4
     subps  m6, m6, m2
-    mulps  m6, m6, [ps_val3]
+    mulps  m6, m6, [pic(ps_val3)]
 
     addps  m4, m4, m1
-    mulps  m4, m4, [ps_val4]
+    mulps  m4, m4, [pic(ps_val4)]
 
     shufps m1, m1, m0, 0xe4
     addps  m1, m1, m2
-    mulps  m1, m1, [ps_val5]
+    mulps  m1, m1, [pic(ps_val5)]
 
-    mulps  m3, m3, [ps_val6]
-    mulps  m0, m0, [ps_val7]
+    mulps  m3, m3, [pic(ps_val6)]
+    mulps  m0, m0, [pic(ps_val7)]
     addps  m0, m0, m3
 
-    xorps  m2, m1, [ps_p1p1m1m1]
+    xorps  m2, m1, [pic(ps_p1p1m1m1)]
     subps  m2, m2, m4
     addps  m2, m2, m0
 
     addps  m3, m4, m0
     subps  m3, m3, m6
-    xorps  m3, m3, [ps_p1p1m1m1]
+    xorps  m3, m3, [pic(ps_p1p1m1m1)]
 
     shufps m0, m0, m4, 0xe4
     subps  m0, m0, m1
@@ -294,11 +305,14 @@ cglobal imdct36_float, 4,4,9, out, buf, in, win
 
     ; we have tmp = {SwAPLH(m0), SwAPLH(m7), m3, m4, m5}
 
-    BUTTERF  m0, m1, 0
-    BUTTERF  m7, m2, 16
-    BUTTERF  m3, m6, 32
-    BUTTERF  m4, m1, 48
-    BUTTERF2 m5, m1, 64
+    BUTTERF  m0, m1, 0  ; PIC
+    BUTTERF  m7, m2, 16 ; PIC
+    BUTTERF  m3, m6, 32 ; PIC
+    BUTTERF  m4, m1, 48 ; PIC
+    BUTTERF2 m5, m1, 64 ; PIC
+
+    PIC_END ; winq, no-save
+    movifnidn winq, winmp ; load winq (r3) from arg[3]
 
     ; permutates:
     ; m0    0  1  2  3     =>     2  6 10 14   m1
@@ -395,16 +409,17 @@ INIT_XMM sse
 %define SPILLED(x) m %+ x
 %else
 %define SPILLED(x) [tmpq+(x-8)*16 + 32*4]
-%macro SPILL 2 ; xmm#, mempos
+%macro SPILL 2 ; xmm#, mempos ; tmpq
     movaps SPILLED(%2), m%1
 %endmacro
 %macro UNSPILL 2
-    movaps m%1, SPILLED(%2)
+    movaps m%1, SPILLED(%2) ; tmpq
 %endmacro
 %endif
 
 %macro DEFINE_FOUR_IMDCT 0
-cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
+cglobal four_imdct36_float, 3,5,16, out, buf, in, win, tmp
+    movifnidn tmpq, tmpmp ; outq,bufq,inq,tmpq loaded; winq - not yet
     movlps  m0, [inq+64]
     movhps  m0, [inq+64 +   72]
     movlps  m3, [inq+64 + 2*72]
@@ -459,6 +474,7 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
 
     TRANSPOSE4x4PS 2, 7, 1, 6, 3
 
+    PIC_BEGIN winq, 0 ; winq (r3) not loaded yet from arg[3]
     addps   m4, m6
     addps   m6, m1
     addps   m1, m7
@@ -466,7 +482,7 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     addps   m5, m6
     SPILL   5, 15
     addps   m6, m7
-    mulps   m6, [costabs + 16*2]
+    mulps   m6, [pic(costabs) + 16*2]
     mova    [tmpq+4*8], m6
     SPILL   1, 10
     SPILL   0, 14
@@ -491,19 +507,19 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     UNSPILL  7, 11
     SPILL    5, 11
     subps    m5, m1, m7
-    mulps    m7, [costabs + 16*5]
+    mulps    m7, [pic(costabs) + 16*5]
     addps    m7, m1
-    mulps    m0, m6, [costabs + 16*6]
+    mulps    m0, m6, [pic(costabs) + 16*6]
     addps    m0, m5
     mova     [tmpq+4*24], m0
     addps    m6, m5
     mova     [tmpq+4*4], m6
     addps    m6, m4, m2
-    mulps    m6, [costabs + 16*1]
+    mulps    m6, [pic(costabs) + 16*1]
     subps    m4, SPILLED(12)
-    mulps    m4, [costabs + 16*8]
+    mulps    m4, [pic(costabs) + 16*8]
     addps    m2, SPILLED(12)
-    mulps    m2, [costabs + 16*3]
+    mulps    m2, [pic(costabs) + 16*3]
     subps    m5, m7, m6
     subps    m5, m2
     addps    m6, m7
@@ -515,16 +531,16 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     mova     [tmpq+4*28], m5
     UNSPILL  7, 13
     subps    m5, m7, m2
-    mulps    m5, [costabs + 16*7]
+    mulps    m5, [pic(costabs) + 16*7]
     UNSPILL  1, 10
-    mulps    m1, [costabs + 16*2]
+    mulps    m1, [pic(costabs) + 16*2]
     addps    m4, m3, m2
-    mulps    m4, [costabs + 16*4]
+    mulps    m4, [pic(costabs) + 16*4]
     addps    m2, m7
     addps    m7, m3
-    mulps    m7, [costabs]
+    mulps    m7, [pic(costabs)]
     subps    m3, m2
-    mulps    m3, [costabs + 16*2]
+    mulps    m3, [pic(costabs) + 16*2]
     addps    m2, m7, m5
     addps    m2, m1
     SPILL    2, 10
@@ -537,12 +553,12 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     SPILL    5, 13
     addps    m1, m0, SPILLED(15)
     subps    m1, SPILLED(8)
-    mova     m4, [costabs + 16*5]
+    mova     m4, [pic(costabs) + 16*5]
     mulps    m4, [tmpq]
     UNSPILL  2, 9
     addps    m4, m2
     subps    m2, [tmpq]
-    mulps    m5, m1, [costabs + 16*6]
+    mulps    m5, m1, [pic(costabs) + 16*6]
     addps    m5, m2
     SPILL    5, 9
     addps    m2, m1
@@ -550,10 +566,10 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     UNSPILL  5, 15
     subps    m7, m5, m0
     addps    m5, SPILLED(8)
-    mulps    m5, [costabs + 16*1]
-    mulps    m7, [costabs + 16*8]
+    mulps    m5, [pic(costabs) + 16*1]
+    mulps    m7, [pic(costabs) + 16*8]
     addps    m0, SPILLED(8)
-    mulps    m0, [costabs + 16*3]
+    mulps    m0, [pic(costabs) + 16*3]
     subps    m2, m4, m5
     subps    m2, m0
     SPILL    2, 15
@@ -566,13 +582,13 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     mova     m2, [tmpq+4*12]
     addps    m0, m7, m2
     subps    m0, SPILLED(11)
-    mulps    m0, [costabs + 16*2]
+    mulps    m0, [pic(costabs) + 16*2]
     addps    m4, m7, SPILLED(11)
-    mulps    m4, [costabs]
+    mulps    m4, [pic(costabs)]
     subps    m7, m2
-    mulps    m7, [costabs + 16*7]
+    mulps    m7, [pic(costabs) + 16*7]
     addps    m2, SPILLED(11)
-    mulps    m2, [costabs + 16*4]
+    mulps    m2, [pic(costabs) + 16*4]
     addps    m1, m7, [tmpq+4*8]
     addps    m1, m4
     addps    m4, m2
@@ -580,12 +596,22 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     SPILL    4, 11
     subps    m7, m2
     subps    m7, [tmpq+4*8]
+
+%if i386pic
+    ; Move lpic addr from winq register (r3) to inq (r2):
+    ; - winq is just about to start being used, so free it from PIC duty;
+    ; - inq is not used anymore, use it for rpic from this point onwards.
+    mov     inq, winq
+    %xdefine rpic inq
+%endif
+    movifnidn winq, winmp ; load winq (r3) from arg[3]
+
     addps    m4, m6, SPILLED(10)
     subps    m6, SPILLED(10)
     addps    m2, m5, m1
-    mulps    m2, [costabs + 16*9]
+    mulps    m2, [pic(costabs) + 16*9]
     subps    m5, m1
-    mulps    m5, [costabs + 16*17]
+    mulps    m5, [pic(costabs) + 16*17]
     subps    m1, m4, m2
     addps    m4, m2
     mulps    m2, m1, [winq+4*36]
@@ -615,9 +641,9 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     subps    m2, m3
     mova     m1, SPILLED(9)
     subps    m1, m0
-    mulps    m1, [costabs + 16*10]
+    mulps    m1, [pic(costabs) + 16*10]
     addps    m0, SPILLED(9)
-    mulps    m0, [costabs + 16*16]
+    mulps    m0, [pic(costabs) + 16*16]
     addps    m6, m5, m1
     subps    m5, m1
     mulps    m3, m5, [winq+4*40]
@@ -648,9 +674,9 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     subps    m5, SPILLED(13)
     UNSPILL  3, 15
     addps    m2, m7, m3
-    mulps    m2, [costabs + 16*11]
+    mulps    m2, [pic(costabs) + 16*11]
     subps    m3, m7
-    mulps    m3, [costabs + 16*15]
+    mulps    m3, [pic(costabs) + 16*15]
     addps    m0, m2, m1
     subps    m1, m2
     SWAP     m0, m2
@@ -683,8 +709,8 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     UNSPILL  7, 8
     subps    m0, m7, SPILLED(11)
     addps    m7, SPILLED(11)
-    mulps    m4, m7, [costabs + 16*12]
-    mulps    m0, [costabs + 16*14]
+    mulps    m4, m7, [pic(costabs) + 16*12]
+    mulps    m0, [pic(costabs) + 16*14]
     addps    m5, m1, m4
     subps    m1, m4
     mulps    m7, m1, [winq+4*48]
@@ -710,7 +736,8 @@ cglobal four_imdct36_float, 5,5,16, out, buf, in, win, tmp
     mulps    m6, [winq+4*92]
     mova     [bufq+4*12], m6
     UNSPILL  0, 14
-    mulps    m0, [costabs + 16*13]
+    mulps    m0, [pic(costabs) + 16*13]
+    PIC_END ; winq=>inq, no-save
     mova     m3, [tmpq+4*4]
     addps    m2, m0, m3
     subps    m3, m0
