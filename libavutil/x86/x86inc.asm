@@ -430,9 +430,9 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
 
 %define pic(a) %cond(i386pic, (rpic+(a)-lpic),\
                      %cond(amd64pic, (rpic64+(a)-lpic64), (a)))
-%assign picb 0
-%assign lpiccf 0
-%assign picallocd 0
+%assign  picb 0
+%assign  lpiccf 0
+%xdefine picallocd 0
 
 ; PIC_CONTEXT_PUSH/POP macro pair is useful when code returns or jumps out from
 ; inside of PIC_BEGIN/END block, e.g. if function has several RETs:
@@ -513,7 +513,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %ifdef dpiclf
         %xdefine %$dpiclf dpiclf
     %endif
-    %assign %$picallocd picallocd
+    %xdefine %$picallocd picallocd
     ; restore rstk/stack_params:
     STK_CONTEXT_LOAD
 %endmacro
@@ -564,7 +564,7 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
     %else
         %undef dpiclf
     %endif
-    %assign picallocd %$picallocd
+    %xdefine picallocd %$picallocd
     ; restore rstk/stack_params last:
     STK_CONTEXT_LOAD
     %pop pic_context
@@ -849,11 +849,11 @@ lpic:           pop rpic
 ;                                    ;  0x..10: ==sz===--+
 %macro PIC_ALLOC 0-1
     %if i386pic
-        ASSERT (stack_size_padded >= stack_size)
+        ASSERT ((stack_size_padded) >= (stack_size))
         %if picb > 0
             %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
                 %str(current_function))
-        %elif picallocd != 0
+        %elif %sel(1, %[picallocd]) != 0
             %error %strcat(%?, " in non-zero PIC_ALLOC state (",\
                 picallocd, "), in ", %str(current_function))
         %endif
@@ -873,24 +873,25 @@ lpic:           pop rpic
             %endif
         %endif
         %if WIN64 && ((stack_size > 0) || (%%nxmmpush > 0))
-            %assign %%wpad 16*nxmmresv + 32
+            %assign %%wpad 16*%%nxmmresv + 32
         %endif
         ; rpicsave, lpiccache or both:
         %if %0 == 0
-            %assign %%ak  3           ; requested alloc mask
-            %assign %%asz 2*(gprsize) ; requested alloc size
+            %assign %%qmk 3           ; requested alloc mask
+            %assign %%qsz 2*(gprsize) ; requested alloc size
         %elifidn %1,"rpicsave"
-            %assign %%ak  1
-            %assign %%asz 1*(gprsize)
+            %assign %%qmk 1
+            %assign %%qsz 1*(gprsize)
         %elifidn %1,"lpiccache"
-            %assign %%ak  2
-            %assign %%asz 1*(gprsize)
+            %assign %%qmk 2
+            %assign %%qsz 1*(gprsize)
         %else
-            %assign %%ak  0
-            %assign %%asz 0*(gprsize)
+            %assign %%qmk 0
+            %assign %%qsz 0*(gprsize)
             %error %strcat("Invalid ", %?," %1 parameter: ", %1)
         %endif
-        %if (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
+        %if ((stack_size) > 0) && \
+                ((required_stack_alignment) > (STACK_ALIGNMENT))
             ; aligned to reqrd_align and rsp stored in rstkm
             ; TODO: try placing sv/cache (in this order):
             ; - in !!!!!!!-gap, if there's enough space
@@ -898,38 +899,150 @@ lpic:           pop rpic
             ;   if necessary
             ; - inflating stack_size area and placing sv/cache area
             ;   near its top
-            %fatal %strcat(%?, " can't alloc w/rstkm")
+            ;%fatal %strcat(%?, " can't alloc w/rstkm")
+            ASSERT 0 == (\
+                    ((stack_size_padded)-(stack_size)) &\
+                    ((required_stack_alignment)-1)\
+                )
+            STK_CONTEXT_PUSH_UNDEF ; push/store in stk_context, undef
+            STK_CONTEXT_LOAD       ; load, keep copies in stk_context
+            %assign  %%asz    (%%qsz+(required_stack_alignment)-1) &\
+                ~((required_stack_alignment)-1)
+            %assign  %%szw    (stack_size)+%%wpad   ; stack_size_w_win64pad
+            %assign  %%szm    -1                    ; stack_size_w_rstkm
+            %assign  %%szp    (stack_size_padded)
+            %assign  %%rstkmi -1                    ; rstkm reg_id / -1
+            %xdefine %%rstkms %str(rstkm)           ; stringified rstkm
+            %xdefine %%rstkml %strlen(%%rstkms)     ; rstkm string length
+            ; If rstkm looks like register_name:
+            %ifid rstkm
+                %ifdef reg_id_of_%[rstkm]
+                    %assign %%rstkmi reg_id_of_%[rstkm]
+                %endif
+                %assign %%szm %%szw
+            %endif
+            ; If rstkm looks like [memory reference]:
+            %if %isidni(%substr(%%rstkms,1,1), "[") && \
+                    %isidni(%substr(%%rstkms,%%rstkml,1), "]")
+                %xdefine %%rstkmp %substr(%%rstkms, 2, -2) ; strip "[" & "]"
+                ; Check rstkm for 1x linearity WRT esp:
+                %xdefine %%linear 0 ; false
+                %iassign esp      0
+                %xdefine %%szm0   %tok(%%rstkmp)
+                %ifnum %%szm0
+                    %rep 1
+                        %xdefine %%linear 0 ; false
+                        %iassign esp      esp+gprsize
+                        %xdefine %%szm1   %tok(%%rstkmp)
+                        %ifnnum %%szm1
+                            %exitrep
+                        %elif ((%%szm1) - (%%szm0)) != esp
+                            %exitrep
+                        %endif
+                        %xdefine %%linear 1 ; true
+                    %endrep
+                %endif
+                %if %%linear
+                    %assign %%szm (%%szm0)+(gprsize)
+                %endif
+                %undef esp
+            %endif
+            %xdefine %%err ""
+            %if %%szm < 0
+                %xdefine %%err "invalid/unsupported rstkm"
+            %elif %%szm < %%szw
+                %xdefine %%err "stack_size w/rstkm < stack_size[+win64pad]"
+            %elif %%szm > (stack_size_padded)
+                %xdefine %%err "stack_size w/rstkm > stack_size_padded"
+            %elif %%qsz <= ((stack_size_padded) - %%szw) ; %%qsz <= gap
+                ; TODO
+                ;%xdefine %%err "allocating in gap"
+                %assign %%ao2 (gprsize)
+                %assign %%ao  2*(gprsize)
+                %xdefine picallocd 7,%%qmk,0     ; state,mask,rsp_decrement
+                STK_CONTEXT_UNDEF ; rsp & stack_size_padded as symbolic refs:
+                %if   %%qmk == 1
+                    %xdefine rpicsave  [rsp+stack_size_padded-%%ao2]
+                %elif %%qmk == 2
+                    %xdefine lpiccache [rsp+stack_size_padded-%%ao2]
+                %elif %%qmk == 3
+                    %xdefine rpicsave  [rsp+stack_size_padded-%%ao]
+                    %xdefine lpiccache [rsp+stack_size_padded-%%ao2]
+                %endif
+            %else
+                ; TODO
+                ;%xdefine %%err %strcat("inflating stack_size_padded",\
+                    " by ", %%asz)
+                %assign %%ao2 (stack_size_padded)-(stack_size)+(gprsize)
+                %assign %%ao  (stack_size_padded)-(stack_size)+2*(gprsize)
+                SUB rsp, %%asz                   ; rsp decremented by %%asz
+                %assign stack_size_padded (stack_size_padded)+%%asz
+                %xdefine picallocd 8,%%qmk,%%asz ; state,mask,rsp_decrement
+                STK_CONTEXT_UNDEF ; rsp & stack_size as symbolic refs:
+                %if %%qmk==1
+                    %xdefine rpicsave  [rsp+stack_size_padded-%%ao2]
+                %elif %%qmk==2
+                    %xdefine lpiccache [rsp+stack_size_padded-%%ao2]
+                %elif %%qmk==3
+                    %xdefine rpicsave  [rsp+stack_size_padded-%%ao]
+                    %xdefine lpiccache [rsp+stack_size_padded-%%ao2]
+                %endif
+            %endif
+            STK_CONTEXT_UNDEF      ; undef to report symbolic refs in %error and
+                                   ; to correctly restore in STK_CONTEXT_POP
+            %ifnidn %%err, ""
+                %error %strcat(\
+                    `\n  `, %?, ": ", %%err,\
+                    `\n  in `, current_function, "():",\
+                    `\n     stack_size: `, %$stack_size,\
+                    `\n     stack_size_w_win64pad: `, %%szw,\
+                    `\n     stack_size_w_rstkm: `, %%szm,\
+                    `\n     stack_size_padded: `, %$stack_size_padded,\
+                    `\n     stack_offset: `, %$stack_offset,\
+                    `\n     stack_alignment: `,\
+                        %$STACK_ALIGNMENT,\
+                    `\n     mmsize: `, %$mmsize,\
+                    `\n     required_stack_alignment: `,\
+                        %$required_stack_alignment,\
+                    `\n     rsp: `, %$rsp,\
+                    `\n     rstk: `, %$rstk,\
+                    `\n     rstkm: `, %$rstkm,\
+                    `\n     lpiccache: `, lpiccache,\
+                    `\n     rpicsave: `, rpicsave,\
+                    `\n     picallocd: `, picallocd)
+            %endif
+            STK_CONTEXT_POP        ; restore, pop stk_context
         %else
             ; aligned to stk_align or not aligned at all
             ASSERT %isidn(rstk, rsp)
-            %assign %%ASZ %cond((STACK_ALIGNMENT) > %%asz,\
-                (STACK_ALIGNMENT), %%asz)
-            %if (stack_size_padded-stack_size-%%wpad) >= %%asz
-                ; !!!!!!!-gap is already large enough to hold %%asz bytes
-                %assign %%ao stack_offset-(stack_size_padded)+%%asz
-                %assign picallocd 1
+            %assign %%asz %cond((STACK_ALIGNMENT) > %%qsz,\
+                (STACK_ALIGNMENT), %%qsz)
+            %if (stack_size_padded-stack_size-%%wpad) >= %%qsz
+                ; !!!!!!!-gap is already large enough to hold %%qsz bytes
+                %assign %%ao stack_offset-(stack_size_padded)+%%qsz
+                %xdefine picallocd 1,%%qmk,0
             %elif stack_size_padded == 0
                 ; no stack_size, no pad, unaligned -- create pad, don't align:
-                %assign %%ao stack_offset-(stack_size_padded)+%%asz
-                SUB rsp, %%asz
-                %assign stack_size_padded %%asz
-                %assign picallocd 2
+                %assign %%ao stack_offset-(stack_size_padded)+%%qsz
+                SUB rsp, %%qsz
+                %assign stack_size_padded %%qsz
+                %xdefine picallocd 2,%%qmk,%%qsz
             %elif %%nxmmpush == 0
                 ; non-empty pad, but no xmm regs to move -- inflate
                 ; !!!!!!!-gap at the top of stack pad:
-                %assign %%ao stack_offset-(stack_size_padded)+%%asz
-                SUB rsp, %%ASZ
-                %assign stack_size_padded stack_size_padded+%%ASZ
-                %assign picallocd 3
+                %assign %%ao stack_offset-(stack_size_padded)+%%qsz
+                SUB rsp, %%asz
+                %assign stack_size_padded stack_size_padded+%%asz
+                %xdefine picallocd 3,%%qmk,%%asz
             %elif stack_size > 0
                 ; WIN64, xmm regs pushed, non-empty stack_size area,
                 ; rqrd_align <= stk_align -- inflate stack_size, so that xmm
                 ; regs are left untouched:
-                %assign %%ao stack_offset-(stack_size)+%%asz
-                SUB rsp, %%ASZ
-                %assign stack_size_padded stack_size_padded+%%ASZ
-                %assign stack_size stack_size+%%ASZ
-                %assign picallocd 4
+                %assign %%ao stack_offset-(stack_size)+%%qsz
+                SUB rsp, %%asz
+                %assign stack_size_padded stack_size_padded+%%asz
+                %assign stack_size stack_size+%%asz
+                %xdefine picallocd 4,%%qmk,%%asz
             %elif required_stack_alignment > STACK_ALIGNMENT
                 ; WIN64, nxmmpush > 0, initial stack_size is 0 and inflating it
                 ; forces switch to rstk/rstkm model, with unknown at compile
@@ -939,17 +1052,17 @@ lpic:           pop rpic
                 ; bottom, temporarily invalidating [rsp+stack_size+32+i*16]
                 ; references to xmm save area, until PIC_FREE
                 %assign %%ao stack_offset-(stack_size)-32
-                SUB rsp, %%ASZ
-                %assign stack_size_padded stack_size_padded+%%ASZ
-                %assign picallocd 5
+                SUB rsp, %%asz
+                %assign stack_size_padded stack_size_padded+%%asz
+                %xdefine picallocd 5,%%qmk,%%asz
             %else ; rqrd_align <= stk_align
                 ; WIN64, nxmmpush > 0, initial stack_size==0 but inflating it
                 ; won't switch to rstk/rstkm model.
-                %assign %%ao stack_offset-(stack_size)+%%asz
-                SUB rsp, %%ASZ
-                %assign stack_size_padded stack_size_padded+%%ASZ
-                %assign stack_size %%ASZ
-                %assign picallocd 6
+                %assign %%ao stack_offset-(stack_size)+%%qsz
+                SUB rsp, %%asz
+                %assign stack_size_padded stack_size_padded+%%asz
+                %assign stack_size %%asz
+                %xdefine picallocd 6,%%qmk,%%asz
             %endif
             ; %%ao is distance from start (bottom) or rpicsave/lpiccache area
             ; to retaddr (return address pushed to stack by caller);
@@ -961,11 +1074,11 @@ lpic:           pop rpic
             ; xdef-ed: this way it becomes impossible to expand
             ; rstk/stack_offset tokens any further, so they are left as-is):
             STK_CONTEXT_PUSH_UNDEF ; sz/ln, stack_offset/size/padded, rsp/stk/m
-            %if %%ak==1
+            %if   %%qmk == 1
                 %xdefine rpicsave  [rstk+stack_offset-%%ao]
-            %elif %%ak==2
+            %elif %%qmk == 2
                 %xdefine lpiccache [rstk+stack_offset-%%ao]
-            %elif %%ak==3
+            %elif %%qmk == 3
                 %xdefine rpicsave  [rstk+stack_offset-%%ao]
                 %xdefine lpiccache [rstk+stack_offset-%%ao2]
             %endif
@@ -980,39 +1093,55 @@ lpic:           pop rpic
         %if picb > 0
             %error %strcat(%?, " inside PIC_BEGIN/PIC_END block in ",\
                 %str(current_function))
-        %elif (stack_size > 0) && (required_stack_alignment > STACK_ALIGNMENT)
-            %fatal %strcat(%?, " can't free w/rstkm")
-        %else
-            %assign %%g 2*(gprsize)
-            %assign %%G %cond((STACK_ALIGNMENT) > %%g, (STACK_ALIGNMENT), %%g)
-            %if picallocd == 1
-                ; nothing to do
-            %elif picallocd == 2
-                ADD rsp, %%g
-                %assign stack_size_padded 0
-            %elif picallocd == 3
-                ADD rsp, %%G
-                %assign stack_size_padded stack_size_padded-%%G
-            %elif picallocd == 4
-                ADD rsp, %%G
-                %assign stack_size_padded stack_size_padded-%%G
-                %assign stack_size        stack_size       -%%G
-            %elif picallocd == 5
-                ADD rsp, %%G
-                %assign stack_size_padded stack_size_padded-%%G
-            %elif picallocd == 6
-                ADD rsp, %%G
-                %assign stack_size_padded stack_size_padded-%%G
-                %assign stack_size        0
-            %else
-                %error %strcat(%?, " in invalid PIC_ALLOC state (",\
-                    picallocd, "), in ", %str(current_function))
-            %endif
-            %undef  rpicsave
-            %undef  lpiccache
-            %assign lpiccf 0
-            %assign picallocd 0
         %endif
+        %macro %%LIST_LEN 0-*
+            %assign %?_result %0
+        %endmacro
+        %%LIST_LEN picallocd
+        %xdefine %%picallocd %sel(1, %[picallocd])
+        %if %%LIST_LEN_result == 3
+            %xdefine %%decr  %sel(3, %[picallocd]) ; rsp decr/incr
+        %else
+            %xdefine %%decr  ""
+        %endif
+        %ifnnum %%picallocd
+            %error %strcat(%?, ": invalid PIC_ALLOC state (",\
+                picallocd, "), in ", %str(current_function))
+        %elifnnum %%decr
+            %error %strcat(%?, ": invalid PIC_ALLOC decrement (",\
+                picallocd, "), in ", %str(current_function))
+        %elif %%picallocd == 1
+            ; nothing to do
+        %elif %%picallocd == 2
+            ADD rsp, %%decr
+            %assign stack_size_padded 0
+        %elif %%picallocd == 3
+            ADD rsp, %%decr
+            %assign stack_size_padded stack_size_padded-%%decr
+        %elif %%picallocd == 4
+            ADD rsp, %%decr
+            %assign stack_size_padded stack_size_padded-%%decr
+            %assign stack_size        stack_size       -%%decr
+        %elif %%picallocd == 5
+            ADD rsp, %%decr
+            %assign stack_size_padded stack_size_padded-%%decr
+        %elif %%picallocd == 6
+            ADD rsp, %%decr
+            %assign stack_size_padded stack_size_padded-%%decr
+            %assign stack_size        0
+        %elif %%picallocd == 7
+            ; nothing to do
+        %elif %%picallocd == 8
+            ADD rsp, %%decr
+            %assign stack_size_padded stack_size_padded-%%decr
+        %else
+            %error %strcat(%?, ": invalid PIC_ALLOC state (",\
+                picallocd, "), in ", %str(current_function))
+        %endif
+        %undef   rpicsave
+        %undef   lpiccache
+        %assign  lpiccf 0
+        %xdefine picallocd 0
     %endif
 %endmacro
 
