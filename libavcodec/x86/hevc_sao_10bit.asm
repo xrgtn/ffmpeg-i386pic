@@ -206,7 +206,7 @@ HEVC_SAO_BAND_FILTER 12, 64, 4
 %endif
 %endmacro
 
-%macro HEVC_SAO_EDGE_FILTER_INIT 0
+%macro HEVC_SAO_EDGE_FILTER_INIT 0 ; eom,eoq,tmp2q,a/b_strideq,tmpq, PIC:tmp2q,0
 %if WIN64
     movsxd           eoq, dword eom
 %elif ARCH_X86_64
@@ -214,7 +214,9 @@ HEVC_SAO_BAND_FILTER 12, 64, 4
 %else
     mov              eoq, r4m
 %endif
-    lea            tmp2q, [pb_eo]
+    PIC_BEGIN tmp2q, 0 ; use tmp2q as PIC base to init tmp2q:
+    lea            tmp2q, [pic(pb_eo)]
+    PIC_END
     movsx      a_strideq, byte [tmp2q+eoq*4+1]
     movsx      b_strideq, byte [tmp2q+eoq*4+3]
     imul       a_strideq, EDGE_SRCSTRIDE >> 1
@@ -247,10 +249,11 @@ cglobal hevc_sao_edge_filter_%2_%1, 1, 6, 8, 5*mmsize, dst, src, dststride, a_st
 %define m10 m3
 %define m11 m4
 %define m12 m5
-    HEVC_SAO_EDGE_FILTER_INIT
+    PIC_ALLOC
+    HEVC_SAO_EDGE_FILTER_INIT ; eom,eoq,tmp2q,a/b_strideq,tmpq:r1..5; PIC:tmp2q,0,init(lpiccache)
     mov             srcq, srcm
-    mov          offsetq, r3m
     mov       dststrideq, dststridem
+    mov          offsetq, r3m
     add        a_strideq, a_strideq
     add        b_strideq, b_strideq
 
@@ -288,6 +291,9 @@ cglobal hevc_sao_edge_filter_%2_%1, 1, 6, 8, 5*mmsize, dst, src, dststride, a_st
 align 16
 .loop:
 
+    PIC_BEGIN heightd
+    CHECK_REG_COLLISION "rpic","srcq","dstq","dststrideq",\
+        "a_strideq","b_strideq","[rsp+mmsize*4]"
 %assign i 0
 %rep %3
     mova              m1, [srcq + i]
@@ -303,7 +309,7 @@ align 16
     psubw             m5, m3
 
     paddw             m4, m5
-    pcmpeqw           m2, m4, [pw_m2]
+    pcmpeqw           m2, m4, [pic(pw_m2)]
 %if ARCH_X86_64
     pcmpeqw           m3, m4, m13
     pcmpeqw           m5, m4, m0
@@ -315,10 +321,10 @@ align 16
     pand              m6, m11
     pand              m7, m12
 %else
-    pcmpeqw           m3, m4, [pw_m1]
+    pcmpeqw           m3, m4, [pic(pw_m1)]
     pcmpeqw           m5, m4, m0
-    pcmpeqw           m6, m4, [pw_1]
-    pcmpeqw           m7, m4, [pw_2]
+    pcmpeqw           m6, m4, [pic(pw_1)]
+    pcmpeqw           m7, m4, [pic(pw_2)]
     pand              m2, [rsp+mmsize*0]
     pand              m3, [rsp+mmsize*1]
     pand              m5, [rsp+mmsize*2]
@@ -330,15 +336,17 @@ align 16
     paddw             m2, m7
     paddw             m2, m1
     paddw             m2, m5
-    CLIPW             m2, m0, [pw_mask %+ %1]
+    CLIPW             m2, m0, [pic(pw_mask %+ %1)]
     mova      [dstq + i], m2
 %assign i i+mmsize
 %endrep
+    PIC_END ; heightd
 
     add             dstq, dststrideq
     add             srcq, EDGE_SRCSTRIDE
     dec          heightd
     jg .loop
+    PIC_FREE
     RET
 %endmacro
 
