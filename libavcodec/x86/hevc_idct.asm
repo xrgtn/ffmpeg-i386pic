@@ -290,7 +290,7 @@ cglobal hevc_idct_%1x%1_dc_%2, 1, 2, 1, coeff, tmp
 ; %1 - shift
 ; %2 - 1/0 - SCALE and Transpose or not
 ; %3 - 1/0 add constant or not
-%macro TR_4x4 3
+%macro TR_4x4 3 ; PIC
     ; interleaves src0 with src2 to m0
     ;         and src1 with scr3 to m2
     ; src0: 00 01 02 03     m0: 00 20 01 21 02 22 03 23
@@ -300,17 +300,19 @@ cglobal hevc_idct_%1x%1_dc_%2, 1, 2, 1, coeff, tmp
 
     SBUTTERFLY wd, 0, 1, 2
 
-    pmaddwd m2, m0, [pw_64]    ; e0
-    pmaddwd m3, m1, [pw_83_36] ; o0
-    pmaddwd m0, [pw_64_m64]    ; e1
-    pmaddwd m1, [pw_36_m83]    ; o1
+    PIC_BEGIN r4
+    pmaddwd m2, m0, [pic(pw_64)]    ; e0
+    pmaddwd m3, m1, [pic(pw_83_36)] ; o0
+    pmaddwd m0, [pic(pw_64_m64)]    ; e1
+    pmaddwd m1, [pic(pw_36_m83)]    ; o1
 
 %if %3 == 1
     %assign %%add 1 << (%1 - 1)
-    mova  m4, [pd_ %+ %%add]
+    mova  m4, [pic(pd_ %+ %%add)]
     paddd m2, m4
     paddd m0, m4
 %endif
+    PIC_END
 
     SUMSUB_BADC d, 3, 2, 1, 0, 4
 
@@ -341,15 +343,17 @@ cglobal hevc_idct_%1x%1_dc_%2, 1, 2, 1, coeff, tmp
 ; %2 - register add constant
 ; is loaded to
 ; shift = 20 - bit_depth
-%macro LOAD_BIAS 2
+%macro LOAD_BIAS 2 ; PIC
     DEFINE_BIAS %1
-    mova %2, [arr_add]
+    PIC_BEGIN r4
+    mova %2, [pic(arr_add)]
+    PIC_END
 %endmacro
 
 ; %1, %2 - registers to load packed 16 bit values to
 ; %3, %4, %5, %6 - vertical offsets
 ; %7 - horizontal offset
-%macro LOAD_BLOCK 7
+%macro LOAD_BLOCK 7 ; [r0+]
     movq   %1, [r0 + %3 + %7]
     movhps %1, [r0 + %5 + %7]
     movq   %2, [r0 + %4 + %7]
@@ -363,8 +367,11 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
     mova m0, [coeffsq]
     mova m1, [coeffsq + 16]
 
-    TR_4x4 7, 1, 1
-    TR_4x4 20 - %1, 1, 1
+    PIC_BEGIN r1, 0
+    CHECK_REG_COLLISION "rpic","coeffsq"
+    TR_4x4 7, 1, 1        ; PIC
+    TR_4x4 20 - %1, 1, 1  ; PIC
+    PIC_END ; r1, no-save
 
     mova [coeffsq],      m0
     mova [coeffsq + 16], m1
@@ -376,7 +383,7 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
 ; from %5: e8/16 + o8/16, with %1 offset                  ...
 ; and  %3: e8/16 - o8/16, with %2 offset           6 e8[1] - o8[1]
 ; %4 - shift                                       7 e8[0] - o8[0] --> + %2
-%macro STORE_8 7
+%macro STORE_8 7 ; [coeffsq+]
     psrad    %5, %4
     psrad    %3, %4
     packssdw %5, %3
@@ -393,7 +400,7 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
 ; %8 - block_size
 ; %9 - register to store e8 +o8
 ; %10 - register to store e8 - o8
-%macro E8_O8 10
+%macro E8_O8 10 ; [coeffsq+]
     pmaddwd m6, m4, %3
     pmaddwd m7, m5, %4
 
@@ -401,8 +408,8 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
     paddd m7, m6, %7 ; o8 + e8
     psubd %7, m6     ; e8 - o8
 %if %8 == 8
-    STORE_8 %5 + %1, %6 + %1, %7, %2, m7, 0, 0
-%else
+    STORE_8 %5 + %1, %6 + %1, %7, %2, m7, 0, 0 ; [coeffsq+]
+%else ; amd64-only branch (%9:m8..1, %10:m12..15)
     SWAP m7, %9
     SWAP %7, %10
 %endif
@@ -417,14 +424,17 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
 ; %6 - block size
 ; %7 - 1/0 add a constant in TR_4x4 or not
 ; I want to add a constant for 8x8 transform but not for 16x16 and 32x32
-%macro TR_8x4 7
+%macro TR_8x4 7 ; [r0+],[coeffsq+]; PIC
     ; load 4 columns of even rows
-    LOAD_BLOCK  m0, m1, 0, 2 * %4 * %3, %4 * %3, 3 * %4 * %3, %1
+    LOAD_BLOCK  m0, m1, 0, 2 * %4 * %3, %4 * %3, 3 * %4 * %3, %1 ; [r0+]
 
-    TR_4x4 %2, 0, %7 ; e8: m0, m1, m2, m3, for 4 columns only
+    CHECK_REG_COLLISION "rpic",%{1:-1},"r0","coeffsq"
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,%2,,%4,%5,%6,%7,"coeffsq"
+    TR_4x4 %2, 0, %7 ; e8: m0, m1, m2, m3, for 4 columns only ; PIC
 
     ; load 4 columns of odd rows
-    LOAD_BLOCK m4, m5, %4 * %5, 3 * %4 * %5, 5 * %4 * %5, 7 * %4 * %5, %1
+    LOAD_BLOCK m4, m5, %4 * %5, 3 * %4 * %5, 5 * %4 * %5, 7 * %4 * %5, %1 ; [r0+]
 
     ; 00 01 02 03
     ; 10 11 12 13      m4: 10 30 11 31 12 32 13 33
@@ -434,13 +444,14 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
     ; 70 71 72 73
     SBUTTERFLY wd, 4, 5, 6
 
-    E8_O8 %1, %2, [pw_89_75],  [pw_50_18],   0,      %5 * 7, m0, %6, m8, m15
-    E8_O8 %1, %2, [pw_75_m18], [pw_m89_m50], %5,     %5 * 6, m1, %6, m9, m14
-    E8_O8 %1, %2, [pw_50_m89], [pw_18_75],   %5 * 2, %5 * 5, m2, %6, m10, m13
-    E8_O8 %1, %2, [pw_18_m50], [pw_75_m89],  %5 * 3, %5 * 4, m3, %6, m11, m12
+    E8_O8 %1, %2, [pic(pw_89_75)],  [pic(pw_50_18)],   0,      %5 * 7, m0, %6, m8, m15  ; [coeffsq+], PIC
+    E8_O8 %1, %2, [pic(pw_75_m18)], [pic(pw_m89_m50)], %5,     %5 * 6, m1, %6, m9, m14
+    E8_O8 %1, %2, [pic(pw_50_m89)], [pic(pw_18_75)],   %5 * 2, %5 * 5, m2, %6, m10, m13
+    E8_O8 %1, %2, [pic(pw_18_m50)], [pic(pw_75_m89)],  %5 * 3, %5 * 4, m3, %6, m11, m12 ; [coeffsq+], PIC
+    PIC_END
 %endmacro
 
-%macro STORE_PACKED 7
+%macro STORE_PACKED 7 ; [r0+]
     movq   [r0 + %3 + %7], %1
     movhps [r0 + %4 + %7], %1
     movq   [r0 + %5 + %7], %2
@@ -460,30 +471,30 @@ cglobal hevc_idct_4x4_%1, 1, 1, 5, coeffs
 ; %3 - width in bytes
 ; %4 - vertical offset for the block j
 ; %5 - horizontal offset for the block j
-%macro SWAP_BLOCKS 5
+%macro SWAP_BLOCKS 5 ; [r0+]
     ; M_j
-    LOAD_BLOCK m4, m5, %4, %4 + %3, %4 + 2 * %3, %4 + 3 * %3, %5
+    LOAD_BLOCK m4, m5, %4, %4 + %3, %4 + 2 * %3, %4 + 3 * %3, %5   ; [r0+]
     TRANSPOSE_4x4 4, 5, 6
 
     ; M_i
-    LOAD_BLOCK m6, m7, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1
+    LOAD_BLOCK m6, m7, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1   ; [r0+]
 
-    STORE_PACKED m4, m5, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1
+    STORE_PACKED m4, m5, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1 ; [r0+]
 
     ; transpose and store M_i
     SWAP m6, m4
     SWAP m7, m5
     TRANSPOSE_4x4 4, 5, 6
-    STORE_PACKED m4, m5, %4, %4 + %3, %4 + 2 * %3, %4 + 3 * %3, %5
+    STORE_PACKED m4, m5, %4, %4 + %3, %4 + 2 * %3, %4 + 3 * %3, %5 ; [r0+]
 %endmacro
 
 ; %1 - horizontal offset
 ; %2 - vertical offset of the block
 ; %3 - width in bytes
-%macro TRANSPOSE_BLOCK 3
-    LOAD_BLOCK m4, m5, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1
+%macro TRANSPOSE_BLOCK 3 ; [r0+]
+    LOAD_BLOCK m4, m5, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1   ; [r0+]
     TRANSPOSE_4x4 4, 5, 6
-    STORE_PACKED m4, m5, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1
+    STORE_PACKED m4, m5, %2, %2 + %3, %2 + 2 * %3, %2 + 3 * %3, %1 ; [r0+]
 %endmacro
 
 %macro TRANSPOSE_8x8 0
@@ -492,13 +503,13 @@ cglobal hevc_idct_transpose_8x8, 0, 0, 0
     ; M3 M4      M2^t M4^t
 
     ; M1 4x4 block
-    TRANSPOSE_BLOCK 0, 0, 16
+    TRANSPOSE_BLOCK 0, 0, 16    ; [r0+]
 
     ; M2 and M3
-    SWAP_BLOCKS 0, 64, 16, 0, 8
+    SWAP_BLOCKS 0, 64, 16, 0, 8 ; [r0+]
 
     ; M4
-    TRANSPOSE_BLOCK 8, 64, 16
+    TRANSPOSE_BLOCK 8, 64, 16   ; [r0+]
 
     ret
 %endmacro
@@ -507,14 +518,17 @@ cglobal hevc_idct_transpose_8x8, 0, 0, 0
 ; %1 = bitdepth
 %macro IDCT_8x8 1
 cglobal hevc_idct_8x8_%1, 1, 1, 8, coeffs
-    TR_8x4 0, 7, 32, 1, 16, 8, 1
-    TR_8x4 8, 7, 32, 1, 16, 8, 1
+    PIC_BEGIN r1, 0
+    CHECK_REG_COLLISION "rpic","r0","coeffsq"
+    TR_8x4 0, 7, 32, 1, 16, 8, 1 ; [r0+],[coeffsq+]; PIC
+    TR_8x4 8, 7, 32, 1, 16, 8, 1 ; [r0+],[coeffsq+]; PIC
 
-    call hevc_idct_transpose_8x8_ %+ cpuname
+    call hevc_idct_transpose_8x8_ %+ cpuname ; doesn't use rpic
 
     DEFINE_BIAS %1
-    TR_8x4 0, shift, 32, 1, 16, 8, 1
-    TR_8x4 8, shift, 32, 1, 16, 8, 1
+    TR_8x4 0, shift, 32, 1, 16, 8, 1 ; [r0+],[coeffsq+]; PIC
+    TR_8x4 8, shift, 32, 1, 16, 8, 1 ; [r0+],[coeffsq+]; PIC
+    PIC_END ; r1, no-save
 
     TAIL_CALL hevc_idct_transpose_8x8_ %+ cpuname, 1
 %endmacro
@@ -524,7 +538,7 @@ cglobal hevc_idct_8x8_%1, 1, 1, 8, coeffs
 ; from m10: e8 + o8, with %6 offset
 ; and  %3:  e8 - o8, with %7 offset
 ; %4 - shift, unused here
-%macro STORE_16 7
+%macro STORE_16 7 ; amd64
     mova [rsp + %6], %5
     mova [rsp + %7], %3
 %endmacro
@@ -552,7 +566,7 @@ cglobal hevc_idct_8x8_%1, 1, 1, 8, coeffs
 ; %6 - block_size
 ; %7 - register with e16
 ; %8, %9 - stack offsets for storing e+o/e-o
-%macro E16_O16 9
+%macro E16_O16 9 ; amd64
     ADD_ROWS [%1],          [%1 +     16], m0, m1, 1, m5, m6, m7
     ADD_ROWS [%1 + 2 * 16], [%1 + 3 * 16], m2, m3, 0, m5, m6, m7
 
@@ -562,10 +576,10 @@ cglobal hevc_idct_8x8_%1, 1, 1, 8, coeffs
 
     paddd m4, m7, %7 ; o16 + e16
     psubd %7, m7     ; e16 - o16
-    STORE_%6 %2, %3, %7, %4, m4, %8, %9
+    STORE_%6 %2, %3, %7, %4, m4, %8, %9 ; [rsp+]*[STORE_16]
 %endmacro
 
-%macro TR_16x4 10
+%macro TR_16x4 10 ; amd64
     ; produce 8x4 matrix of e16 coeffs
     ; for 4 first rows and store it on stack (128 bytes)
     TR_8x4 %1, 7, %4, %5, %6, %8, 0
@@ -588,7 +602,7 @@ cglobal hevc_idct_8x8_%1, 1, 1, 8, coeffs
     E16_O16 trans_coeffs16 + 7 * 64, 7 * %6 + %1,  8 * %6 + %1, %2, m8, %7, m15, 7 * 16,  8 * 16
 %endmacro
 
-%macro TRANSPOSE_16x16 0
+%macro TRANSPOSE_16x16 0 ; amd64
 cglobal hevc_idct_transpose_16x16, 0, 0, 0
 ; M1  M2  M3  M4 ^T      m1 m5 m9  m13   M_i^T = m_i
 ; M5  M6  M7  M8    -->  m2 m6 m10 m14
@@ -627,7 +641,7 @@ cglobal hevc_idct_transpose_16x16, 0, 0, 0
 
 ; void ff_hevc_idct_16x16_{8,10}_<opt>(int16_t *coeffs, int col_limit)
 ; %1 = bitdepth
-%macro IDCT_16x16 1
+%macro IDCT_16x16 1 ; amd64
 cglobal hevc_idct_16x16_%1, 1, 2, 16, coeffs
     mov r1d, 3
 .loop16:
@@ -681,7 +695,7 @@ cglobal hevc_idct_16x16_%1, 1, 2, 16, coeffs
 
 ; %1 - horizontal offset
 ; %2 - bitdepth
-%macro TR_32x4 3
+%macro TR_32x4 3 ; amd64
     TR_16x4 %1, 7, [pd_64], 128, 4, 64, 16, 16, 2, 0
 
     LOAD_BLOCK m0, m1,      64,  3 * 64,  5 * 64,  7 * 64, %1
@@ -713,7 +727,7 @@ cglobal hevc_idct_16x16_%1, 1, 2, 16, coeffs
     jge %%loop
 %endmacro
 
-%macro TRANSPOSE_32x32 0
+%macro TRANSPOSE_32x32 0 ; amd64
 cglobal hevc_idct_transpose_32x32, 0, 0, 0
     ; M0  M1 ... M7
     ; M8         M15
@@ -789,7 +803,7 @@ cglobal hevc_idct_transpose_32x32, 0, 0, 0
 
 ; void ff_hevc_idct_32x32_{8,10}_<opt>(int16_t *coeffs, int col_limit)
 ; %1 = bitdepth
-%macro IDCT_32x32 1
+%macro IDCT_32x32 1 ; amd64
 cglobal hevc_idct_32x32_%1, 1, 6, 16, 256, coeffs
     mov r1d, 7
 .loop32:
