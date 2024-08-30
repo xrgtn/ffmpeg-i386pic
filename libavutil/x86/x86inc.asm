@@ -904,8 +904,6 @@ lpic:           pop rpic
                     ((stack_size_padded)-(stack_size)) &\
                     ((required_stack_alignment)-1)\
                 )
-            STK_CONTEXT_PUSH_UNDEF ; push/store in stk_context, undef
-            STK_CONTEXT_LOAD       ; load, keep copies in stk_context
             %assign  %%asz    (%%qsz+(required_stack_alignment)-1) &\
                 ~((required_stack_alignment)-1)
             %assign  %%szw    (stack_size)+%%wpad   ; stack_size_w_win64pad
@@ -960,7 +958,7 @@ lpic:           pop rpic
                 %assign %%ao2 (gprsize)
                 %assign %%ao  2*(gprsize)
                 %xdefine picallocd 7,%%qmk,0     ; state,mask,rsp_decrement
-                STK_CONTEXT_UNDEF ; rsp & stack_size_padded as symbolic refs:
+                STK_CONTEXT_PUSH_UNDEF ; rsp & stack_size_padded as sym refs:
                 %if   %%qmk == 1
                     %xdefine rpicsave  [rsp+stack_size_padded-%%ao2]
                 %elif %%qmk == 2
@@ -969,6 +967,7 @@ lpic:           pop rpic
                     %xdefine rpicsave  [rsp+stack_size_padded-%%ao]
                     %xdefine lpiccache [rsp+stack_size_padded-%%ao2]
                 %endif
+                STK_CONTEXT_POP        ; restore, pop stk_context
             %else
                 ; TODO
                 ;%xdefine %%err %strcat("inflating stack_size_padded",\
@@ -978,7 +977,7 @@ lpic:           pop rpic
                 SUB rsp, %%asz                   ; rsp decremented by %%asz
                 %assign stack_size_padded (stack_size_padded)+%%asz
                 %xdefine picallocd 8,%%qmk,%%asz ; state,mask,rsp_decrement
-                STK_CONTEXT_UNDEF ; rsp & stack_size as symbolic refs:
+                STK_CONTEXT_PUSH_UNDEF ; rsp & stack_size_padded as sym refs:
                 %if %%qmk==1
                     %xdefine rpicsave  [rsp+stack_size_padded-%%ao2]
                 %elif %%qmk==2
@@ -987,9 +986,9 @@ lpic:           pop rpic
                     %xdefine rpicsave  [rsp+stack_size_padded-%%ao]
                     %xdefine lpiccache [rsp+stack_size_padded-%%ao2]
                 %endif
+                STK_CONTEXT_POP        ; restore, pop stk_context
             %endif
-            STK_CONTEXT_UNDEF      ; undef to report symbolic refs in %error and
-                                   ; to correctly restore in STK_CONTEXT_POP
+            STK_CONTEXT_PUSH_UNDEF ; push/undef to report sym refs in %error
             %ifnidn %%err, ""
                 %error %strcat(\
                     `\n  `, %?, ": ", %%err,\
@@ -1006,10 +1005,7 @@ lpic:           pop rpic
                         %$required_stack_alignment,\
                     `\n     rsp: `, %$rsp,\
                     `\n     rstk: `, %$rstk,\
-                    `\n     rstkm: `, %$rstkm,\
-                    `\n     lpiccache: `, lpiccache,\
-                    `\n     rpicsave: `, rpicsave,\
-                    `\n     picallocd: `, picallocd)
+                    `\n     rstkm: `, %$rstkm)
             %endif
             STK_CONTEXT_POP        ; restore, pop stk_context
         %else
