@@ -167,18 +167,21 @@ cglobal vp9_ipred_dc_16x16, 4, 4, 3, dst, stride, l, a
     paddw                   m0, m1
     movhlps                 m1, m0
     paddw                   m0, m1
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_1024]
+    pmulhrsw                m0, [pic(pw_1024)]
     pshufb                  m0, m2
 %else
-    paddw                   m0, [pw_16]
+    paddw                   m0, [pic(pw_16)]
     psraw                   m0, 5
     punpcklbw               m0, m0
     pshuflw                 m0, m0, q0000
     punpcklqdq              m0, m0
 %endif
+    PIC_END ; cntd, no-save
     mov                   cntd, 4
-.loop:
+.loop:                             ; %rep 4
     mova      [dstq+strideq*0], m0
     mova      [dstq+strideq*1], m0
     mova      [dstq+strideq*2], m0
@@ -205,18 +208,21 @@ cglobal vp9_ipred_dc_32x32, 4, 4, 5, dst, stride, l, a
     paddw                   m0, m2
     movhlps                 m1, m0
     paddw                   m0, m1
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_512]
+    pmulhrsw                m0, [pic(pw_512)]
     pshufb                  m0, m4
 %else
-    paddw                   m0, [pw_32]
+    paddw                   m0, [pic(pw_32)]
     psraw                   m0, 6
     punpcklbw               m0, m0
     pshuflw                 m0, m0, q0000
     punpcklqdq              m0, m0
 %endif
+    PIC_END ; cntd, no-save
     mov                   cntd, 8
-.loop:
+.loop:                             ; %rep 8
     mova   [dstq+strideq*0+ 0], m0
     mova   [dstq+strideq*0+16], m0
     mova   [dstq+strideq*1+ 0], m0
@@ -251,7 +257,10 @@ cglobal vp9_ipred_dc_32x32, 4, 4, 3, dst, stride, l, a
     paddw                  xm0, xm1
     movhlps                xm1, xm0
     paddw                  xm0, xm1
-    pmulhrsw               xm0, [pw_512]
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
+    pmulhrsw               xm0, [pic(pw_512)]
+    PIC_END ; cntd, no-save
     vpbroadcastb            m0, xm0
     mov                   cntd, 4
 .loop:
@@ -274,18 +283,24 @@ cglobal vp9_ipred_dc_32x32, 4, 4, 3, dst, stride, l, a
 
 %macro DC_1D_4to8_FUNCS 2 ; dir (top or left), arg (a or l)
 cglobal vp9_ipred_dc_%1_4x4, 4, 4, 0, dst, stride, l, a
-    movd                    m0, [%2q]
+    movd                    m0, [%2q] ; [lq] or [aq]
     pxor                    m1, m1
     psadbw                  m0, m1
+    ; Both lq and aq aren't used anymore, but we select different register
+    ; from the one used in 1st op (movd m0, [%2q]) to enable parallel execution
+    ; speed-up:
+    PIC_BEGIN %cond(%isidn(%2,a), lq, aq), 0
+    CHECK_REG_COLLISION "rpic","dstq","strideq"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_8192]
+    pmulhrsw                m0, [pic(pw_8192)]
     pshufb                  m0, m1
 %else
-    paddw                   m0, [pw_2]
+    paddw                   m0, [pic(pw_2)]
     psraw                   m0, 2
     punpcklbw               m0, m0
     pshufw                  m0, m0, q0000
 %endif
+    PIC_END ; lq/aq, no-save
     movd      [dstq+strideq*0], m0
     movd      [dstq+strideq*1], m0
     lea                   dstq, [dstq+strideq*2]
@@ -299,15 +314,18 @@ cglobal vp9_ipred_dc_%1_8x8, 4, 4, 0, dst, stride, l, a
     lea               stride3q, [strideq*3]
     pxor                    m1, m1
     psadbw                  m0, m1
+    PIC_BEGIN r3, 0 ; r3(former aq) pushed in PROLOGUE, unused till RET
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_4096]
+    pmulhrsw                m0, [pic(pw_4096)]
     pshufb                  m0, m1
 %else
-    paddw                   m0, [pw_4]
+    paddw                   m0, [pic(pw_4)]
     psraw                   m0, 3
     punpcklbw               m0, m0
     pshufw                  m0, m0, q0000
 %endif
+    PIC_END ; r3(former aq), no-save
     movq      [dstq+strideq*0], m0
     movq      [dstq+strideq*1], m0
     movq      [dstq+strideq*2], m0
@@ -336,16 +354,19 @@ cglobal vp9_ipred_dc_%1_16x16, 4, 4, 3, dst, stride, l, a
     psadbw                  m0, m2
     movhlps                 m1, m0
     paddw                   m0, m1
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_2048]
+    pmulhrsw                m0, [pic(pw_2048)]
     pshufb                  m0, m2
 %else
-    paddw                   m0, [pw_8]
+    paddw                   m0, [pic(pw_8)]
     psraw                   m0, 4
     punpcklbw               m0, m0
     pshuflw                 m0, m0, q0000
     punpcklqdq              m0, m0
 %endif
+    PIC_END ; cntd, no-save
     mov                   cntd, 4
 .loop:
     mova      [dstq+strideq*0], m0
@@ -368,16 +389,19 @@ cglobal vp9_ipred_dc_%1_32x32, 4, 4, 3, dst, stride, l, a
     paddw                   m0, m1
     movhlps                 m1, m0
     paddw                   m0, m1
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    pmulhrsw                m0, [pw_1024]
+    pmulhrsw                m0, [pic(pw_1024)]
     pshufb                  m0, m2
 %else
-    paddw                   m0, [pw_16]
+    paddw                   m0, [pic(pw_16)]
     psraw                   m0, 5
     punpcklbw               m0, m0
     pshuflw                 m0, m0, q0000
     punpcklqdq              m0, m0
 %endif
+    PIC_END ; cntd, no-save
     mov                   cntd, 8
 .loop:
     mova   [dstq+strideq*0+ 0], m0
@@ -413,7 +437,10 @@ cglobal vp9_ipred_dc_%1_32x32, 4, 4, 3, dst, stride, l, a
     paddw                  xm0, xm1
     movhlps                xm1, xm0
     paddw                  xm0, xm1
-    pmulhrsw               xm0, [pw_1024]
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
+    pmulhrsw               xm0, [pic(pw_1024)]
+    PIC_END ; cntd, no-save
     vpbroadcastb            m0, xm0
     mov                   cntd, 4
 .loop:
@@ -520,7 +547,10 @@ cglobal vp9_ipred_v_32x32, 4, 4, 1, dst, stride, l, a
 cglobal vp9_ipred_h_4x4, 3, 4, 1, dst, stride, l, stride3
     movd                    m0, [lq]
 %if cpuflag(ssse3)
-    pshufb                  m0, [pb_4x3_4x2_4x1_4x0]
+    PIC_BEGIN lq, 0 ; lq not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,"stride3q"
+    pshufb                  m0, [pic(pb_4x3_4x2_4x1_4x0)]
+    PIC_END ; lq, no-save
 %else
     punpcklbw               m0, m0
     pshuflw                 m0, m0, q0123
@@ -539,8 +569,11 @@ cglobal vp9_ipred_h_4x4, 3, 4, 1, dst, stride, l, stride3
 
 cglobal vp9_ipred_h_8x8, 3, 5, %1, dst, stride, l, stride3, cnt
 %if cpuflag(ssse3)
-    mova                    m2, [pb_8x1_8x0]
-    mova                    m3, [pb_8x3_8x2]
+    PIC_BEGIN cntq, 0 ; cntq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq","stride3q"
+    mova                    m2, [pic(pb_8x1_8x0)]
+    mova                    m3, [pic(pb_8x3_8x2)]
+    PIC_END ; cntq, no-save
 %endif
     lea               stride3q, [strideq*3]
     mov                   cntq, 1
@@ -566,9 +599,12 @@ cglobal vp9_ipred_h_8x8, 3, 5, %1, dst, stride, l, stride3, cnt
 
 cglobal vp9_ipred_h_16x16, 3, 5, %2, dst, stride, l, stride3, cnt
 %if cpuflag(ssse3)
-    mova                    m5, [pb_1]
-    mova                    m6, [pb_2]
-    mova                    m7, [pb_3]
+    PIC_BEGIN cntq, 0 ; cntq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq","stride3q"
+    mova                    m5, [pic(pb_1)]
+    mova                    m6, [pic(pb_2)]
+    mova                    m7, [pic(pb_3)]
+    PIC_END ; cntq, no-save
     pxor                    m4, m4
 %endif
     lea               stride3q, [strideq*3]
@@ -602,9 +638,12 @@ cglobal vp9_ipred_h_16x16, 3, 5, %2, dst, stride, l, stride3, cnt
 
 cglobal vp9_ipred_h_32x32, 3, 5, %2, dst, stride, l, stride3, cnt
 %if cpuflag(ssse3)
-    mova                    m5, [pb_1]
-    mova                    m6, [pb_2]
-    mova                    m7, [pb_3]
+    PIC_BEGIN cntq, 0 ; cntq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq","stride3q"
+    mova                    m5, [pic(pb_1)]
+    mova                    m6, [pic(pb_2)]
+    mova                    m7, [pic(pb_3)]
+    PIC_END ; cntq, no-save
     pxor                    m4, m4
 %endif
     lea               stride3q, [strideq*3]
@@ -651,9 +690,12 @@ H_XMM_FUNCS 4, 8
 %if HAVE_AVX2_EXTERNAL
 INIT_YMM avx2
 cglobal vp9_ipred_h_32x32, 3, 5, 8, dst, stride, l, stride3, cnt
-    mova                    m5, [pb_1]
-    mova                    m6, [pb_2]
-    mova                    m7, [pb_3]
+    PIC_BEGIN cntq, 0 ; cntq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq","stride3q"
+    mova                    m5, [pic(pb_1)]
+    mova                    m6, [pic(pb_2)]
+    mova                    m7, [pic(pb_3)]
+    PIC_END ; cntq, no-save
     pxor                    m4, m4
     lea               stride3q, [strideq*3]
     mov                   cntq, 7
@@ -684,8 +726,11 @@ cglobal vp9_ipred_tm_4x4, 4, 4, 0, dst, stride, l, a
     punpcklbw               m0, m1
     DEFINE_ARGS dst, stride, l, cnt
 %if cpuflag(ssse3)
-    mova                    m3, [pw_m256]
-    mova                    m1, [pw_m255]
+    PIC_BEGIN cntq, 0 ; cntq (former aq) not re-initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq"
+    mova                    m3, [pic(pw_m256)]
+    mova                    m1, [pic(pw_m255)]
+    PIC_END ; cntq (former aq), no-save
     pshufb                  m2, m3
 %else
     punpcklbw               m2, m1
@@ -728,8 +773,11 @@ cglobal vp9_ipred_tm_8x8, 4, 4, 5, dst, stride, l, a
     punpcklbw               m0, m1
     DEFINE_ARGS dst, stride, l, cnt
 %if cpuflag(ssse3)
-    mova                    m3, [pw_m256]
-    mova                    m1, [pw_m255]
+    PIC_BEGIN cntq, 0 ; cntq (former aq) not re-initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq"
+    mova                    m3, [pic(pw_m256)]
+    mova                    m1, [pic(pw_m255)]
+    PIC_END ; cntq (former aq), no-save
     pshufb                  m2, m3
 %else
     punpcklbw               m2, m1
@@ -767,8 +815,11 @@ cglobal vp9_ipred_tm_16x16, 4, 4, 8, dst, stride, l, a
     punpcklbw               m0, m3
     DEFINE_ARGS dst, stride, l, cnt
 %if cpuflag(ssse3)
-    mova                    m4, [pw_m256]
-    mova                    m3, [pw_m255]
+    PIC_BEGIN cntq, 0 ; cntq (former aq) not re-initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq"
+    mova                    m4, [pic(pw_m256)]
+    mova                    m3, [pic(pw_m255)]
+    PIC_END ; cntq (former aq), no-save
     pshufb                  m2, m4
 %else
     punpcklbw               m2, m3
@@ -808,6 +859,11 @@ cglobal vp9_ipred_tm_16x16, 4, 4, 8, dst, stride, l, a
 %define mem 64
 %endif
 cglobal vp9_ipred_tm_32x32, 4, 4, 14, mem, dst, stride, l, a
+%if cpuflag(ssse3)
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq","aq","[rsp+3*16]"
+%endif
     pxor                    m5, m5
     pinsrw                  m4, [aq-1], 0
     mova                    m0, [aq]
@@ -820,8 +876,8 @@ cglobal vp9_ipred_tm_32x32, 4, 4, 14, mem, dst, stride, l, a
 %define pw_m256_reg m12
 %define pw_m255_reg m13
 %else
-%define pw_m256_reg [pw_m256]
-%define pw_m255_reg [pw_m255]
+%define pw_m256_reg [pic(pw_m256)]
+%define pw_m255_reg [pic(pw_m255)]
 %endif
     pshufb                  m4, pw_m256_reg
 %else
@@ -891,6 +947,10 @@ cglobal vp9_ipred_tm_32x32, 4, 4, 14, mem, dst, stride, l, a
     lea                   dstq, [dstq+strideq*2]
     dec                   cntq
     jge .loop
+%if cpuflag(ssse3)
+    PIC_END ; r4, save/restore, monoblock
+    PIC_FREE ; rpicsave-only
+%endif
     RET
 %undef pw_m256_reg
 %undef pw_m255_reg
@@ -912,8 +972,11 @@ cglobal vp9_ipred_tm_32x32, 4, 4, 8, dst, stride, l, a
     vinserti128             m2, m2, xm2, 1
     mova                    m0, [aq]
     DEFINE_ARGS dst, stride, l, cnt
-    mova                    m4, [pw_m256]
-    mova                    m5, [pw_m255]
+    PIC_BEGIN cntq, 0 ; cntq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq"
+    mova                    m4, [pic(pw_m256)]
+    mova                    m5, [pic(pw_m255)]
+    PIC_END ; cntq, no-save
     pshufb                  m2, m4
     punpckhbw               m1, m0, m3
     punpcklbw               m0, m3
@@ -941,9 +1004,11 @@ cglobal vp9_ipred_tm_32x32, 4, 4, 8, dst, stride, l, a
 
 ; dl
 
-%macro LOWPASS 4 ; left [dst], center, right, tmp
+%macro LOWPASS 4 ; left [dst], center, right, tmp ; PIC
     pxor                   m%4, m%1, m%3
-    pand                   m%4, [pb_1]
+    PIC_BEGIN r4
+    pand                   m%4, [pic(pb_1)]
+    PIC_END
     pavgb                  m%1, m%3
     psubusb                m%1, m%4
     pavgb                  m%1, m%2
@@ -952,19 +1017,22 @@ cglobal vp9_ipred_tm_32x32, 4, 4, 8, dst, stride, l, a
 %macro DL_MMX_FUNCS 0
 cglobal vp9_ipred_dl_4x4, 4, 4, 0, dst, stride, l, a
     movq                    m1, [aq]
+    PIC_BEGIN lq, 0 ; lq not used in this function
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,"aq"
 %if cpuflag(ssse3)
-    pshufb                  m0, m1, [pb_0to5_2x7]
-    pshufb                  m2, m1, [pb_2to6_3x7]
+    pshufb                  m0, m1, [pic(pb_0to5_2x7)]
+    pshufb                  m2, m1, [pic(pb_2to6_3x7)]
 %else
-    punpckhbw               m3, m1, m1              ; 44556677
-    pand                    m0, m1, [pb_6xm1_2x0]   ; 012345__
-    pand                    m3, [pb_6x0_2xm1]       ; ______77
-    psrlq                   m2, m1, 16              ; 234567__
-    por                     m0, m3                  ; 01234577
-    por                     m2, m3                  ; 23456777
+    punpckhbw               m3, m1, m1                 ; 44556677
+    pand                    m0, m1, [pic(pb_6xm1_2x0)] ; 012345__
+    pand                    m3, [pic(pb_6x0_2xm1)]     ; ______77
+    psrlq                   m2, m1, 16                 ; 234567__
+    por                     m0, m3                     ; 01234577
+    por                     m2, m3                     ; 23456777
 %endif
     psrlq                   m1, 8
-    LOWPASS                  0, 1, 2, 3
+    LOWPASS                  0, 1, 2, 3 ; PIC
+    PIC_END ; lq, no-save
 
     pshufw                  m1, m0, q3321
     movd      [dstq+strideq*0], m0
@@ -986,8 +1054,10 @@ DL_MMX_FUNCS
 cglobal vp9_ipred_dl_8x8, 4, 4, 4, dst, stride, stride5, a
     movq                    m0, [aq]
     lea               stride5q, [strideq*5]
+    PIC_BEGIN aq, 0 ; aq not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride5q"
 %if cpuflag(ssse3)
-    pshufb                  m1, m0, [pb_1to6_10x7]
+    pshufb                  m1, m0, [pic(pb_1to6_10x7)]
 %else
     punpcklbw               m1, m0, m0              ; 0011223344556677
     punpckhwd               m1, m1                  ; 4x4,4x5,4x6,4x7
@@ -998,7 +1068,8 @@ cglobal vp9_ipred_dl_8x8, 4, 4, 4, dst, stride, stride5, a
     shufps                  m1, m0, q3210
 %endif
     psrldq                  m2, m1, 1
-    LOWPASS                  0, 1, 2, 3
+    LOWPASS                  0, 1, 2, 3 ; PIC
+    PIC_END ; aq, no-save
 
     pshufd                  m1, m0, q3321
     movq      [dstq+strideq*0], m0
@@ -1020,20 +1091,23 @@ cglobal vp9_ipred_dl_8x8, 4, 4, 4, dst, stride, stride5, a
 
 cglobal vp9_ipred_dl_16x16, 4, 4, 6, dst, stride, l, a
     mova                    m0, [aq]
+    PIC_BEGIN lq, 0 ; lq not used in this function
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,"aq"
 %if cpuflag(ssse3)
-    mova                    m5, [pb_1toE_2xF]
+    mova                    m5, [pic(pb_1toE_2xF)]
     pshufb                  m1, m0, m5
     pshufb                  m2, m1, m5
-    pshufb                  m4, m0, [pb_15]
+    pshufb                  m4, m0, [pic(pb_15)]
 %else
-    pand                    m5, m0, [pb_15x0_1xm1]      ; _______________F
+    pand                    m5, m0, [pic(pb_15x0_1xm1)] ; _______________F
     psrldq                  m1, m0, 1                   ; 123456789ABCDEF_
     por                     m1, m5                      ; 123456789ABCDEFF
     psrldq                  m2, m1, 1                   ; 23456789ABCDEFF_
     por                     m2, m5                      ; 23456789ABCDEFFF
     pshufhw                 m4, m1, q3333               ; xxxxxxxxFFFFFFFF
 %endif
-    LOWPASS                  0, 1, 2, 3
+    LOWPASS                  0, 1, 2, 3 ; PIC
+    PIC_END ; lq, no-save
     DEFINE_ARGS dst, stride, cnt, stride9
     lea               stride9q, [strideq+strideq*8]
     mov                   cntd, 4
@@ -1067,15 +1141,17 @@ cglobal vp9_ipred_dl_32x32, 4, 5, 8, dst, stride, cnt, a, dst16
     mova                    m1, [aq+16]
     PALIGNR                 m2, m1, m0, 1, m4
     PALIGNR                 m3, m1, m0, 2, m4
-    LOWPASS                  0, 2, 3, 4
+    PIC_BEGIN aq, 0 ; aq not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq","cntq",,"dst16q"
+    LOWPASS                  0, 2, 3, 4 ; PIC
 %if cpuflag(ssse3)
-    mova                    m5, [pb_1toE_2xF]
+    mova                    m5, [pic(pb_1toE_2xF)]
     pshufb                  m2, m1, m5
     pshufb                  m3, m2, m5
-    pshufb                  m6, m1, [pb_15]
+    pshufb                  m6, m1, [pic(pb_15)]
     mova                    m7, m6
 %else
-    pand                    m5, m1, [pb_15x0_1xm1]      ; _______________F
+    pand                    m5, m1, [pic(pb_15x0_1xm1)] ; _______________F
     psrldq                  m2, m1, 1                   ; 123456789ABCDEF_
     por                     m2, m5                      ; 123456789ABCDEFF
     psrldq                  m3, m2, 1                   ; 23456789ABCDEFF_
@@ -1083,7 +1159,8 @@ cglobal vp9_ipred_dl_32x32, 4, 5, 8, dst, stride, cnt, a, dst16
     pshufhw                 m7, m2, q3333               ; xxxxxxxxFFFFFFFF
     pshufd                  m6, m7, q3333
 %endif
-    LOWPASS                  1, 2, 3, 4
+    LOWPASS                  1, 2, 3, 4 ; PIC
+    PIC_END ; aq, no-save
     lea                 dst16q, [dstq  +strideq*8]
     mov                   cntd, 8
     lea                 dst16q, [dst16q+strideq*8]
@@ -1138,7 +1215,9 @@ cglobal vp9_ipred_dr_4x4, 4, 4, 0, dst, stride, l, a
     lea               stride3q, [strideq*3]
     PALIGNR                 m1, m0, 1, m3
     psrlq                   m2, m1, 8
-    LOWPASS                  0, 1, 2, 3
+    DESIGNATE_RPIC r3 ; r3 (former aq) not used anymore
+    CHECK_REG_COLLISION "r3","dstq","strideq","stride3q"
+    LOWPASS                  0, 1, 2, 3 ; PIC
 
     movd      [dstq+stride3q ], m0
     psrlq                   m0, 8
@@ -1164,7 +1243,9 @@ cglobal vp9_ipred_dr_8x8, 4, 4, 4, dst, stride, l, a
     lea               stride3q, [strideq*3]
     pslldq                  m0, m1, 1
     PALIGNR                 m2, m1, 1, m3
-    LOWPASS                  0, 1, 2, 3
+    DESIGNATE_RPIC r3 ; r3 (former aq) not used anymore
+    CHECK_REG_COLLISION "r3","dstq","strideq","stride3q"
+    LOWPASS                  0, 1, 2, 3 ; PIC
 
     movhps    [dstq+strideq*0], m0
     pslldq                  m0, 1
@@ -1190,16 +1271,19 @@ cglobal vp9_ipred_dr_16x16, 4, 4, 6, dst, stride, l, a
     movd                    m4, [aq+15]
     DEFINE_ARGS dst, stride, stride9, cnt
     lea               stride9q, [strideq *3]
-    mov                   cntd, 4
-    lea               stride9q, [stride9q*3]
     PALIGNR                 m4, m2, 1, m5
+    lea               stride9q, [stride9q*3]
     PALIGNR                 m3, m2, m1, 15, m5
-    LOWPASS                  3,  2, 4, 5
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride9q"
+    LOWPASS                  3,  2, 4, 5 ; PIC
     pslldq                  m0, m1, 1
     PALIGNR                 m2, m1, 1, m4
-    LOWPASS                  0,  1, 2, 4
+    LOWPASS                  0,  1, 2, 4 ; PIC
+    PIC_END ; cntd, no-save
+    mov                   cntd, 4
 
-.loop:
+.loop:                             ; %rep 4
     mova    [dstq+strideq*0  ], m3
     movhps  [dstq+strideq*8+0], m0
     movq    [dstq+strideq*8+8], m3
@@ -1225,16 +1309,19 @@ cglobal vp9_ipred_dr_32x32, 4, 4, 8, dst, stride, l, a
     lea               stride8q, [strideq*8]
     PALIGNR                 m5, m4, 1, m7
     PALIGNR                 m6, m4, m3, 15, m7
-    LOWPASS                  5,  4,  6,  7
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride8q"
+    LOWPASS                  5,  4,  6,  7 ; PIC
     PALIGNR                 m4, m3, 1, m7
     PALIGNR                 m6, m3, m2, 15, m7
-    LOWPASS                  4,  3,  6,  7
+    LOWPASS                  4,  3,  6,  7 ; PIC
     PALIGNR                 m3, m2, 1, m7
     PALIGNR                 m6, m2, m1, 15, m7
-    LOWPASS                  3,  2,  6,  7
+    LOWPASS                  3,  2,  6,  7 ; PIC
     PALIGNR                 m2, m1, 1, m6
     pslldq                  m0, m1, 1
-    LOWPASS                  2,  1,  0,  6
+    LOWPASS                  2,  1,  0,  6 ; PIC
+    PIC_END ; cntd, no-save
     mov                   cntd, 16
 
     ; out=m2/m3/m4/m5
@@ -1267,7 +1354,9 @@ cglobal vp9_ipred_vl_4x4, 4, 4, 0, dst, stride, l, a
     movq                    m0, [aq]
     psrlq                   m1, m0, 8
     psrlq                   m2, m1, 8
-    LOWPASS                  2,  1, 0, 3
+    DESIGNATE_RPIC lq ; lq not used in this function
+    CHECK_REG_COLLISION "lq","dstq","strideq",,"aq"
+    LOWPASS                  2,  1, 0, 3 ; PIC
     pavgb                   m1, m0
     movd      [dstq+strideq*0], m1
     movd      [dstq+strideq*1], m2
@@ -1281,18 +1370,25 @@ cglobal vp9_ipred_vl_4x4, 4, 4, 0, dst, stride, l, a
 %macro VL_XMM_FUNCS 0
 cglobal vp9_ipred_vl_8x8, 4, 4, 4, dst, stride, l, a
     movq                    m0, [aq]
+    DESIGNATE_RPIC r3 ; r3 (aq) not used anymore
+    CHECK_REG_COLLISION "r3","dstq","strideq","lq"
 %if cpuflag(ssse3)
-    pshufb                  m0, [pb_0to6_9x7]
+    PIC_BEGIN r4 ; will use designated r3 (no-save) if triggered
+    pshufb                  m0, [pic(pb_0to6_9x7)]
+    PIC_END
 %else
     punpcklbw               m1, m0, m0
     punpckhwd               m1, m1
     shufps                  m0, m1, q3310
 %endif
     DEFINE_ARGS dst, stride, stride3
+    CHECK_REG_COLLISION "r3","dstq","strideq","stride3q"
+    CHECK_REG_COLLISION "r3","dstq","strideq","lq"
     lea               stride3q, [strideq*3]
     psrldq                  m1, m0, 1
     psrldq                  m2, m0, 2
-    LOWPASS                  2,  1,  0,  3
+    LOWPASS                  2,  1,  0,  3 ; PIC
+    DESIGNATE_RPIC ; clear r3 designation
     pavgb                   m1, m0
 
     movq      [dstq+strideq*0], m1
@@ -1316,18 +1412,21 @@ cglobal vp9_ipred_vl_16x16, 4, 4, 5, dst, stride, l, a
     mova                    m0, [aq]
     DEFINE_ARGS dst, stride, stride3, cnt
     lea               stride3q, [strideq*3]
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
 %if cpuflag(ssse3)
-    mova                    m4, [pb_1toE_2xF]
+    mova                    m4, [pic(pb_1toE_2xF)]
     pshufb                  m1, m0, m4
     pshufb                  m2, m1, m4
 %else
-    pand                    m4, m0, [pb_15x0_1xm1]  ; _______________F
-    psrldq                  m1, m0, 1               ; 123456789ABCDEF_
-    por                     m1, m4                  ; 123456789ABCDEFF
-    psrldq                  m2, m1, 1               ; 23456789ABCDEFF_
-    por                     m2, m4                  ; 23456789ABCDEFFF
+    pand                    m4, m0, [pic(pb_15x0_1xm1)] ; _______________F
+    psrldq                  m1, m0, 1                   ; 123456789ABCDEF_
+    por                     m1, m4                      ; 123456789ABCDEFF
+    psrldq                  m2, m1, 1                   ; 23456789ABCDEFF_
+    por                     m2, m4                      ; 23456789ABCDEFFF
 %endif
-    LOWPASS                  2,  1,  0, 3
+    LOWPASS                  2,  1,  0, 3 ; PIC
+    PIC_END ; cntd, no-save
     pavgb                   m1, m0
     mov                   cntd, 4
 .loop:
@@ -1365,29 +1464,32 @@ cglobal vp9_ipred_vl_32x32, 4, 4, 7, dst, stride, l, a
     PALIGNR                 m2, m5, m0, 1, m4
     PALIGNR                 m3, m5, m0, 2, m4
     lea                 dst16q, [dstq  +strideq*8]
-    LOWPASS                  3,  2,  0, 6
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","dst16q"
+    LOWPASS                  3,  2,  0, 6 ; PIC
     pavgb                   m2, m0
 %if cpuflag(ssse3)
-    mova                    m4, [pb_1toE_2xF]
+    mova                    m4, [pic(pb_1toE_2xF)]
     pshufb                  m0, m5, m4
     pshufb                  m1, m0, m4
 %else
-    pand                    m4, m5, [pb_15x0_1xm1]  ; _______________F
-    psrldq                  m0, m5, 1               ; 123456789ABCDEF_
-    por                     m0, m4                  ; 123456789ABCDEFF
-    psrldq                  m1, m0, 1               ; 23456789ABCDEFF_
-    por                     m1, m4                  ; 23456789ABCDEFFF
+    pand                    m4, m5, [pic(pb_15x0_1xm1)] ; _______________F
+    psrldq                  m0, m5, 1                   ; 123456789ABCDEF_
+    por                     m0, m4                      ; 123456789ABCDEFF
+    psrldq                  m1, m0, 1                   ; 23456789ABCDEFF_
+    por                     m1, m4                      ; 23456789ABCDEFFF
 %endif
     lea                 dst16q, [dst16q+strideq*8]
-    LOWPASS                  1,  0,  5, 6
+    LOWPASS                  1,  0,  5, 6 ; PIC
     pavgb                   m0, m5
 %if cpuflag(ssse3)
-    pshufb                  m5, [pb_15]
+    pshufb                  m5, [pic(pb_15)]
 %else
     punpckhbw               m5, m4, m4
     pshufhw                 m5, m5, q3333
     punpckhqdq              m5, m5
 %endif
+    PIC_END ; cntd, no-save
     mov                   cntd, 8
 
 .loop:
@@ -1442,7 +1544,9 @@ cglobal vp9_ipred_vr_4x4, 4, 4, 0, dst, stride, l, a
     PALIGNR                 m1, m2, 5, m3
     psrlq                   m2, m1, 8
     psllq                   m3, m1, 8
-    LOWPASS                  2,  1, 3, 4
+    PIC_BEGIN r3, 0 ; r3 (former aq) not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
+    LOWPASS                  2,  1, 3, 4 ; PIC
 
     ; ABCD <- for the following predictor:
     ; EFGH
@@ -1451,9 +1555,9 @@ cglobal vp9_ipred_vr_4x4, 4, 4, 0, dst, stride, l, a
 
 %if cpuflag(ssse3)
     punpckldq               m0, m2
-    pshufb                  m2, [pb_13456_3xm1]
+    pshufb                  m2, [pic(pb_13456_3xm1)]
     movd      [dstq+strideq*0], m0
-    pshufb                  m0, [pb_6012_4xm1]
+    pshufb                  m0, [pic(pb_6012_4xm1)]
     movd      [dstq+stride3q ], m2
     psrlq                   m2, 8
     movd      [dstq+strideq*2], m0
@@ -1469,6 +1573,7 @@ cglobal vp9_ipred_vr_4x4, 4, 4, 0, dst, stride, l, a
     movd      [dstq+strideq*2], m0
     movd      [dstq+stride3q ], m2
 %endif
+    PIC_END ; r3 (former aq), no-save
     RET
 %endmacro
 
@@ -1488,7 +1593,9 @@ cglobal vp9_ipred_vr_8x8, 4, 4, 5, dst, stride, l, a
     PALIGNR                 m1, m2, 9, m3
     pslldq                  m2, m1, 1
     pslldq                  m3, m1, 2
-    LOWPASS                  1,  2, 3, 4
+    PIC_BEGIN r3, 0 ; r3 (former aq) not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
+    LOWPASS                  1,  2, 3, 4 ; PIC
 
     ; ABCDEFGH <- for the following predictor:
     ; IJKLMNOP
@@ -1505,18 +1612,19 @@ cglobal vp9_ipred_vr_8x8, 4, 4, 5, dst, stride, l, a
     movq      [dstq+strideq*0], m0
     movhps    [dstq+strideq*1], m1
 %if cpuflag(ssse3)
-    pshufb                  m0, [pb_6xm1_BDF_0to6]  ; xxxxxxUSQABCDEFG
-    pshufb                  m1, [pb_6xm1_246_8toE]  ; xxxxxxVTRIJKLMNO
+    pshufb                  m0, [pic(pb_6xm1_BDF_0to6)] ; xxxxxxUSQABCDEFG
+    pshufb                  m1, [pic(pb_6xm1_246_8toE)] ; xxxxxxVTRIJKLMNO
 %else
-    psrlw                   m2, m1, 8               ; x_U_S_Q_xxxxxxxx
-    pand                    m3, m1, [pw_255]        ; x_V_T_R_xxxxxxxx
-    packuswb                m3, m2                  ; xVTRxxxxxUSQxxxx
-    pslldq                  m3, 4                   ; xxxxxVTRxxxxxUSQ
-    PALIGNR                 m0, m3, 7, m4           ; xxxxxxUSQABCDEFG
+    psrlw                   m2, m1, 8                   ; x_U_S_Q_xxxxxxxx
+    pand                    m3, m1, [pic(pw_255)]       ; x_V_T_R_xxxxxxxx
+    packuswb                m3, m2                      ; xVTRxxxxxUSQxxxx
+    pslldq                  m3, 4                       ; xxxxxVTRxxxxxUSQ
+    PALIGNR                 m0, m3, 7, m4               ; xxxxxxUSQABCDEFG
     psrldq                  m1, 8
     pslldq                  m3, 8
-    PALIGNR                 m1, m3, 7, m4           ; xxxxxxVTRIJKLMNO
+    PALIGNR                 m1, m3, 7, m4               ; xxxxxxVTRIJKLMNO
 %endif
+    PIC_END ; r3 (former aq), no-save
     movhps    [dstq+strideq*2], m0
     movhps    [dstq+stride3q ], m1
     lea                   dstq, [dstq+strideq*4]
@@ -1537,18 +1645,21 @@ cglobal vp9_ipred_vr_16x16, 4, 4, %1, dst, stride, l, a
     DEFINE_ARGS dst, stride, stride3, cnt
     lea               stride3q, [strideq*3]
     PALIGNR                 m3, m1, m2, 15, m6
-    LOWPASS                  3,  1,  0,  4
+    PIC_BEGIN cntd, 0 ; cntd not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
+    LOWPASS                  3,  1,  0,  4 ; PIC
     pavgb                   m0, m1
     PALIGNR                 m1, m2,  1, m6
     pslldq                  m4, m2,  1
-    LOWPASS                  1,  2,  4,  5
+    LOWPASS                  1,  2,  4,  5 ; PIC
 %if cpuflag(ssse3)
-    pshufb                  m1, [pb_02468ACE_13579BDF]
+    pshufb                  m1, [pic(pb_02468ACE_13579BDF)]
 %else
     psrlw                   m5, m1, 8
-    pand                    m1, [pw_255]
+    pand                    m1, [pic(pw_255)]
     packuswb                m1, m5
 %endif
+    PIC_END ; cntd, no-save
     mov                   cntd, 4
 
 .loop:
@@ -1573,11 +1684,13 @@ cglobal vp9_ipred_vr_32x32, 4, 4, 9, dst, stride, l, a
     movu                    m1, [aq-1]
     PALIGNR                 m3, m2, m0, 15, m6
     PALIGNR                 m4, m2, m0, 14, m6
-    LOWPASS                  4,  3,  2,  5
+    PIC_BEGIN aq, 0 ; aq (r3) not used anymore
+    CHECK_REG_COLLISION "rpic","dstq","strideq","lq"
+    LOWPASS                  4,  3,  2,  5 ; PIC
     pavgb                   m3, m2
     mova                    m2, [lq+16]
     PALIGNR                 m5, m1, m2, 15, m6
-    LOWPASS                  5,  1,  0,  6
+    LOWPASS                  5,  1,  0,  6 ; PIC
     pavgb                   m0, m1
     mova                    m6, [lq]
 %if ARCH_X86_64
@@ -1587,21 +1700,22 @@ cglobal vp9_ipred_vr_32x32, 4, 4, 9, dst, stride, l, a
 %endif
     PALIGNR                 m1, m2,  1, m0
     PALIGNR                 m7, m2, m6, 15, m0
-    LOWPASS                  1,  2,  7,  0
+    LOWPASS                  1,  2,  7,  0 ; PIC
     PALIGNR                 m2, m6,  1, m0
     pslldq                  m7, m6,  1
-    LOWPASS                  2,  6,  7,  0
+    LOWPASS                  2,  6,  7,  0 ; PIC
 %if cpuflag(ssse3)
-    pshufb                  m1, [pb_02468ACE_13579BDF]
-    pshufb                  m2, [pb_02468ACE_13579BDF]
+    pshufb                  m1, [pic(pb_02468ACE_13579BDF)]
+    pshufb                  m2, [pic(pb_02468ACE_13579BDF)]
 %else
     psrlw                   m0, m1, 8
     psrlw                   m6, m2, 8
-    pand                    m1, [pw_255]
-    pand                    m2, [pw_255]
+    pand                    m1, [pic(pw_255)]
+    pand                    m2, [pic(pw_255)]
     packuswb                m1, m0
     packuswb                m2, m6
 %endif
+    PIC_END ; aq (r3), no-save
     DEFINE_ARGS dst, stride, dst16, cnt
     lea                 dst16q, [dstq  +strideq*8]
     lea                 dst16q, [dst16q+strideq*8]
@@ -1653,7 +1767,10 @@ cglobal vp9_ipred_hd_4x4, 4, 4, 0, dst, stride, l, a
     lea               stride3q, [strideq*3]
     psrlq                   m1, m0, 8
     psrlq                   m2, m1, 8
-    LOWPASS                  2,  1, 0,  3
+    DESIGNATE_RPIC r3 ; r3 (former aq) not used anymore
+    CHECK_REG_COLLISION "r3","dstq","strideq","lq"
+    LOWPASS                  2,  1, 0,  3 ; PIC
+    DESIGNATE_RPIC ; clear r3 (former aq) designation
     pavgb                   m1, m0
 
     ; DHIJ <- for the following predictor:
@@ -1681,10 +1798,13 @@ cglobal vp9_ipred_hd_8x8, 4, 4, 5, dst, stride, l, a
     movhps                  m0, [aq-1]
     DEFINE_ARGS dst, stride, stride3, dst4
     lea               stride3q, [strideq*3]
-    lea                  dst4q, [dstq+strideq*4]
     psrldq                  m1, m0, 1
     psrldq                  m2, m1, 1
-    LOWPASS                  2,  1,  0,  3
+    PIC_BEGIN dst4q, 0 ; dst4q not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride3q"
+    LOWPASS                  2,  1,  0,  3 ; PIC
+    PIC_END ; dst4q, no-save
+    lea                  dst4q, [dstq+strideq*4]
     pavgb                   m1, m0
 
     ; HPQRSTUV <- for the following predictor
@@ -1722,13 +1842,16 @@ cglobal vp9_ipred_hd_16x16, 4, 6, 7, dst, stride, l, a
     lea               stride4q, [strideq*4]
     lea                  dst4q, [dstq +stride4q]
     lea                  dst8q, [dst4q+stride4q]
-    lea                 dst12q, [dst8q+stride4q]
     psrldq                  m4, m3,  1
     psrldq                  m5, m3,  2
-    LOWPASS                  5,  4,  3,  6
+    PIC_BEGIN dst12q, 0 ; dst12q not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride4q","dst4q","dst8q"
+    LOWPASS                  5,  4,  3,  6 ; PIC
     PALIGNR                 m1, m3, m0,  1, m6
     PALIGNR                 m2, m3, m0,  2, m6
-    LOWPASS                  2,  1,  0,  6
+    LOWPASS                  2,  1,  0,  6 ; PIC
+    PIC_END ; dst12q, no-save
+    lea                 dst12q, [dst8q+stride4q]
     pavgb                   m1, m0
     SBUTTERFLY              bw,  1,  2,  6
 
@@ -1774,20 +1897,23 @@ cglobal vp9_ipred_hd_32x32, 4, 6, 8, dst, stride, l, a
     lea               stride8q, [strideq*8]
     lea                  dst8q, [dstq  +stride8q]
     lea                 dst16q, [dst8q +stride8q]
-    lea                 dst24q, [dst16q+stride8q]
     psrldq                  m4, m3,  1
     psrldq                  m5, m3,  2
-    LOWPASS                  5,  4,  3,  6
+    PIC_BEGIN dst24q, 0 ; dst24q not initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","strideq","stride8q","dst8q","dst16q"
+    LOWPASS                  5,  4,  3,  6 ; PIC
     PALIGNR                 m4, m3, m2,  2, m6
     PALIGNR                 m3, m2,  1, m6
-    LOWPASS                  4,  3,  2,  6
+    LOWPASS                  4,  3,  2,  6 ; PIC
     PALIGNR                 m3, m2, m1,  2, m6
     PALIGNR                 m2, m1,  1, m6
-    LOWPASS                  3,  2,  1,  6
+    LOWPASS                  3,  2,  1,  6 ; PIC
     pavgb                   m2, m1
     PALIGNR                 m6, m1, m0,  1, m7
     PALIGNR                 m1, m0,  2, m7
-    LOWPASS                  1,  6,  0,  7
+    LOWPASS                  1,  6,  0,  7 ; PIC
+    PIC_END ; dst24q, no-save
+    lea                 dst24q, [dst16q+stride8q]
     pavgb                   m0, m6
     SBUTTERFLY              bw,  2,  3,  6
     SBUTTERFLY              bw,  0,  1,  6
@@ -1856,8 +1982,12 @@ HD_XMM_FUNCS
 %macro HU_MMX_FUNCS 0
 cglobal vp9_ipred_hu_4x4, 3, 3, 0, dst, stride, l
     movd                    m0, [lq]
+    DESIGNATE_RPIC lq ; lq not used till next DEFINE_ARGS' re-init
+    CHECK_REG_COLLISION "lq","dstq","strideq"
 %if cpuflag(ssse3)
-    pshufb                  m0, [pb_0to2_5x3]
+    PIC_BEGIN r4 ; will use designated no-save lq, if triggers
+    pshufb                  m0, [pic(pb_0to2_5x3)]
+    PIC_END
 %else
     punpcklbw               m1, m0, m0          ; 00112233
     pshufw                  m1, m1, q3333       ; 33333333
@@ -1865,7 +1995,8 @@ cglobal vp9_ipred_hu_4x4, 3, 3, 0, dst, stride, l
 %endif
     psrlq                   m1, m0, 8
     psrlq                   m2, m1, 8
-    LOWPASS                  2,  1, 0, 3
+    LOWPASS                  2,  1, 0, 3 ; PIC
+    DESIGNATE_RPIC ; clear lq designation
     pavgb                   m1, m0
     DEFINE_ARGS dst, stride, stride3
     lea               stride3q, [strideq*3]
@@ -1888,8 +2019,12 @@ HU_MMX_FUNCS
 %macro HU_XMM_FUNCS 1 ; n_xmm_regs in hu_32x32
 cglobal vp9_ipred_hu_8x8, 3, 4, 4, dst, stride, l
     movq                    m0, [lq]
+    DESIGNATE_RPIC lq ; lq not used till next DEFINE_ARGS' re-init
+    CHECK_REG_COLLISION "lq","dstq","strideq"
 %if cpuflag(ssse3)
-    pshufb                  m0, [pb_0to6_9x7]
+    PIC_BEGIN r4 ; will use designated no-save lq, if triggers
+    pshufb                  m0, [pic(pb_0to6_9x7)]
+    PIC_END
 %else
     punpcklbw               m1, m0, m0          ; 0011223344556677
     punpckhwd               m1, m1              ; 4444555566667777
@@ -1897,7 +2032,8 @@ cglobal vp9_ipred_hu_8x8, 3, 4, 4, dst, stride, l
 %endif
     psrldq                  m1, m0, 1
     psrldq                  m2, m1, 1
-    LOWPASS                  2,  1, 0, 3
+    LOWPASS                  2,  1, 0, 3 ; PIC
+    DESIGNATE_RPIC ; clear lq designation
     pavgb                   m1, m0
     DEFINE_ARGS dst, stride, stride3, dst4
     lea               stride3q, [strideq*3]
@@ -1918,19 +2054,22 @@ cglobal vp9_ipred_hu_8x8, 3, 4, 4, dst, stride, l
 
 cglobal vp9_ipred_hu_16x16, 3, 4, 5, dst, stride, l
     mova                    m0, [lq]
+    PIC_BEGIN lq, 0 ; lq not used till next DEFINE_ARGS' re-init
+    CHECK_REG_COLLISION "rpic","dstq","strideq"
 %if cpuflag(ssse3)
-    mova                    m3, [pb_2toE_3xF]
-    pshufb                  m1, m0, [pb_1toE_2xF]
+    mova                    m3, [pic(pb_2toE_3xF)]
+    pshufb                  m1, m0, [pic(pb_1toE_2xF)]
     pshufb                  m2, m0, m3
 %else
-    pand                    m3, m0, [pb_15x0_1xm1]
+    pand                    m3, m0, [pic(pb_15x0_1xm1)]
     psrldq                  m1, m0, 1
     por                     m1, m3
     punpckhbw               m3, m3
     psrldq                  m2, m0, 2
     por                     m2, m3
 %endif
-    LOWPASS                  2,  1,  0,  4
+    LOWPASS                  2,  1,  0,  4 ; PIC
+    PIC_END ; lq, no-save
     pavgb                   m1, m0
     DEFINE_ARGS dst, stride, stride9, cnt
     lea                stride9q, [strideq*8+strideq]
@@ -1966,24 +2105,27 @@ cglobal vp9_ipred_hu_32x32, 3, 7, %1, dst, stride, l
     mova                    m0, [lq+16]
     PALIGNR                 m2, m0, m1,  1, m5
     PALIGNR                 m3, m0, m1,  2, m5
-    LOWPASS                  3,  2,  1,  5
+    PIC_BEGIN lq, 0 ; lq (r2) not used till "mov cntd, 8"
+    CHECK_REG_COLLISION "rpic","dstq","strideq"
+    LOWPASS                  3,  2,  1,  5 ; PIC
     pavgb                   m2, m1
 %if cpuflag(ssse3)
-    mova                    m4, [pb_2toE_3xF]
-    pshufb                  m5, m0, [pb_1toE_2xF]
+    mova                    m4, [pic(pb_2toE_3xF)]
+    pshufb                  m5, m0, [pic(pb_1toE_2xF)]
     pshufb                  m1, m0, m4
 %else
-    pand                    m4, m0, [pb_15x0_1xm1]
+    pand                    m4, m0, [pic(pb_15x0_1xm1)]
     psrldq                  m5, m0, 1
     por                     m5, m4
     punpckhbw               m4, m4
     psrldq                  m1, m0, 2
     por                     m1, m4
 %endif
-    LOWPASS                  1,  5,  0,  6
+    LOWPASS                  1,  5,  0,  6 ; PIC
     pavgb                   m0, m5
     DEFINE_ARGS dst, stride, cnt, stride0, dst8, dst16, dst24
-    mov                   cntd,  8
+    CHECK_REG_COLLISION "rpic","dstq","strideq",,"stride0q",\
+        "dst8q","dst16q","dst24q"
     xor               stride0q, stride0q
     lea                  dst8q, [dstq  +strideq*8]
     lea                 dst16q, [dst8q +strideq*8]
@@ -1991,11 +2133,13 @@ cglobal vp9_ipred_hu_32x32, 3, 7, %1, dst, stride, l
     SBUTTERFLY              bw,  0,  1,  5
     SBUTTERFLY              bw,  2,  3,  5
 %if cpuflag(ssse3)
-    pshufb                  m6, m1, [pb_15]
+    pshufb                  m6, m1, [pic(pb_15)]
 %else
     pshufhw                 m6, m4, q3333
     punpckhqdq              m6, m6
 %endif
+    PIC_END ; lq (r2/cntd), no-save
+    mov                   cntd,  8
 
 .loop:
     mova  [dstq  +stride0q+ 0], m2
