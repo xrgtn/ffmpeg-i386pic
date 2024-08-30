@@ -169,6 +169,9 @@ PUT_NO_RND_PIXELS16_l2
 
 %macro MPEG4_QPEL16_H_LOWPASS 1
 cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4d","[rsp+8]"
     movsxdifnidn r2, r2d
     movsxdifnidn r3, r3d
     pxor         m7, m7
@@ -193,12 +196,12 @@ cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
     paddw        m5, m5
     psubw        m6, m5
     pshufw       m5, m0, 6
-    pmullw       m6, [pw_3]
+    pmullw       m6, [pic(pw_3)]
     paddw        m0, m4
     paddw        m5, m1
-    pmullw       m0, [pw_20]
+    pmullw       m0, [pic(pw_20)]
     psubw        m0, m5
-    paddw        m6, [PW_ROUND]
+    paddw        m6, [pic(PW_ROUND)]
     paddw        m0, m6
     psraw        m0, 5
     mova    [rsp+8], m0
@@ -217,12 +220,12 @@ cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
     psrlq        m6, 24
     punpcklbw    m2, m7
     punpcklbw    m6, m7
-    pmullw       m3, [pw_3]
+    pmullw       m3, [pic(pw_3)]
     paddw        m1, m2
     paddw        m4, m6
-    pmullw       m1, [pw_20]
+    pmullw       m1, [pic(pw_20)]
     psubw        m3, m4
-    paddw        m1, [PW_ROUND]
+    paddw        m1, [pic(PW_ROUND)]
     paddw        m3, m1
     psraw        m3, 5
     mova         m1, [rsp+8]
@@ -241,7 +244,7 @@ cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
     psubw        m0, m5
     mova         m5, m3
     psrlq        m3, 24
-    pmullw       m0, [pw_3]
+    pmullw       m0, [pic(pw_3)]
     punpcklbw    m3, m7
     paddw        m2, m3
     psubw        m0, m2
@@ -249,8 +252,8 @@ cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
     punpcklbw    m2, m7
     punpckhbw    m5, m7
     paddw        m6, m2
-    pmullw       m6, [pw_20]
-    paddw        m0, [PW_ROUND]
+    pmullw       m6, [pic(pw_20)]
+    paddw        m0, [pic(PW_ROUND)]
     paddw        m0, m6
     psraw        m0, 5
     paddw        m3, m5
@@ -262,10 +265,10 @@ cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
     paddw        m5, m2
     paddw        m6, m6
     psubw        m4, m6
-    pmullw       m3, [pw_20]
-    pmullw       m4, [pw_3]
+    pmullw       m3, [pic(pw_20)]
+    pmullw       m4, [pic(pw_3)]
     psubw        m3, m5
-    paddw        m4, [PW_ROUND]
+    paddw        m4, [pic(PW_ROUND)]
     paddw        m4, m3
     psraw        m4, 5
     packuswb     m0, m4
@@ -274,6 +277,8 @@ cglobal %1_mpeg4_qpel16_h_lowpass, 5, 5, 0, 16
     add          r0, r2
     dec r4d
     jne .loop
+    PIC_END
+    PIC_FREE
     RET
 %endmacro
 
@@ -301,7 +306,11 @@ MPEG4_QPEL16_H_LOWPASS put_no_rnd
 
 
 %macro MPEG4_QPEL8_H_LOWPASS 1
+; TODO: this function doesn't use [rsp+], why allocating 8 bytes on stack?
 cglobal %1_mpeg4_qpel8_h_lowpass, 5, 5, 0, 8
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4d","[rsp]"
     movsxdifnidn r2, r2d
     movsxdifnidn r3, r3d
     pxor         m7, m7
@@ -326,12 +335,12 @@ cglobal %1_mpeg4_qpel8_h_lowpass, 5, 5, 0, 8
     paddw        m5, m5
     psubw        m6, m5
     pshufw       m5, m0, 0x6
-    pmullw       m6, [pw_3]
+    pmullw       m6, [pic(pw_3)]
     paddw        m0, m4
     paddw        m5, m1
-    pmullw       m0, [pw_20]
+    pmullw       m0, [pic(pw_20)]
     psubw        m0, m5
-    paddw        m6, [PW_ROUND]
+    paddw        m6, [pic(PW_ROUND)]
     paddw        m0, m6
     psraw        m0, 5
     movh         m5, [r1+5]
@@ -345,10 +354,10 @@ cglobal %1_mpeg4_qpel8_h_lowpass, 5, 5, 0, 8
     paddw        m4, m5
     paddw        m2, m2
     psubw        m3, m2
-    pmullw       m1, [pw_20]
-    pmullw       m3, [pw_3]
+    pmullw       m1, [pic(pw_20)]
+    pmullw       m3, [pic(pw_3)]
     psubw        m3, m4
-    paddw        m1, [PW_ROUND]
+    paddw        m1, [pic(PW_ROUND)]
     paddw        m3, m1
     psraw        m3, 5
     packuswb     m0, m3
@@ -357,6 +366,8 @@ cglobal %1_mpeg4_qpel8_h_lowpass, 5, 5, 0, 8
     add          r0, r2
     dec r4d
     jne .loop
+    PIC_END
+    PIC_FREE
     RET
 %endmacro
 
@@ -373,9 +384,11 @@ MPEG4_QPEL8_H_LOWPASS put_no_rnd
 
 
 
-%macro QPEL_V_LOW 5
+%macro QPEL_V_LOW 5 ; PIC
     paddw      m0, m1
-    mova       m4, [pw_20]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:4}
+    mova       m4, [pic(pw_20)]
     pmullw     m4, m0
     mova       m0, %4
     mova       m5, %1
@@ -387,8 +400,9 @@ MPEG4_QPEL8_H_LOWPASS put_no_rnd
     paddw      m6, m2
     paddw      m6, m6
     psubw      m5, m6
-    pmullw     m5, [pw_3]
-    paddw      m4, [PW_ROUND]
+    pmullw     m5, [pic(pw_3)]
+    paddw      m4, [pic(PW_ROUND)]
+    PIC_END
     paddw      m5, m4
     psraw      m5, 5
     packuswb   m5, m5
@@ -404,7 +418,7 @@ cglobal %1_mpeg4_qpel16_v_lowpass, 4, 6, 0, 544
     mov         r4d, 17
     mov          r5, rsp
     pxor         m7, m7
-.looph:
+.looph:                 ; %rep 17
     mova         m0, [r1]
     mova         m1, [r1]
     mova         m2, [r1+8]
@@ -418,7 +432,7 @@ cglobal %1_mpeg4_qpel16_v_lowpass, 4, 6, 0, 544
     mova [r5+0x110], m2
     mova [r5+0x198], m3
     add          r5, 8
-    add          r1, r3
+    add          r1, r3 ; r3 not used below this point
     dec r4d
     jne .looph
 
@@ -432,13 +446,15 @@ cglobal %1_mpeg4_qpel16_v_lowpass, 4, 6, 0, 544
     lea          r1, [r1+r2*2]
     neg          r2
     mov          r5, rsp
-.loopv:
+    PIC_BEGIN r3, 0
+    CHECK_REG_COLLISION "rpic","r0","r1","r2",,"r4d","r5"
+.loopv:                 ; %rep 4
     pxor         m7, m7
     mova         m0, [r5+ 0x0]
     mova         m1, [r5+ 0x8]
     mova         m2, [r5+0x10]
     mova         m3, [r5+0x18]
-    QPEL_V_LOW [r5+0x10], [r5+ 0x8], [r5+ 0x0], [r5+0x20], [r0]
+    QPEL_V_LOW [r5+0x10], [r5+ 0x8], [r5+ 0x0], [r5+0x20], [r0]    ; r0,5; PIC
     QPEL_V_LOW [r5+ 0x8], [r5+ 0x0], [r5+ 0x0], [r5+0x28], [r0+r2]
     lea    r0, [r0+r2*2]
     QPEL_V_LOW [r5+ 0x0], [r5+ 0x0], [r5+ 0x8], [r5+0x30], [r0]
@@ -460,12 +476,13 @@ cglobal %1_mpeg4_qpel16_v_lowpass, 4, 6, 0, 544
     QPEL_V_LOW [r5+0x50], [r5+0x58], [r5+0x60], [r5+0x80], [r0+r2]
     lea    r0, [r0+r2*2]
     QPEL_V_LOW [r5+0x58], [r5+0x60], [r5+0x68], [r5+0x78], [r0]
-    QPEL_V_LOW [r5+0x60], [r5+0x68], [r5+0x70], [r5+0x70], [r0+r2]
+    QPEL_V_LOW [r5+0x60], [r5+0x68], [r5+0x70], [r5+0x70], [r0+r2] ; r0,2,5; PIC
 
     add    r5, 0x88
     add    r0, r1
     dec r4d
     jne .loopv
+    PIC_END             ; r3, no-save
     RET
 %endmacro
 
@@ -500,7 +517,7 @@ cglobal %1_mpeg4_qpel8_v_lowpass, 4, 6, 0, 288
     mov         r4d, 9
     mov          r5, rsp
     pxor         m7, m7
-.looph:
+.looph:                 ; %rep 9
     mova         m0, [r1]
     mova         m1, [r1]
     punpcklbw    m0, m7
@@ -508,7 +525,7 @@ cglobal %1_mpeg4_qpel8_v_lowpass, 4, 6, 0, 288
     mova       [r5], m0
     mova  [r5+0x48], m1
     add          r5, 8
-    add          r1, r3
+    add          r1, r3 ; r3 not used below this point
     dec r4d
     jne .looph
 
@@ -521,13 +538,15 @@ cglobal %1_mpeg4_qpel8_v_lowpass, 4, 6, 0, 288
     lea          r1, [r1+r2*2]
     neg          r2
     mov          r5, rsp
-.loopv:
+    PIC_BEGIN r3, 0
+    CHECK_REG_COLLISION "rpic","r0","r1","r2",,"r4d","r5"
+.loopv:                 ; %rep 2
     pxor         m7, m7
     mova         m0, [r5+ 0x0]
     mova         m1, [r5+ 0x8]
     mova         m2, [r5+0x10]
     mova         m3, [r5+0x18]
-    QPEL_V_LOW [r5+0x10], [r5+ 0x8], [r5+ 0x0], [r5+0x20], [r0]
+    QPEL_V_LOW [r5+0x10], [r5+ 0x8], [r5+ 0x0], [r5+0x20], [r0]    ; r0,5; PIC
     QPEL_V_LOW [r5+ 0x8], [r5+ 0x0], [r5+ 0x0], [r5+0x28], [r0+r2]
     lea    r0, [r0+r2*2]
     QPEL_V_LOW [r5+ 0x0], [r5+ 0x0], [r5+ 0x8], [r5+0x30], [r0]
@@ -537,12 +556,13 @@ cglobal %1_mpeg4_qpel8_v_lowpass, 4, 6, 0, 288
     QPEL_V_LOW [r5+0x10], [r5+0x18], [r5+0x20], [r5+0x40], [r0+r2]
     lea    r0, [r0+r2*2]
     QPEL_V_LOW [r5+0x18], [r5+0x20], [r5+0x28], [r5+0x38], [r0]
-    QPEL_V_LOW [r5+0x20], [r5+0x28], [r5+0x30], [r5+0x30], [r0+r2]
+    QPEL_V_LOW [r5+0x20], [r5+0x28], [r5+0x30], [r5+0x30], [r0+r2] ; r0,2,5; PIC
 
     add    r5, 0x48
     add    r0, r1
     dec r4d
     jne .loopv
+    PIC_END             ; r3, no-save
     RET
 %endmacro
 
