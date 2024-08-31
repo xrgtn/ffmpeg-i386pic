@@ -200,7 +200,7 @@ SECTION .text
 %endmacro
 
 ; IDCT pass on rows.
-%macro iMTX_MULT   4-5 ; src, table, put, arg, rounder
+%macro iMTX_MULT   4-5 ; src, table, put, arg, rounder ; PIC*[5]
     movdqa       xmm3, [%1]
     movdqa       xmm0, xmm3
     pshufd       xmm1, xmm3, 0x11 ; 4602
@@ -213,8 +213,11 @@ SECTION .text
     pmaddwd      xmm3, [%2+48]
     paddd        xmm0, xmm1
     paddd        xmm2, xmm3
+    CHECK_REG_COLLISION "rpic",%1 ; %2 is likely pic(iTabN)
 %if %0 == 5
-    paddd        xmm0, [walkenIdctRounders+%5]
+    PIC_BEGIN r4
+    paddd        xmm0, [pic(walkenIdctRounders)+%5]
+    PIC_END
 %endif
     movdqa       xmm3, xmm2
     paddd        xmm2, xmm0
@@ -225,12 +228,14 @@ SECTION .text
     %3           %4
 %endmacro
 
-%macro iLLM_HEAD 0
-    movdqa   TAN3, [tan3]
-    movdqa   TAN1, [tan1]
+%macro iLLM_HEAD 0 ; PIC
+    PIC_BEGIN r4
+    movdqa   TAN3, [pic(tan3)]
+    movdqa   TAN1, [pic(tan1)]
+    PIC_END
 %endmacro
 
-%macro FIRST_HALF 2  ; %1=dct  %2=type(normal,add,put)
+%macro FIRST_HALF 2  ; %1=dct  %2=type(normal,add,put) ; r1..3,r1m,r2m
     psraw    xmm5, 6
     psraw    REG0, 6
     psraw    TAN3, 6
@@ -268,7 +273,7 @@ SECTION .text
 %endif
 %endmacro
 
-%macro SECOND_HALF 6 ; %1=dct  %2=type(normal,add,put) 3-6: xmms
+%macro SECOND_HALF 6 ; %1=dct  %2=type(normal,add,put) 3-6: xmms ; r1..3
     psraw    %3, 6
     psraw    %4, 6
     psraw    %5, 6
@@ -379,7 +384,7 @@ SECTION .text
 
 
 ; IDCT pass on columns.
-%macro iLLM_PASS  2  ; %1=dct  %2=type(normal,add,put)
+%macro iLLM_PASS  2  ; %1=dct  %2=type(normal,add,put) ; r0..3, PIC
     movdqa   xmm1, TAN3
     movdqa   xmm3, TAN1
     pmulhw   TAN3, xmm4
@@ -401,12 +406,18 @@ SECTION .text
     movdqa   xmm6, xmm3
     psubsw   xmm3, TAN3
     paddsw   TAN3, xmm6
-    movdqa   xmm4, [sqrt2]
+    CHECK_REG_COLLISION "rpic",%{1:-1},\
+        "ROW0","ROW2","ROW4","ROW6","[BLOCK]","TAN1","TAN3",\
+	"REG0","REG2","REG4","REG6"
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","TAN3"
+    movdqa   xmm4, [pic(sqrt2)]
     pmulhw   xmm3, xmm4
     pmulhw   TAN3, xmm4
     paddsw   TAN3, TAN3
     paddsw   xmm3, xmm3
-    movdqa   xmm7, [tan2]
+    movdqa   xmm7, [pic(tan2)]
+    PIC_END
     MOV32    ROW2, REG2
     MOV32    ROW6, REG6
     movdqa   xmm5, xmm7
@@ -434,7 +445,7 @@ SECTION .text
     paddsw   xmm3, XMMS
     MOV32    [BLOCK], TAN1
 
-    FIRST_HALF %1, %2
+    FIRST_HALF %1, %2 ; r1..3,r1m,r2m
 
     movdqa   xmm0, xmm7
     movdqa   xmm4, REG4
@@ -443,11 +454,11 @@ SECTION .text
     paddsw   xmm1, xmm0
     paddsw   TAN1, xmm4
 
-    SECOND_HALF %1, %2, xmm1, xmm7, TAN1, REG4
+    SECOND_HALF %1, %2, xmm1, xmm7, TAN1, REG4 ; r1..3
 %endmacro
 
 ; IDCT pass on columns, assuming rows 4-7 are zero
-%macro iLLM_PASS_SPARSE   2 ; %1=dct   %2=type(normal,put,add)
+%macro iLLM_PASS_SPARSE   2 ; %1=dct   %2=type(normal,put,add) ; r0..3,r1m,r2m; PIC
     pmulhw   TAN3, xmm4
     paddsw   TAN3, xmm4
     movdqa   xmm3, xmm6
@@ -461,19 +472,26 @@ SECTION .text
     movdqa   xmm6, xmm3
     psubsw   xmm3, TAN3
     paddsw   TAN3, xmm6
-    movdqa   xmm4, [sqrt2]
+    CHECK_REG_COLLISION "rpic",%{1:-1},\
+        "ROW0", "ROW2","[BLOCK]","TAN1","TAN3",\
+	"REG0","SREG2",\
+	"r1","r2","r3","r1m","r2m"
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","TAN3"
+    movdqa   xmm4, [pic(sqrt2)]
     pmulhw   xmm3, xmm4
     pmulhw   TAN3, xmm4
     paddsw   TAN3, TAN3
     paddsw   xmm3, xmm3
-    movdqa   xmm5, [tan2]
+    movdqa   xmm5, [pic(tan2)]
+    PIC_END
     MOV32    ROW2, SREG2
     pmulhw   xmm5, SREG2
     MOV32    ROW0, REG0
     movdqa   xmm6, REG0
     psubsw   xmm6, SREG2
     paddsw  SREG2, REG0
-    MOV32    TAN1, [BLOCK]
+    MOV32    TAN1, [BLOCK] ; BLOCK==r0
     movdqa   XMMS, REG0
     psubsw   REG0, xmm5
     paddsw   xmm5, XMMS
@@ -485,7 +503,7 @@ SECTION .text
     paddsw   xmm3, XMMS
     MOV32    [BLOCK], TAN1
 
-    FIRST_HALF %1, %2
+    FIRST_HALF %1, %2 ; r1..3,r1m,r2m
 
     movdqa   xmm0, SREG2
     movdqa   xmm4, xmm6
@@ -494,7 +512,7 @@ SECTION .text
     paddsw   xmm1, xmm0
     paddsw   TAN1, xmm4
 
-    SECOND_HALF %1, %2, xmm1, SREG2, TAN1, xmm6
+    SECOND_HALF %1, %2, xmm1, SREG2, TAN1, xmm6 ; r1..3
 %endmacro
 
 %macro IDCT_SSE2 1 ; 0=normal  1=put  2=add
@@ -527,42 +545,45 @@ cglobal xvid_idct_add, 0, NUM_GPRS, 8+7*ARCH_X86_64, dest, stride, block
     %xdefine BLOCK r0q
     %endif
 %endif
-    movq           mm0, [pb_127]
-    iMTX_MULT      BLOCK + 0*16, iTab1, PUT_EVEN, ROW0, 0*16
-    iMTX_MULT      BLOCK + 1*16, iTab2, PUT_ODD, ROW1,  1*16
-    iMTX_MULT      BLOCK + 2*16, iTab3, PUT_EVEN, ROW2, 2*16
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    movq           mm0, [pic(pb_127)]
+    iMTX_MULT      BLOCK + 0*16, pic(iTab1), PUT_EVEN, ROW0, 0*16
+    iMTX_MULT      BLOCK + 1*16, pic(iTab2), PUT_ODD, ROW1,  1*16
+    iMTX_MULT      BLOCK + 2*16, pic(iTab3), PUT_EVEN, ROW2, 2*16
 
     TEST_TWO_ROWS  BLOCK + 3*16, BLOCK + 4*16, GPR0, GPR1, CLEAR_ODD, ROW3, CLEAR_EVEN, ROW4 ; a, c
     JZ   GPR0, col1
-    iMTX_MULT      BLOCK + 3*16, iTab4, PUT_ODD, ROW3,  3*16
+    iMTX_MULT      BLOCK + 3*16, pic(iTab4), PUT_ODD, ROW3,  3*16
 .col1:
     TEST_TWO_ROWS  BLOCK + 5*16, BLOCK + 6*16, GPR0, GPR2, CLEAR_ODD, ROW5, CLEAR_EVEN, ROW6 ; a, d
     TEST_ONE_ROW   BLOCK + 7*16, GPR3, CLEAR_ODD, ROW7 ; esi
 
-    iLLM_HEAD
+    iLLM_HEAD ; PIC
     JNZ  GPR1, 2
     JNZ  GPR0, 3
     JNZ  GPR2, 4
-    JNZ  GPR3, 5
-    iLLM_PASS_SPARSE BLOCK, %1
+    JNZ  GPR3, 5 ; r4
+    iLLM_PASS_SPARSE BLOCK, %1 ; r0..3,r1m,r2m; PIC
     jmp .6
 .2:
-    iMTX_MULT     BLOCK + 4*16, iTab1, PUT_EVEN, ROW4
+    iMTX_MULT     BLOCK + 4*16, pic(iTab1), PUT_EVEN, ROW4
 .3:
-    iMTX_MULT     BLOCK + 5*16, iTab4, PUT_ODD, ROW5,  4*16
+    iMTX_MULT     BLOCK + 5*16, pic(iTab4), PUT_ODD, ROW5,  4*16
     JZ   GPR2, col2
 .4:
-    iMTX_MULT     BLOCK + 6*16, iTab3, PUT_EVEN, ROW6, 5*16
+    iMTX_MULT     BLOCK + 6*16, pic(iTab3), PUT_EVEN, ROW6, 5*16
 .col2:
     JZ   GPR3, col3
 .5:
-    iMTX_MULT     BLOCK + 7*16, iTab2, PUT_ODD, ROW7,  5*16
+    iMTX_MULT     BLOCK + 7*16, pic(iTab2), PUT_ODD, ROW7,  5*16
 .col3:
 %if ARCH_X86_32
-    iLLM_HEAD
+    iLLM_HEAD ; PIC
 %endif
-    iLLM_PASS     BLOCK, %1
+    iLLM_PASS     BLOCK, %1 ; r0..3, PIC
 .6:
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
