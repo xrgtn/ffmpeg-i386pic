@@ -66,7 +66,7 @@ cextern pw_64
 
 SECTION .text
 
-%macro mv0_pixels_mc8 0
+%macro mv0_pixels_mc8 0 ; r0..4
     lea           r4, [r2*2 ]
 .next4rows:
     movq         mm0, [r1   ]
@@ -111,21 +111,21 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
     or           r6d, r4d
     jne .at_least_one_non_zero
     ; mx == 0 AND my == 0 - no filter needed
-    mv0_pixels_mc8
+    mv0_pixels_mc8                ; r0..4
     RET
 
 .at_least_one_non_zero:
 %ifidn %2, rv40
 %if ARCH_X86_64
     mov           r7, r5
-    and           r7, 6         ; &~1 for mx/my=[0,7]
+    and           r7, 6           ; &~1 for mx/my=[0,7]
     lea           r7, [r7*4+r4]
     sar          r7d, 1
 %define rnd_bias r7
 %define dest_reg r0
 %else ; x86-32
     mov           r0, r5
-    and           r0, 6         ; &~1 for mx/my=[0,7]
+    and           r0, 6           ; &~1 for mx/my=[0,7]
     lea           r0, [r0*4+r4]
     sar          r0d, 1
 %define rnd_bias r0
@@ -140,11 +140,11 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
     mov           r6, 1
     je .my_is_zero
     test         r4d, r4d
-    mov           r6, r2        ; dxy = x ? 1 : stride
+    mov           r6, r2          ; dxy = x ? 1 : stride
     jne .both_non_zero
 .my_is_zero:
     ; mx == 0 XOR my == 0 - 1 dimensional filter only
-    or           r4d, r5d       ; x + y
+    or           r4d, r5d         ; x + y
 
 %ifidn %2, rv40
 %ifdef PIC
@@ -156,16 +156,20 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
 %endif
 
     movd          m5, r4d
-    movq          m4, [pw_8]
-    movq          m6, [rnd_1d_%2+rnd_bias*8] ; mm6 = rnd >> 3
+    PIC_BEGIN r4, 0               ; r4 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d",,"r5","r6",\
+        "rnd_bias","dest_reg"
+    movq          m4, [pic(pw_8)]
+    movq          m6, [pic(rnd_1d_%2)+rnd_bias*8] ; mm6 = rnd >> 3 ; rnd_bias: 0/r0
+    PIC_END ; r4, no-save
     punpcklwd     m5, m5
-    punpckldq     m5, m5        ; mm5 = B = x
+    punpckldq     m5, m5          ; mm5 = B = x
     pxor          m7, m7
-    psubw         m4, m5        ; mm4 = A = 8-x
+    psubw         m4, m5          ; mm4 = A = 8-x
 
-.next1drow:
-    movq          m0, [r1   ]   ; mm0 = src[0..7]
-    movq          m2, [r1+r6]   ; mm1 = src[1..8]
+.next1drow:                       ; r0..3,5*,6
+    movq          m0, [r1   ]     ; mm0 = src[0..7]
+    movq          m2, [r1+r6]     ; mm1 = src[1..8]
 
     movq          m1, m0
     movq          m3, m2
@@ -173,9 +177,9 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
     punpckhbw     m1, m7
     punpcklbw     m2, m7
     punpckhbw     m3, m7
-    pmullw        m0, m4        ; [mm0,mm1] = A * src[0..7]
+    pmullw        m0, m4          ; [mm0,mm1] = A * src[0..7]
     pmullw        m1, m4
-    pmullw        m2, m5        ; [mm2,mm3] = B * src[1..8]
+    pmullw        m2, m5          ; [mm2,mm3] = B * src[1..8]
     pmullw        m3, m5
 
     paddw         m0, m6
@@ -185,13 +189,13 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
     psrlw         m0, 3
     psrlw         m1, 3
     packuswb      m0, m1
-    CHROMAMC_AVG  m0, [dest_reg]
-    movq  [dest_reg], m0        ; dst[0..7] = (A * src[0..7] + B * src[1..8] + (rnd >> 3)) >> 3
+    CHROMAMC_AVG  m0, [dest_reg]  ; dest_reg: r0/r5
+    movq  [dest_reg], m0          ; dst[0..7] = (A * src[0..7] + B * src[1..8] + (rnd >> 3)) >> 3
 
     add     dest_reg, r2
     add           r1, r2
     dec           r3d
-    jne .next1drow
+    jne .next1drow                ; r0..3,5*,6
     RET
 
 .both_non_zero: ; general case, bilinear
@@ -222,14 +226,17 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
     movq     [rsp+8], m4          ; DD = x * y
     psubw         m5, m4          ; mm5 = B = 8x - xy
     psubw         m6, m4          ; mm6 = C = 8y - xy
-    paddw         m4, [pw_64]
+    PIC_BEGIN r4, 0               ; r4 not used anymore
+    CHECK_REG_COLLISION "rpic",,"r1","r2","r3d",,,"r6",\
+        "rnd_bias","dest_reg","[rsp]","[rsp+8]","rsp"
+    paddw         m4, [pic(pw_64)]
     psubw         m4, m7          ; mm4 = A = xy - (8x+8y) + 64
     pxor          m7, m7
     movq     [rsp  ], m4
 
     movq          m0, [r1  ]      ; mm0 = src[0..7]
     movq          m1, [r1+1]      ; mm1 = src[1..8]
-.next2drow:
+.next2drow:                       ; r0..3,5*,6,rsp
     add           r1, r2
 
     movq          m2, m0
@@ -265,17 +272,18 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
     paddw         m3, m4          ; [mm2,mm3] += D * src[1..8]
     movq          m0, [r1]
 
-    paddw         m2, [rnd_2d_%2+rnd_bias*8]
-    paddw         m3, [rnd_2d_%2+rnd_bias*8]
+    paddw         m2, [pic(rnd_2d_%2)+rnd_bias*8] ; rnd_bias:0/r0
+    paddw         m3, [pic(rnd_2d_%2)+rnd_bias*8]
     psrlw         m2, 6
     psrlw         m3, 6
     packuswb      m2, m3
-    CHROMAMC_AVG  m2, [dest_reg]
+    CHROMAMC_AVG  m2, [dest_reg]  ; dest_reg: r0/r5
     movq  [dest_reg], m2          ; dst[0..7] = ([mm2,mm3] + rnd) >> 6
 
     add     dest_reg, r2
     dec          r3d
-    jne .next2drow
+    jne .next2drow                ; r0..3,5*,6,rsp
+    PIC_END                       ; r4, no-save
     mov          rsp, r6          ; restore stack pointer
     RET
 %endmacro
@@ -287,12 +295,20 @@ cglobal %1_%2_chroma_mc8%3, 6, 7 + extra_regs, 0
 %define extra_regs 1
 %endif ; PIC
 %endif ; rv40
-cglobal %1_%2_chroma_mc4, 6, 6 + extra_regs, 0
+cglobal %1_%2_chroma_mc4, 0, 6 + extra_regs, 0
+    ; Load r1..5, delay loading of r0:
+    movifnidn     r1, r1mp
+    movifnidn     r2, r2mp
+    movifnidn     r3, r3mp
+    movifnidn     r4, r4mp
+    movifnidn     r5, r5mp
+    PIC_BEGIN     r0, 0           ; r0 not loaded yet
+    CHECK_REG_COLLISION "rpic","r0mp","r1","r2","r3d","r4","r5"
     pxor          m7, m7
     movd          m2, r4d         ; x
     movd          m3, r5d         ; y
-    movq          m4, [pw_8]
-    movq          m5, [pw_8]
+    movq          m4, [pic(pw_8)]
+    movq          m5, [pic(pw_8)]
     punpcklwd     m2, m2
     punpcklwd     m3, m3
     punpcklwd     m2, m2
@@ -307,8 +323,8 @@ cglobal %1_%2_chroma_mc4, 6, 6 + extra_regs, 0
 %else
 %define rnd_2d_rv40 rnd_rv40_2d_tbl
 %endif
-    and           r5, 6         ; &~1 for mx/my=[0,7]
-    lea           r5, [r5*4+r4]
+    and           r5, 6           ; &~1 for mx/my=[0,7]
+    lea           r5, [r5*4+r4]   ; last use of r4
     sar          r5d, 1
 %define rnd_bias r5
 %else ; vc1, h264
@@ -320,11 +336,15 @@ cglobal %1_%2_chroma_mc4, 6, 6 + extra_regs, 0
     add           r1, r2
     punpcklbw     m0, m7
     punpcklbw     m6, m7
+%if i386pic
+    mov           r4, r0          ; switch rpic from r0 to r4 (r4 not used
+    %xdefine rpic r4              ; anymore): r0 is about to get loaded
+%endif
     pmullw        m0, m4
     pmullw        m6, m2
     paddw         m6, m0
-
-.next2rows:
+    movifnidn     r0, r0mp        ; load r0 from arg[0]
+.next2rows:                       ; r0..3,5*
     movd          m0, [r1  ]
     movd          m1, [r1+1]
     add           r1, r2
@@ -337,11 +357,11 @@ cglobal %1_%2_chroma_mc4, 6, 6 + extra_regs, 0
 
     pmullw        m6, m5
     pmullw        m1, m3
-    paddw         m6, [rnd_2d_%2+rnd_bias*8]
+    paddw         m6, [pic(rnd_2d_%2)+rnd_bias*8] ; rnd_bias: 0/r5
     paddw         m1, m6
     psrlw         m1, 6
     packuswb      m1, m1
-    CHROMAMC_AVG4 m1, m6, [r0]
+    CHROMAMC_AVG4 m1, m6, [r0]    ; first use of r0
     movd        [r0], m1
     add           r0, r2
 
@@ -356,7 +376,7 @@ cglobal %1_%2_chroma_mc4, 6, 6 + extra_regs, 0
     movq          m6, m1
     pmullw        m0, m5
     pmullw        m1, m3
-    paddw         m0, [rnd_2d_%2+rnd_bias*8]
+    paddw         m0, [pic(rnd_2d_%2)+rnd_bias*8]
     paddw         m1, m0
     psrlw         m1, 6
     packuswb      m1, m1
@@ -364,7 +384,8 @@ cglobal %1_%2_chroma_mc4, 6, 6 + extra_regs, 0
     movd        [r0], m1
     add           r0, r2
     sub          r3d, 2
-    jnz .next2rows
+    jnz .next2rows                ; r0..3,5*
+    PIC_END                       ; r4, no-save
     RET
 %endmacro
 
@@ -387,7 +408,10 @@ cglobal %1_%2_chroma_mc2, 6, 7, 0
     punpcklbw     m2, m7
     pshufw        m2, m2, 0x94    ; mm0 = src[0,1,1,2]
 
-.nextrow:
+    PIC_BEGIN r4, 0               ; r4 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d",,"r5d","r6"
+
+.nextrow:                         ; r0..3,5
     add           r1, r2
     movq          m1, m2
     pmaddwd       m1, m5          ; mm1 = A * src[0,1] + B * src[1,2]
@@ -396,7 +420,7 @@ cglobal %1_%2_chroma_mc2, 6, 7, 0
     pshufw        m0, m0, 0x94    ; mm0 = src[0,1,1,2]
     movq          m2, m0
     pmaddwd       m0, m6
-    paddw         m1, [rnd_2d_%2]
+    paddw         m1, [pic(rnd_2d_%2)]
     paddw         m1, m0          ; mm1 += C * src[0,1] + D * src[1,2]
     psrlw         m1, 6
     packssdw      m1, m7
@@ -406,7 +430,8 @@ cglobal %1_%2_chroma_mc2, 6, 7, 0
     mov         [r0], r5w
     add           r0, r2
     sub          r3d, 1
-    jnz .nextrow
+    jnz .nextrow                  ; r0..3,5
+    PIC_END                       ; r4, no-save
     RET
 %endmacro
 
@@ -452,7 +477,7 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
     or           r6d, r4d
     jne .at_least_one_non_zero
     ; mx == 0 AND my == 0 - no filter needed
-    mv0_pixels_mc8
+    mv0_pixels_mc8                ; r0..4
     RET
 
 .at_least_one_non_zero:
@@ -473,7 +498,10 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
 
     movd          m7, r6d
     movd          m6, r4d
-    movdqa        m5, [rnd_2d_%2]
+    PIC_BEGIN     r5, 0           ; r5 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d","r4",,"r6"
+    movdqa        m5, [pic(rnd_2d_%2)]
+    PIC_END                       ; r5, no-save
     movq          m0, [r1  ]
     movq          m1, [r1+1]
     pshuflw       m7, m7, 0
@@ -513,7 +541,7 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
     movhps   [r0+r2], m1
     sub          r3d, 2
     lea           r0, [r0+r2*2]
-    jg .next2rows
+    jg .next2rows                 ; r0..3
     RET
 
 .my_is_zero:
@@ -522,11 +550,14 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
     add           r4, 8
     sub           r4, r5          ; 255*x+8 = x<<8 | (8-x)
     movd          m7, r4d
-    movdqa        m6, [rnd_1d_%2]
+    PIC_BEGIN     r6, 0           ; r6 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d","r4","r5"
+    movdqa        m6, [pic(rnd_1d_%2)]
+    PIC_END                       ; r6, no-save
     pshuflw       m7, m7, 0
     movlhps       m7, m7
 
-.next2xrows:
+.next2xrows:                      ; r0..3
     movq          m0, [r1     ]
     movq          m1, [r1   +1]
     movq          m2, [r1+r2  ]
@@ -550,7 +581,7 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
     sub          r3d, 2
     lea           r0, [r0+r2*2]
     lea           r1, [r1+r2*2]
-    jg .next2xrows
+    jg .next2xrows                ; r0..3
     RET
 
 .mx_is_zero:
@@ -559,11 +590,14 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
     add           r5, 8
     sub           r5, r4          ; 255*y+8 = y<<8 | (8-y)
     movd          m7, r5d
-    movdqa        m6, [rnd_1d_%2]
+    PIC_BEGIN     r6, 0           ; r6 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d","r4","r5"
+    movdqa        m6, [pic(rnd_1d_%2)]
+    PIC_END                       ; r6, no-save
     pshuflw       m7, m7, 0
     movlhps       m7, m7
 
-.next2yrows:
+.next2yrows:                      ; r0..3
     movq          m0, [r1     ]
     movq          m1, [r1+r2  ]
     movdqa        m2, m1
@@ -587,7 +621,7 @@ cglobal %1_%2_chroma_mc8%3, 6, 7, 8
     movhps   [r0+r2], m0
     sub          r3d, 2
     lea           r0, [r0+r2*2]
-    jg .next2yrows
+    jg .next2yrows                ; r0..3
     RET
 %endmacro
 
@@ -604,13 +638,16 @@ cglobal %1_%2_chroma_mc4, 6, 7, 0
 
     movd          m7, r6d
     movd          m6, r4d
-    movq          m5, [pw_32]
+    PIC_BEGIN     r5, 0           ; r5 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d","r4",,"r6"
+    movq          m5, [pic(pw_32)]
+    PIC_END                       ; r5, no-save
     movd          m0, [r1  ]
     pshufw        m7, m7, 0
     punpcklbw     m0, [r1+1]
     pshufw        m6, m6, 0
 
-.next2rows:
+.next2rows:                       ; r0..3
     movd          m1, [r1+r2*1  ]
     movd          m3, [r1+r2*2  ]
     punpcklbw     m1, [r1+r2*1+1]
@@ -637,7 +674,7 @@ cglobal %1_%2_chroma_mc4, 6, 7, 0
     movd     [r0+r2], m3
     sub          r3d, 2
     lea           r0, [r0+r2*2]
-    jg .next2rows
+    jg .next2rows                 ; r0..3
     RET
 %endmacro
 
