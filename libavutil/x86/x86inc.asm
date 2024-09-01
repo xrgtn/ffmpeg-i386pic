@@ -660,8 +660,10 @@ DECLARE_REG_TMP_SIZE 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
             %if %%dpiclf
                 ; do nothing (rpic==dpic and dpic is already loaded)
             %elif lpiccf
+                ; load rpic from lpiccache
                 movifnidn rpic, lpiccache
             %else
+                ; init rpic by call+pop sequence
                 NEXT_LPIC
                 %xdefine lpic next_lpic
                 %assign %%lpicchanged 1
@@ -676,7 +678,12 @@ lpic:           pop rpic
             %endif
             %if %%lpicchanged
                 %ifdef lpiccache
-                    movifnidn lpiccache, rpic
+                    ; Update lpiccache:
+                    %ifnidn lpiccache, rpic
+                        ; Prohibit cases like rpic:r6, lpiccache:[r6]
+                        CHECK_REG_COLLISION "rpic","lpiccache"
+                        mov lpiccache, rpic
+                    %endif
                     %assign lpiccf 1
                 %endif
             %endif
@@ -710,7 +717,11 @@ lpic:           pop rpic
             %ifdef lpiccache
                 %if !lpiccf ; if not cached / cache invalid:
                     ; Update lpiccache:
-                    movifnidn lpiccache, rpic
+                    %ifnidn lpiccache, rpic
+                        ; Prohibit cases like rpic:r6, lpiccache:[r6]
+                        CHECK_REG_COLLISION "rpic","lpiccache"
+                        mov lpiccache, rpic
+                    %endif
                     %assign lpiccf 1
                 %endif
             %else
@@ -773,8 +784,15 @@ lpic:           pop rpic
             %xdefine dpic %1
             %assign dpiclf 0
             %if %0 >= 2
-                %if %2 ; set "dpic loaded" flag
-                    %assign dpiclf 1
+                %ifnempty %2
+                    %ifnum %2 ; set "dpic loaded" flag
+                        %if %2 > 0
+                            %assign dpiclf 1
+                        %endif
+                    %else ; set lpic and dpiclf
+                        %xdefine lpic (%2)
+                        %assign dpiclf 1
+                    %endif
                 %endif
             %endif
         %else
