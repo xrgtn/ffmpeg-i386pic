@@ -1486,10 +1486,9 @@ DECLARE_REG_ID ah, ch, dh, bh
     %pop stk_context
 %endmacro
 
-;%define GLOBL_LBL
+; Define GLOBL_LBL to make all labels prefixed by LBL visible in objdump:
 %macro LBL 1+
-    %ifdef GLOBL_LBL ; make stub/filt/put/loop_op labels visible in objdump;
-                     ; useful for debug purposes or overall code inspection.
+    %ifdef GLOBL_LBL
         %defstr %%s %1
         %assign %%l %strlen(%%s)
         %ifidn %substr(%%s, %%l, 1),":"
