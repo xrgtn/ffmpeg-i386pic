@@ -587,13 +587,13 @@ cglobal vp9_loop_filter_%1_%2_ %+ mmsize, 2, 6, 16, %3 + %4 + %%ext, dst, stride
 %if mmsize==16
     CHECK_REG_COLLISION "rpic",,"strideq","mstrideq","dst2q",\
         "stride3q","mstride3q","Ed","Id","Hd","[rsp]",\
-	"P0","P1","P2","P3","P4","P5","P6","P7",\
-	"Q0","Q1","Q2","Q3","Q4","Q5","Q6","Q7"
+        "P0","P1","P2","P3","P4","P5","P6","P7",\
+        "Q0","Q1","Q2","Q3","Q4","Q5","Q6","Q7"
 %else
     CHECK_REG_COLLISION "rpic",,"strideq","mstrideq","dst2q",\
         "stride3q","mstride3q","Ed","Id","Hd","[rsp]",\
-	"P0","P1","P2","P3",\
-	"Q0","Q1","Q2","Q3"
+        "P0","P1","P2","P3",\
+        "Q0","Q1","Q2","Q3"
 %endif
 %endif
 

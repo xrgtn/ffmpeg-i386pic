@@ -408,7 +408,7 @@ SECTION .text
     paddsw   TAN3, xmm6
     CHECK_REG_COLLISION "rpic",%{1:-1},\
         "ROW0","ROW2","ROW4","ROW6","[BLOCK]","TAN1","TAN3",\
-	"REG0","REG2","REG4","REG6"
+        "REG0","REG2","REG4","REG6"
     PIC_BEGIN r4
     CHECK_REG_COLLISION "rpic","TAN3"
     movdqa   xmm4, [pic(sqrt2)]
@@ -474,8 +474,8 @@ SECTION .text
     paddsw   TAN3, xmm6
     CHECK_REG_COLLISION "rpic",%{1:-1},\
         "ROW0", "ROW2","[BLOCK]","TAN1","TAN3",\
-	"REG0","SREG2",\
-	"r1","r2","r3","r1m","r2m"
+        "REG0","SREG2",\
+        "r1","r2","r3","r1m","r2m"
     PIC_BEGIN r4
     CHECK_REG_COLLISION "rpic","TAN3"
     movdqa   xmm4, [pic(sqrt2)]
