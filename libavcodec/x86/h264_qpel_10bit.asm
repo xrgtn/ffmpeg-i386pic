@@ -61,19 +61,6 @@ SECTION .text
 %endif
 %endmacro
 
-;%define GLOBL_LBL
-%macro LBL 1+
-    %ifdef GLOBL_LBL ; make stub/filt/put/loop_op labels visible in objdump;
-                     ; useful for debug purposes or overall code inspection.
-        %defstr %%s %1
-        %assign %%l %strlen(%%s)
-        %ifidn %substr(%%s, %%l, 1),":"
-            global %tok(%substr(%%s, 1, %%l-1))
-        %endif
-    %endif
-    %1
-%endmacro
-
 %macro FILT_H 4
     paddw  %1, %4  ; paddw %1, [pw_16]
     psubw  %1, %2  ; a-b

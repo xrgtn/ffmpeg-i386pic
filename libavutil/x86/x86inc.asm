@@ -1486,6 +1486,19 @@ DECLARE_REG_ID ah, ch, dh, bh
     %pop stk_context
 %endmacro
 
+;%define GLOBL_LBL
+%macro LBL 1+
+    %ifdef GLOBL_LBL ; make stub/filt/put/loop_op labels visible in objdump;
+                     ; useful for debug purposes or overall code inspection.
+        %defstr %%s %1
+        %assign %%l %strlen(%%s)
+        %ifidn %substr(%%s, %%l, 1),":"
+            global %tok(%substr(%%s, 1, %%l-1))
+        %endif
+    %endif
+    %1
+%endmacro
+
 %macro ALLOC_STACK 1-2 0 ; stack_size, n_xmm_regs (for win64 only)
     %ifnum %1
         %if %1 != 0
