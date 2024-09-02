@@ -1492,7 +1492,14 @@ DECLARE_REG_ID ah, ch, dh, bh
         %defstr %%s %1
         %assign %%l %strlen(%%s)
         %ifidn %substr(%%s, %%l, 1),":"
-            global %tok(%substr(%%s, 1, %%l-1))
+            %ifidn %substr(%%s, 1, 1),"."
+                ; generate global name in function.label format:
+                %xdefine %%g %strcat(\
+                    %str(current_function), %substr(%%s, 1, %%l-1))
+            %else
+                %xdefine %%g %substr(%%s, 1, %%l-1)
+            %endif
+            global %tok(%%g)
         %endif
     %endif
     %1
