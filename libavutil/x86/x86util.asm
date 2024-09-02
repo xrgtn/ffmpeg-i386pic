@@ -446,13 +446,16 @@
 %undef %2
 %endmacro
 
-%macro HADDW 2 ; reg, tmp
+%macro HADDW 2 ; reg, tmp ; PIC*
+    CHECK_REG_COLLISION "rpic",%{1:-1}
 %if cpuflag(xop) && sizeof%1 == 16
     vphaddwq  %1, %1
     movhlps   %2, %1
     paddd     %1, %2
 %else
-    pmaddwd %1, [pw_1]
+    PIC_BEGIN r4
+    pmaddwd %1, [pic(pw_1)]
+    PIC_END
     HADDD   %1, %2
 %endif
 %endmacro
