@@ -47,7 +47,7 @@ scan8_mem: db  4+ 1*8, 5+ 1*8, 4+ 2*8, 5+ 2*8
 %define scan8 picregq
 %else
 %define npicregs 0
-%define scan8 scan8_mem
+%define scan8 pic(scan8_mem)
 %endif
 
 cextern pw_32
@@ -56,7 +56,7 @@ cextern pw_1
 SECTION .text
 
 ; %1=uint8_t *dst, %2=int16_t *block, %3=int stride
-%macro IDCT4_ADD 3
+%macro IDCT4_ADD 3 ; PIC
     ; Load dct coeffs
     movq         m0, [%2]
     movq         m1, [%2+8]
@@ -64,7 +64,10 @@ SECTION .text
     movq         m3, [%2+24]
 
     IDCT4_1D      w, 0, 1, 2, 3, 4, 5
-    mova         m6, [pw_32]
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    PIC_BEGIN r4
+    mova         m6, [pic(pw_32)]
+    PIC_END
     %if mmsize == 8
         TRANSPOSE4x4W 0, 1, 2, 3, 4
     %else
@@ -201,14 +204,17 @@ SECTION .text
 %endmacro
 
 ; %1=uint8_t *dst, %2=int16_t *block, %3=int stride
-%macro IDCT8_ADD_SSE 4
+%macro IDCT8_ADD_SSE 4 ; PIC
     IDCT8_1D_FULL %2
 %if ARCH_X86_64
     TRANSPOSE8x8W 0, 1, 2, 3, 4, 5, 6, 7, 8
 %else
     TRANSPOSE8x8W 0, 1, 2, 3, 4, 5, 6, 7, [%2], [%2+16]
 %endif
-    paddw        m0, [pw_32]
+    CHECK_REG_COLLISION "rpic",%{1:3}  ; %4 is initialized below, skip check
+    PIC_BEGIN r4
+    paddw        m0, [pic(pw_32)]
+    PIC_END
 
 %if ARCH_X86_64 == 0
     mova    [%2   ], m0
@@ -225,7 +231,7 @@ SECTION .text
 %endif
 
     pxor         m7, m7
-    lea          %4, [%3*3]
+    lea          %4, [%3*3]            ; %4 is initialized here
     STORE_DIFF   m0, m6, m7, [%1     ]
     STORE_DIFF   m1, m6, m7, [%1+%3  ]
     STORE_DIFF   m2, m6, m7, [%1+%3*2]
@@ -256,7 +262,8 @@ INIT_XMM sse2
 ; void ff_h264_idct8_add_8_sse2(uint8_t *dst, int16_t *block, int stride)
 cglobal h264_idct8_add_8, 3, 4, 10
     movsxdifnidn  r2, r2d
-    IDCT8_ADD_SSE r0, r1, r2, r3
+    DESIGNATE_RPIC r3 ; r3 is initialized below PIC block in IDCT8_ADD_SSE
+    IDCT8_ADD_SSE r0, r1, r2, r3 ; PIC
     RET
 
 %macro DC_ADD_MMXEXT_INIT 2
@@ -313,20 +320,31 @@ cglobal h264_idct8_dc_add_8, 2, 3, 0
     lea          r0, [r0+r1*4]
     DC_ADD_MMXEXT_OP mova, r0, r1, r2
     RET
-%endif
+%endif ; ARCH_X86_64 / !ARCH_X86_64
 
 INIT_XMM sse2
 ; void ff_h264_idct8_add4_8_sse2(uint8_t *dst, const int *block_offset,
 ;                                int16_t *block, int stride,
 ;                                const uint8_t nnzc[6 * 8])
+%if !i386pic
 cglobal h264_idct8_add4_8, 5, 8 + npicregs, 10, dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
+%else ; i386pic
+cglobal h264_idct8_add4_8, 0, 8 + npicregs, 10, dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
+    ; don't load arg[0] into r0 in i386pic mode, use r0m instead
+    movifnidn    r1, r1mp
+    movifnidn    r2, r2mp
+    movifnidn    r3, r3mp
+    movifnidn    r4, r4mp
+%endif
+    PIC_BEGIN    r0, 0               ; r0 is unused scratch reg, don't save
+    CHECK_REG_COLLISION "rpic",,"r1","r2","r3","r4","r5","r6","r0m","r1m","dst2q"
     movsxdifnidn r3, r3d
     xor          r5, r5
 %ifdef PIC
     lea     picregq, [scan8_mem]
 %endif
 .nextblock:
-    movzx        r6, byte [scan8+r5]
+    movzx        r6, byte [scan8+r5] ; PIC
     movzx        r6, byte [r4+r6]
     test         r6, r6
     jz .skipblock
@@ -343,7 +361,11 @@ INIT_MMX cpuname
 %define dst2d r1d
 %endif
     mov       dst2d, dword [r1+r5*4]
+%if i386pic
+    add       dst2q, r0m
+%else
     add       dst2q, r0
+%endif
     DC_ADD_MMXEXT_OP mova, dst2q, r3, r6
     lea       dst2q, [dst2q+r3*4]
     DC_ADD_MMXEXT_OP mova, dst2q, r3, r6
@@ -354,12 +376,19 @@ INIT_MMX cpuname
     add          r2, 128
     cmp          r5, 16
     jl .nextblock
+    PIC_CONTEXT_PUSH
+    PIC_END                          ; r0, no-save
     RET
+    PIC_CONTEXT_POP                  ; two RET's in function
 .no_dc:
 INIT_XMM cpuname
     mov       dst2d, dword [r1+r5*4]
+%if i386pic
+    add       dst2q, r0m
+%else
     add       dst2q, r0
-    IDCT8_ADD_SSE dst2q, r2, r3, r6
+%endif
+    IDCT8_ADD_SSE dst2q, r2, r3, r6  ; PIC
 %if ARCH_X86_64 == 0
     mov          r1, r1m
 %endif
@@ -368,13 +397,71 @@ INIT_XMM cpuname
     add          r2, 128
     cmp          r5, 16
     jl .nextblock
+    PIC_END                          ; r0, no-save
     RET
 
+cglobal h264_idct_add8_422_8, 5, 8 + npicregs, 0, dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
+; dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
+    movsxdifnidn r3, r3d
+    %define lpiccache r2m ; prepare to cache $$ in r2m;
+    PIC_BEGIN r6, 0, $$   ; r6 neither loaded nor used yet, don't save;
+    PIC_END               ; on end: r6==$$, r2m==$$
+%ifdef PIC
+    lea     picregq, [scan8_mem]
+%endif
+%if ARCH_X86_64
+    mov       dst2q, r0
+%endif
+
+    mov          r5, 16  ; i
+    add          r2, 512 ; i * 16 * sizeof(dctcoef) ; #define dctcoef int16_t
+
+    call h264_idct_add8_mmx_plane    ; r0..6, r0m, PIC:r2m==$$,r1m=sv
+    add          r5, 4
+    call h264_idct_add8_mmx_plane    ; r0..6, r0m, PIC:r2m==$$,r1m=sv
+
+%if ARCH_X86_64
+    add       dst2q, gprsize ; dest[1]
+%else
+    add        r0mp, gprsize
+%endif
+
+    add          r5, 4   ; set to 32
+    add          r2, 256 ; set to i * 16 * sizeof(dctcoef)
+
+    call h264_idct_add8_mmx_plane    ; r0..6, r0m, PIC:r2m==$$,r1m=sv
+    add r5, 4
+    call h264_idct_add8_mmx_plane    ; r0..6, r0m, PIC:r2m==$$,r1m=sv
+
+    RET ; TODO: check rep ret after a function call
+
 INIT_MMX mmx
-h264_idct_add8_mmx_plane:
+LBL h264_idct_add8_mmx_plane:        ; r0..6, r1m, PIC:r3m==$$,r2m=sv
+    ; h264_idct_add8_mmx_plane() expects on entry:
+    ; 1. r1m == r0m of calling function, if arch is i386:
+    ;    - [esp+4*gprsize+2*gprsize] == [esp+0x18]
+    ;    For h264_idct_add8_mmx_plane's r1m to be the same as r0m of caling
+    ;    function, both must be rsp-based and stack_offset here must be the
+    ;    same as at the point of `call h264_idct_add8_mmx_plane'.
+    ;    Because h264_idct_add8_mmx_plane() is defined as label and not as
+    ;    cglobal, it inherits stack_offset and rstk from _previous_ cglobal
+    ;    function, which is its sole caller:
+    ;      cglobal h264_idct_add8_422_8, 5,8+npicregs,0
+    ;    Originally, h264_idct_add8_mmx_plane was defined _before_ its caller
+    ;    and inherited rstk/stack_offset from different/unrelated function:
+    ;      cglobal h264_idct8_add4_8,    5,8+npicregs,10
+    ;    Somehow it worked...
+    ; 2. r2m is free to be used as rpicsave area
+    ; 3. r3m is lpiccache, already initialized with $$ address
+    %define  lpiccache r3m
+    %xdefine lpic      $$
+    %assign  lpiccf    1
+    %define  rpicsave  r2m
     movsxdifnidn r3, r3d
 .nextblock:
-    movzx        r6, byte [scan8+r5]
+    PIC_BEGIN r6, 0 ; this PIC block loads r6: don't save old value of r6
+    movzx        r6, byte [scan8+r5] ; PIC
+    PIC_END
     movzx        r6, byte [r4+r6]
     or          r6w, word [r2]
     test         r6, r6
@@ -387,7 +474,9 @@ h264_idct_add8_mmx_plane:
     mov          r0, [r0]
     add          r0, dword [r1+r5*4]
 %endif
-    IDCT4_ADD    r0, r2, r3
+    PIC_BEGIN r4
+    IDCT4_ADD    r0, r2, r3          ; PIC
+    PIC_END
 .skipblock:
     inc          r5
     add          r2, 32
@@ -395,61 +484,34 @@ h264_idct_add8_mmx_plane:
     jnz .nextblock
     rep ret
 
-cglobal h264_idct_add8_422_8, 5, 8 + npicregs, 0, dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
-; dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
-    movsxdifnidn r3, r3d
-%ifdef PIC
-    lea     picregq, [scan8_mem]
-%endif
-%if ARCH_X86_64
-    mov       dst2q, r0
-%endif
-
-    mov          r5, 16  ; i
-    add          r2, 512 ; i * 16 * sizeof(dctcoef) ; #define dctcoef int16_t
-
-    call         h264_idct_add8_mmx_plane
-    add r5, 4
-    call         h264_idct_add8_mmx_plane
-
-%if ARCH_X86_64
-    add       dst2q, gprsize ; dest[1]
-%else
-    add        r0mp, gprsize
-%endif
-
-    add r5, 4   ; set to 32
-    add r2, 256 ; set to i * 16 * sizeof(dctcoef)
-
-    call         h264_idct_add8_mmx_plane
-    add r5, 4
-    call         h264_idct_add8_mmx_plane
-
-    RET ; TODO: check rep ret after a function call
-
 ; r0 = uint8_t *dst, r2 = int16_t *block, r3 = int stride, r6=clobbered
-h264_idct_dc_add8_mmxext:
+LBL h264_idct_dc_add8_mmxext:        ; r0,2,3,6; PIC:r5==$$
+    DESIGNATE_RPIC r5, $$
+    PIC_BEGIN
     movsxdifnidn r3, r3d
-    movd         m0, [r2   ]          ;  0 0 X D
+    movd         m0, [r2   ]         ;  0 0 X D
     mov word [r2+ 0], 0
-    punpcklwd    m0, [r2+32]          ;  x X d D
+    punpcklwd    m0, [r2+32]         ;  x X d D
     mov word [r2+32], 0
-    paddsw       m0, [pw_32]
+    paddsw       m0, [pic(pw_32)]
     psraw        m0, 6
-    punpcklwd    m0, m0               ;  d d D D
-    pxor         m1, m1               ;  0 0 0 0
-    psubw        m1, m0               ; -d-d-D-D
-    packuswb     m0, m1               ; -d-d-D-D d d D D
-    pshufw       m1, m0, 0xFA         ; -d-d-d-d-D-D-D-D
-    punpcklwd    m0, m0               ;  d d d d D D D D
+    punpcklwd    m0, m0              ;  d d D D
+    pxor         m1, m1              ;  0 0 0 0
+    psubw        m1, m0              ; -d-d-D-D
+    packuswb     m0, m1              ; -d-d-D-D d d D D
+    pshufw       m1, m0, 0xFA        ; -d-d-d-d-D-D-D-D
+    punpcklwd    m0, m0              ;  d d d d D D D D
     lea          r6, [r3*3]
     DC_ADD_MMXEXT_OP movq, r0, r3, r6
+    PIC_END
     ret
 
 ALIGN 16
 INIT_XMM sse2
 ; r0 = uint8_t *dst (clobbered), r2 = int16_t *block, r3 = int stride
-h264_add8x4_idct_sse2:
+LBL h264_add8x4_idct_sse2:           ; r0,2,3; PIC:r5==$$
+    DESIGNATE_RPIC r5, $$
+    PIC_BEGIN
     movsxdifnidn r3, r3d
     movq   m0, [r2+ 0]
     movq   m1, [r2+ 8]
@@ -461,7 +523,7 @@ h264_add8x4_idct_sse2:
     movhps m3, [r2+56]
     IDCT4_1D w,0,1,2,3,4,5
     TRANSPOSE2x4x4W 0,1,2,3,4
-    paddw m0, [pw_32]
+    paddw m0, [pic(pw_32)]
     IDCT4_1D w,0,1,2,3,4,5
     pxor  m7, m7
     mova [r2+ 0], m7
@@ -471,9 +533,10 @@ h264_add8x4_idct_sse2:
     STORE_DIFFx2 m0, m1, m4, m5, m7, 6, r0, r3
     lea   r0, [r0+r3*2]
     STORE_DIFFx2 m2, m3, m4, m5, m7, 6, r0, r3
+    PIC_END
     ret
 
-%macro add16_sse2_cycle 2
+%macro add16_sse2_cycle 2            ; r0..4; r0m*(i386)/r5*(amd64); PIC:r5==$$
     movzx       r0, word [r4+%2]
     test        r0, r0
     jz .cycle%1end
@@ -483,8 +546,8 @@ h264_add8x4_idct_sse2:
 %else
     add         r0, r0m
 %endif
-    call        h264_add8x4_idct_sse2
-.cycle%1end:
+    call h264_add8x4_idct_sse2       ; r0,2,3; PIC:r5==$$
+LBL .cycle%1end:
 %if %1 < 7
     add         r2, 64
 %endif
@@ -496,21 +559,25 @@ h264_add8x4_idct_sse2:
 cglobal h264_idct_add16_8, 5, 5 + ARCH_X86_64, 8
     movsxdifnidn r3, r3d
 %if ARCH_X86_64
-    mov         r5, r0
+    mov          r5, r0
 %endif
     ; unrolling of the loop leads to an average performance gain of
     ; 20-25%
-    add16_sse2_cycle 0, 0xc
-    add16_sse2_cycle 1, 0x14
+    %define rpicsave                 ; safe to push/pop rpic
+    PIC_BEGIN r5, 1, $$              ; r5:=$$
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4",,,"r0m"
+    add16_sse2_cycle 0, 0xc          ; r0..4; r0m*/r5*(amd64); PIC:r5==$$
+    add16_sse2_cycle 1, 0x14         ; ...
     add16_sse2_cycle 2, 0xe
     add16_sse2_cycle 3, 0x16
     add16_sse2_cycle 4, 0x1c
     add16_sse2_cycle 5, 0x24
     add16_sse2_cycle 6, 0x1e
-    add16_sse2_cycle 7, 0x26
+    add16_sse2_cycle 7, 0x26         ; r0..4; r0m*/r5*(amd64); PIC:r5==$$
+    PIC_END                          ; r5, push/pop
 RET
 
-%macro add16intra_sse2_cycle 2
+%macro add16intra_sse2_cycle 2 ; r0..4,6; r0m*(i386)/r7*(amd64); PIC:r5==$$
     movzx       r0, word [r4+%2]
     test        r0, r0
     jz .try%1dc
@@ -520,9 +587,9 @@ RET
 %else
     add         r0, r0m
 %endif
-    call        h264_add8x4_idct_sse2
+    call h264_add8x4_idct_sse2       ; r0,2,3; PIC:r5==$$
     jmp .cycle%1end
-.try%1dc:
+LBL .try%1dc:
     movsx       r0, word [r2   ]
     or         r0w, word [r2+32]
     jz .cycle%1end
@@ -532,8 +599,8 @@ RET
 %else
     add         r0, r0m
 %endif
-    call        h264_idct_dc_add8_mmxext
-.cycle%1end:
+    call h264_idct_dc_add8_mmxext    ; r0,2,3,6; PIC:r5==$$
+LBL .cycle%1end:
 %if %1 < 7
     add         r2, 64
 %endif
@@ -545,19 +612,22 @@ RET
 cglobal h264_idct_add16intra_8, 5, 7 + ARCH_X86_64, 8
     movsxdifnidn r3, r3d
 %if ARCH_X86_64
-    mov         r7, r0
+    mov          r7, r0
 %endif
-    add16intra_sse2_cycle 0, 0xc
+    PIC_BEGIN    r5, 0, $$           ; r5 is saved in PROLOGUE, don't save
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4",,"r6","r0m"
+    add16intra_sse2_cycle 0, 0xc     ; r0..4,6; r0m*(i386); PIC:r5==$$
     add16intra_sse2_cycle 1, 0x14
     add16intra_sse2_cycle 2, 0xe
     add16intra_sse2_cycle 3, 0x16
     add16intra_sse2_cycle 4, 0x1c
     add16intra_sse2_cycle 5, 0x24
     add16intra_sse2_cycle 6, 0x1e
-    add16intra_sse2_cycle 7, 0x26
+    add16intra_sse2_cycle 7, 0x26    ; r0..4,6; r0m*(i386); PIC:r5==$$
+    PIC_END                          ; r5, no-save
 RET
 
-%macro add8_sse2_cycle 2
+%macro add8_sse2_cycle 2             ; r0..4,6; [r0m]*(i387)/[r7]*(amd64); PIC:r5==$$
     movzx       r0, word [r4+%2]
     test        r0, r0
     jz .try%1dc
@@ -569,9 +639,9 @@ RET
     mov         r0, [r0]
     add         r0, dword [r1+(%1&1)*8+64*(1+(%1>>1))]
 %endif
-    call        h264_add8x4_idct_sse2
+    call h264_add8x4_idct_sse2       ; r0,2,3; PIC:r5==$$
     jmp .cycle%1end
-.try%1dc:
+LBL .try%1dc:
     movsx       r0, word [r2   ]
     or         r0w, word [r2+32]
     jz .cycle%1end
@@ -583,8 +653,8 @@ RET
     mov         r0, [r0]
     add         r0, dword [r1+(%1&1)*8+64*(1+(%1>>1))]
 %endif
-    call        h264_idct_dc_add8_mmxext
-.cycle%1end:
+    call h264_idct_dc_add8_mmxext    ; r0,2,3,6; PIC:r5==$$
+LBL .cycle%1end:
 %if %1 == 1
     add         r2, 384+64
 %elif %1 < 3
@@ -601,15 +671,18 @@ cglobal h264_idct_add8_8, 5, 7 + ARCH_X86_64, 8
 %if ARCH_X86_64
     mov          r7, r0
 %endif
-    add8_sse2_cycle 0, 0x34
-    add8_sse2_cycle 1, 0x3c
+    PIC_BEGIN    r5, 0, $$  ; r5 is saved in PROLOGUE, don't save again
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4",,"r6","r0m"
+    add8_sse2_cycle 0, 0x34 ; r0..4,6; [r0m]*(i387)/[r7]*(amd64); PIC:r5==$$
+    add8_sse2_cycle 1, 0x3c ; ...
 %if ARCH_X86_64
     add          r7, gprsize
 %else
     add        r0mp, gprsize
 %endif
     add8_sse2_cycle 2, 0x5c
-    add8_sse2_cycle 3, 0x64
+    add8_sse2_cycle 3, 0x64 ; r0..4,6; [r0m]*(i387)/[r7]*(amd64); PIC:r5==$$
+    PIC_END                 ; r5, no-save
 RET
 
 ;void ff_h264_luma_dc_dequant_idct_mmx(int16_t *output, int16_t *input, int qmul)
@@ -620,10 +693,13 @@ RET
     SWAP %1, %4, %3
 %endmacro
 
-%macro DEQUANT 1-3
+%macro DEQUANT 1-3 ; t3, PIC
 %if cpuflag(sse2)
     movd      xmm4, t3d
-    movq      xmm5, [pw_1]
+    CHECK_REG_COLLISION "rpic",%1,"t3d"
+    PIC_BEGIN r4
+    movq      xmm5, [pic(pw_1)]
+    PIC_END
     pshufd    xmm4, xmm4, 0
     movq2dq   xmm0, m0
     movq2dq   xmm1, m1
@@ -644,7 +720,10 @@ RET
     packssdw  xmm0, xmm1
     packssdw  xmm2, xmm3
 %else
-    mova        m7, [pw_1]
+    CHECK_REG_COLLISION "rpic",%{1:-1},"t3d"
+    PIC_BEGIN r4
+    mova        m7, [pic(pw_1)]
+    PIC_END
     mova        m4, %1
     punpcklwd   %1, m7
     punpckhwd   m4, m7
@@ -666,7 +745,7 @@ RET
 %endif
 %endmacro
 
-%macro STORE_WORDS 5-9
+%macro STORE_WORDS 5-9 ; t0..2
 %if cpuflag(sse)
     movd  t0d, %1
     psrldq  %1, 4
@@ -700,19 +779,22 @@ RET
 %endif
 %endmacro
 
-%macro DEQUANT_STORE 1
+%macro DEQUANT_STORE 1 ; t0..3; PIC
 %if cpuflag(sse2)
-    DEQUANT     %1
-    STORE_WORDS xmm0,  0,  1,  4,  5,  2,  3,  6,  7
-    STORE_WORDS xmm2,  8,  9, 12, 13, 10, 11, 14, 15
+    DEQUANT     %1                  ; t3, PIC
+    STORE_WORDS xmm0,  0,  1,  4,  5,  2,  3,  6,  7 ; t0..2
+    STORE_WORDS xmm2,  8,  9, 12, 13, 10, 11, 14, 15 ; t0..2
 %else
-    DEQUANT     m0, m1, %1
-    STORE_WORDS m0,  0,  1,  4,  5
-    STORE_WORDS m1,  2,  3,  6,  7
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1},"t0d","t1d","t2","t3d"
+    DEQUANT     m0, m1, %1          ; t3, PIC
+    STORE_WORDS m0,  0,  1,  4,  5  ; t0..2
+    STORE_WORDS m1,  2,  3,  6,  7  ; t0..2
 
-    DEQUANT     m2, m3, %1
-    STORE_WORDS m2,  8,  9, 12, 13
-    STORE_WORDS m3, 10, 11, 14, 15
+    DEQUANT     m2, m3, %1          ; t3, PIC
+    PIC_END
+    STORE_WORDS m2,  8,  9, 12, 13  ; t0..2
+    STORE_WORDS m3, 10, 11, 14, 15  ; t0..2
 %endif
 %endmacro
 
@@ -743,7 +825,11 @@ cglobal h264_luma_dc_dequant_idct, 3, 4, %1
     cmp        t3d, 32767
     jg .big_qmul
     add        t3d, 128 << 16
-    DEQUANT_STORE 8
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t0","t1","t2","t3"
+    DEQUANT_STORE 8     ; r0..3; PIC
+    PIC_END
     RET
 .big_qmul:
     bsr        t0d, t3d
@@ -755,7 +841,11 @@ cglobal h264_luma_dc_dequant_idct, 3, 4, %1
     shr        t3d, t0b
     sub        t1d, t0d
     movd      xmm6, t1d
-    DEQUANT_STORE xmm6
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","t0","t1","t2","t3"
+    DEQUANT_STORE xmm6  ; r0..3; PIC
+    PIC_END
     RET
 %endmacro
 
@@ -782,7 +872,7 @@ IDCT_DC_DEQUANT 7
     movd  [%7+%8], %4
 %endmacro
 
-%macro DC_ADD_INIT 1
+%macro DC_ADD_INIT 1 ; stride_q
     add      %1d, 32
     sar      %1d, 6
     movd     m0, %1d
@@ -800,14 +890,18 @@ INIT_XMM %1
 
 cglobal h264_idct_add_8, 3, 3, 8, dst_, block_, stride_
     movsxdifnidn stride_q, stride_d
-    IDCT4_ADD    dst_q, block_q, stride_q
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","dst_q","block_q","stride_q"
+    IDCT4_ADD    dst_q, block_q, stride_q ; PIC
+    PIC_END
 RET
 
 cglobal h264_idct_dc_add_8, 3, 4, 6, dst_, block_, stride_
     movsxdifnidn stride_q, stride_d
     movsx             r3d, word [block_q]
     mov   dword [block_q], 0
-    DC_ADD_INIT r3
+    DC_ADD_INIT r3 ; r2,3
     DC_ADD_MMXEXT_OP movd, dst_q, stride_q, r3
 RET
 
