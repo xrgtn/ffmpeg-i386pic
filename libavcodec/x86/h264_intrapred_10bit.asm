@@ -178,6 +178,9 @@ PRED4x4_HD
 
 INIT_MMX mmxext
 cglobal pred4x4_dc_10, 3, 3
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
     sub    r0, r2
     lea    r1, [r0+r2*2]
     movq   m2, [r0+r2*1-8]
@@ -186,8 +189,8 @@ cglobal pred4x4_dc_10, 3, 3
     paddw  m2, [r1+r2*2-8]
     psrlq  m2, 48
     movq   m0, [r0]
-    HADDW  m0, m1
-    paddw  m0, [pw_4]
+    HADDW  m0, m1     ; PIC*
+    paddw  m0, [pic(pw_4)]
     paddw  m0, m2
     psrlw  m0, 3
     SPLATW m0, m0, 0
@@ -195,6 +198,7 @@ cglobal pred4x4_dc_10, 3, 3
     movq   [r0+r2*2], m0
     movq   [r1+r2*1], m0
     movq   [r1+r2*2], m0
+    PIC_END ; r3, push/pop
     RET
 
 ;-----------------------------------------------------------------------------
@@ -407,9 +411,12 @@ cglobal pred8x8_top_dc_10, 2, 4
     pshuflw     m1, m0, 0xb1
     pshufhw     m1, m1, 0xb1
     paddw       m0, m1
+    PIC_BEGIN r3, 0           ; r3 not initialized yet
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
+    paddw       m0, [pic(pw_2)]
+    PIC_END                   ; r3, no-save
     lea         r2, [r1*3]
-    lea         r3, [r0+r1*4]
-    paddw       m0, [pw_2]
+    lea         r3, [r0+r1*4] ; r3 init
     psrlw       m0, 2
     mova [r0+r1*1], m0
     mova [r0+r1*2], m0
@@ -426,11 +433,13 @@ cglobal pred8x8_top_dc_10, 2, 4
 ;-----------------------------------------------------------------------------
 INIT_XMM sse2
 cglobal pred8x8_plane_10, 2, 7, 7
+    PIC_ALLOC "lpiccache"
     sub       r0, r1
     lea       r2, [r1*3]
     lea       r3, [r0+r1*4]
     mova      m2, [r0]
-    pmaddwd   m2, [pw_m32101234]
+    PIC_BEGIN r6, 0                ; r6 not initialized yet
+    pmaddwd   m2, [pic(pw_m32101234)]
     HADDD     m2, m1
     movd      m0, [r0-4]
     psrld     m0, 14
@@ -442,7 +451,8 @@ cglobal pred8x8_plane_10, 2, 7, 7
     movzx    r4d, word [r3+r1*1-2] ; src[4*stride-1]
     movzx    r5d, word [r0+r2*1-2] ; src[2*stride-1]
     sub      r4d, r5d
-    movzx    r6d, word [r3+r1*2-2] ; src[5*stride-1]
+    PIC_END                        ; r6, no-save
+    movzx    r6d, word [r3+r1*2-2] ; src[5*stride-1] ; r6 init
     movzx    r5d, word [r0+r1*2-2] ; src[1*stride-1]
     sub      r6d, r5d
     lea      r4d, [r4+r6*2]
@@ -457,18 +467,20 @@ cglobal pred8x8_plane_10, 2, 7, 7
     lea      r4d, [r4+r6*4]
     movd      m3, r4d              ; V
     punpckldq m2, m3
-    pmaddwd   m2, [pd_17]
-    paddd     m2, [pd_16]
+    PIC_BEGIN r6, 0                ; r6 not used anymore
+    pmaddwd   m2, [pic(pd_17)]
+    paddd     m2, [pic(pd_16)]
     psrad     m2, 5                ; b, c
 
-    mova      m3, [pw_pixel_max]
+    mova      m3, [pic(pw_pixel_max)]
     pxor      m1, m1
     SPLATW    m0, m0, 1
     SPLATW    m4, m2, 2
     SPLATW    m2, m2, 0
-    pmullw    m2, [pw_m32101234]   ; b
-    pmullw    m5, m4, [pw_m3]      ; c
-    paddw     m5, [pw_16]
+    pmullw    m2, [pic(pw_m32101234)] ; b
+    pmullw    m5, m4, [pic(pw_m3)]    ; c
+    paddw     m5, [pic(pw_16)]
+    PIC_END                        ; r6, no-save
     mov      r2d, 8
     add       r0, r1
 .loop:
@@ -481,6 +493,7 @@ cglobal pred8x8_plane_10, 2, 7, 7
     add       r0, r1
     dec r2d
     jg .loop
+    PIC_FREE
     RET
 
 
@@ -490,9 +503,11 @@ cglobal pred8x8_plane_10, 2, 7, 7
 ;-----------------------------------------------------------------------------
 INIT_XMM sse2
 cglobal pred8x8l_128_dc_10, 4, 4
-    mova      m0, [pw_512] ; (1<<(BIT_DEPTH-1))
+    PIC_BEGIN r2, 0         ; r2 is going to be re-initialized
+    mova      m0, [pic(pw_512)] ; (1<<(BIT_DEPTH-1))
     lea       r1, [r3*3]
-    lea       r2, [r0+r3*4]
+    PIC_END                 ; r2, no-save
+    lea       r2, [r0+r3*4] ; r2 re-init
     MOV8 r0+r3*0, m0, m0
     MOV8 r0+r3*1, m0, m0
     MOV8 r0+r3*2, m0, m0
@@ -509,6 +524,8 @@ cglobal pred8x8l_128_dc_10, 4, 4
 ;-----------------------------------------------------------------------------
 %macro PRED8x8L_TOP_DC 0
 cglobal pred8x8l_top_dc_10, 4, 4, 6
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
     sub         r0, r3
     mova        m0, [r0]
     shr        r1d, 14
@@ -521,8 +538,8 @@ cglobal pred8x8l_top_dc_10, 4, 4, 6
     lea         r1, [r3*3]
     lea         r2, [r0+r3*4]
     PRED4x4_LOWPASS m0, m2, m1, m0
-    HADDW       m0, m1
-    paddw       m0, [pw_4]
+    HADDW       m0, m1 ; PIC*
+    paddw       m0, [pic(pw_4)]
     psrlw       m0, 3
     SPLATW      m0, m0, 0
     mova [r0+r3*1], m0
@@ -533,6 +550,7 @@ cglobal pred8x8l_top_dc_10, 4, 4, 6
     mova [r2+r3*2], m0
     mova [r2+r1*1], m0
     mova [r2+r3*4], m0
+    PIC_END ; r4, push/pop
     RET
 %endmacro
 
@@ -581,8 +599,10 @@ cglobal pred8x8l_dc_10, 4, 6, 6
     PRED4x4_LOWPASS m3, m4, m5, m3
     PRED4x4_LOWPASS m0, m2, m1, m0
     paddw       m0, m3
-    HADDW       m0, m1
-    paddw       m0, [pw_8]
+    PIC_BEGIN r2, 0 ; r1/r2 not used anymore
+    CHECK_REG_COLLISION "rpic","r0",,,"r3","r4","r5"
+    HADDW       m0, m1 ; PIC*
+    paddw       m0, [pic(pw_8)]
     psrlw       m0, 4
     SPLATW      m0, m0
     mova [r0+r3*1], m0
@@ -593,6 +613,7 @@ cglobal pred8x8l_dc_10, 4, 6, 6
     mova [r4+r3*2], m0
     mova [r4+r5*1], m0
     mova [r4+r3*4], m0
+    PIC_END ; r2, no-save
     RET
 %endmacro
 
@@ -1023,10 +1044,12 @@ cglobal pred16x16_dc_10, 2, 6
     sub        r0, r1
     mova       m0, [r0+0]
     paddw      m0, [r0+mmsize]
-    HADDW      m0, m2
+    DESIGNATE_RPIC r3 ; r3 not initialized yet
+    HADDW      m0, m2 ; PIC
 
     lea        r0, [r0+r1-2]
-    movzx     r3d, word [r0]
+    movzx     r3d, word [r0] ; r3 init
+    DESIGNATE_RPIC    ; clear r3 designation
     movzx     r4d, word [r0+r1]
 %rep 7
     lea        r0, [r0+r1*2]
@@ -1058,12 +1081,15 @@ cglobal pred16x16_top_dc_10, 2, 3
     sub        r0, r1
     mova       m0, [r0+0]
     paddw      m0, [r0+mmsize]
-    HADDW      m0, m2
+    PIC_BEGIN r2, 0   ; r2 not initialized yet
+    CHECK_REG_COLLISION "rpic","r0","r1"
+    HADDW      m0, m2 ; PIC*
 
     SPLATW     m0, m0
-    paddw      m0, [pw_8]
+    paddw      m0, [pic(pw_8)]
+    PIC_END           ; r2, no-save
     psrlw      m0, 4
-    mov       r2d, 8
+    mov       r2d, 8  ; r2 init
 .loop:
     MOV16 r0+r1*1, m0, m0, m0, m0
     MOV16 r0+r1*2, m0, m0, m0, m0
@@ -1108,8 +1134,10 @@ cglobal pred16x16_left_dc_10, 2, 6
 ;-----------------------------------------------------------------------------
 INIT_XMM sse2
 cglobal pred16x16_128_dc_10, 2,3
-    mova       m0, [pw_512]
-    mov       r2d, 8
+    PIC_BEGIN r2, 0  ; r2 not initialized yet
+    mova       m0, [pic(pw_512)]
+    PIC_END          ; r2, no-save
+    mov       r2d, 8 ; r2 init
 .loop:
     MOV16 r0+r1*0, m0, m0, m0, m0
     MOV16 r0+r1*1, m0, m0, m0, m0
