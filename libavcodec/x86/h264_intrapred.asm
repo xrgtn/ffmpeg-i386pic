@@ -70,10 +70,12 @@ cglobal pred16x16_vertical_8, 2,3
 
 %macro PRED16x16_H 0
 cglobal pred16x16_horizontal_8, 2,3
-    mov       r2, 8
 %if cpuflag(ssse3)
-    mova      m2, [pb_3]
+    PIC_BEGIN r2, 0 ; r2 not initialized yet, don't save
+    mova      m2, [pic(pb_3)]
+    PIC_END
 %endif
+    mov       r2, 8 ; r2 initialized here
 .loop:
     movd      m0, [r0+r1*0-4]
     movd      m1, [r0+r1*1-4]
@@ -241,18 +243,22 @@ cglobal pred16x16_plane_%1_8, 2,9,7
     neg          r1               ; -stride
 
     movh         m0, [r0+r1  -1]
+    %define lpiccache r1m
+    PIC_BEGIN r6, 0               ; r6 not initialized yet
+    CHECK_REG_COLLISION "rpic","r0","r1"
 %if cpuflag(ssse3)
     movhps       m0, [r0+r1  +8]
-    pmaddubsw    m0, [plane_shuf] ; H coefficients
+    pmaddubsw    m0, [pic(plane_shuf)] ; H coefficients
 %else ; sse2
     pxor         m2, m2
     movh         m1, [r0+r1  +8]
     punpcklbw    m0, m2
     punpcklbw    m1, m2
-    pmullw       m0, [pw_m8tom1]
-    pmullw       m1, [pw_1to8]
+    pmullw       m0, [pic(pw_m8tom1)]
+    pmullw       m1, [pic(pw_1to8)]
     paddw        m0, m1
 %endif
+    PIC_END                       ; r6, no-save, r1m==lpic
     movhlps      m1, m0
     paddw        m0, m1
     PSHUFLW      m1, m0, 0xE
@@ -275,7 +281,7 @@ cglobal pred16x16_plane_%1_8, 2,9,7
     sub          r5, e_reg
 
     movzx     e_reg, byte [r3+r2     ]
-    movzx        r6, byte [r4        ]
+    movzx        r6, byte [r4        ] ; r6 initialized here
     sub          r6, e_reg
     lea          r5, [r5+r6*2]
 
@@ -392,6 +398,7 @@ cglobal pred16x16_plane_%1_8, 2,9,7
 
     movd         m1, r5d
     movd         m3, r3d
+    PIC_BEGIN r6, 0               ; r6 not used anymore in this function
     SPLATW       m0, m0, 0        ; H
     SPLATW       m1, m1, 0        ; V
     SPLATW       m3, m3, 0        ; a
@@ -399,13 +406,14 @@ cglobal pred16x16_plane_%1_8, 2,9,7
     SWAP          0, 1
 %endif
     mova         m2, m0
-    pmullw       m0, [pw_0to7]    ; 0*H, 1*H, ..., 7*H  (words)
+    pmullw     m0, [pic(pw_0to7)] ; 0*H, 1*H, ..., 7*H  (words)
+    PIC_END                       ; r6, no-save, cached
     psllw        m2, 3
     paddw        m0, m3           ; a + {0,1,2,3,4,5,6,7}*H
     paddw        m2, m0           ; a + {8,9,10,11,12,13,14,15}*H
 
     mov          r4, 8
-.loop:
+.loop:                            ; r0,2,4
     mova         m3, m0           ; b[0..7]
     mova         m4, m2           ; b[8..15]
     psraw        m3, 5
@@ -426,7 +434,7 @@ cglobal pred16x16_plane_%1_8, 2,9,7
 
     lea          r0, [r0+r2*2]
     dec          r4
-    jg .loop
+    jg .loop                      ; r0,2,4
     RET
 %endmacro
 
@@ -449,16 +457,20 @@ cglobal pred8x8_plane_8, 2,9,7
     neg          r1               ; -stride
 
     movd         m0, [r0+r1  -1]
+    %define lpiccache r1m
+    PIC_BEGIN r6, 0               ; r6 not initialized yet
+    CHECK_REG_COLLISION "rpic","r0","r1"
 %if cpuflag(ssse3)
     movhps       m0, [r0+r1  +4]   ; this reads 4 bytes more than necessary
-    pmaddubsw    m0, [plane8_shuf] ; H coefficients
+    pmaddubsw    m0, [pic(plane8_shuf)] ; H coefficients
 %else ; sse2
     pxor         m2, m2
     movd         m1, [r0+r1  +4]
     punpckldq    m0, m1
     punpcklbw    m0, m2
-    pmullw       m0, [pw_m4to4]
+    pmullw       m0, [pic(pw_m4to4)]
 %endif
+    PIC_END                       ; r6, no-save, init cache
     movhlps      m1, m0
     paddw        m0, m1
 
@@ -534,15 +546,17 @@ cglobal pred8x8_plane_8, 2,9,7
 
     movd         m1, r5d
     movd         m3, r3d
+    PIC_BEGIN r6, 0               ; r6 not used anymore in this function
     SPLATW       m0, m0, 0        ; H
     SPLATW       m1, m1, 0        ; V
     SPLATW       m3, m3, 0        ; a
-    pmullw       m0, [pw_0to7]    ; 0*H, 1*H, ..., 7*H  (words)
+    pmullw     m0, [pic(pw_0to7)] ; 0*H, 1*H, ..., 7*H  (words)
+    PIC_END                       ; r6, no-save, cached
     paddw        m0, m3           ; a + {0,1,2,3,4,5,6,7}*H
 
     mov          r4, 4
 ALIGN 16
-.loop:
+.loop:                            ; r0,2,4
     mova         m3, m0           ; b[0..7]
     paddw        m0, m1
     psraw        m3, 5
@@ -555,7 +569,7 @@ ALIGN 16
 
     lea          r0, [r0+r2*2]
     dec          r4
-    jg .loop
+    jg .loop                      ; r0,2,4
     RET
 %endmacro
 
@@ -587,10 +601,12 @@ cglobal pred8x8_vertical_8, 2,2
 
 %macro PRED8x8_H 0
 cglobal pred8x8_horizontal_8, 2,3
-    mov       r2, 4
 %if cpuflag(ssse3)
-    mova      m2, [pb_3]
+    PIC_BEGIN r2, 0 ; r2 not yet initialized, don't save
+    mova      m2, [pic(pb_3)]
+    PIC_END         ; r2, no-save
 %endif
+    mov       r2, 4 ; r2 init
 .loop:
     SPLATB_LOAD m0, r0+r1*0-1, m2
     SPLATB_LOAD m1, r0+r1*1-1, m2
@@ -774,14 +790,16 @@ cglobal pred8x8_tm_vp8_8, 2,6,4
 
 INIT_XMM ssse3
 cglobal pred8x8_tm_vp8_8, 2,3,6
+    PIC_BEGIN r2, 0 ; r2 not yet initialized, don't save
     sub          r0, r1
-    movdqa     xmm4, [tm_shuf]
+    movdqa     xmm4, [pic(tm_shuf)]
+    PIC_END
     pxor       xmm1, xmm1
     movq       xmm0, [r0]
     punpcklbw  xmm0, xmm1
     movd       xmm5, [r0-4]
     pshufb     xmm5, xmm4
-    mov         r2d, 4
+    mov         r2d, 4 ; r2 init
 .loop:
     movd       xmm2, [r0+r1*1-4]
     movd       xmm3, [r0+r1*2-4]
@@ -801,12 +819,16 @@ cglobal pred8x8_tm_vp8_8, 2,3,6
 
 ; dest, left, right, src, tmp
 ; output: %1 = (t[n-1] + t[n]*2 + t[n+1] + 2) >> 2
-%macro PRED4x4_LOWPASS 5
+%macro PRED4x4_LOWPASS 5 ; PIC
     mova    %5, %2
     pavgb   %2, %3
     pxor    %3, %5
+    CHECK_REG_COLLISION "rpic",%{1:-1}
     mova    %1, %4
-    pand    %3, [pb_1]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%3
+    pand    %3, [pic(pb_1)]
+    PIC_END
     psubusb %2, %3
     pavgb   %1, %2
 %endmacro
@@ -846,9 +868,11 @@ cglobal pred8x8l_top_dc_8, 4,4
     psllq       mm5, 56
     pxor        mm1, mm5
 .body:
-    PRED4x4_LOWPASS mm0, mm2, mm1, mm3, mm5
+    PIC_BEGIN r1, 0 ; r1 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r3"
+    PRED4x4_LOWPASS mm0, mm2, mm1, mm3, mm5 ; PIC
     psadbw   mm7, mm0
-    paddw    mm7, [pw_4]
+    paddw    mm7, [pic(pw_4)]
     psrlw    mm7, 3
     pshufw   mm7, mm7, 0
     packuswb mm7, mm7
@@ -859,6 +883,7 @@ cglobal pred8x8l_top_dc_8, 4,4
 %endrep
     movq [r0+r3*1], mm7
     movq [r0+r3*2], mm7
+    PIC_END ; r1, no-save
     RET
 %endmacro
 
@@ -875,12 +900,12 @@ PRED8x8L_TOP_DC
 %macro PRED8x8L_DC 0
 cglobal pred8x8l_dc_8, 4,5
     sub          r0, r3
-    lea          r4, [r0+r3*2]
+    lea          r4, [r0+r3*2]   ; r4 init 1
     movq        mm0, [r0+r3*1-8]
     punpckhbw   mm0, [r0+r3*0-8]
     movq        mm1, [r4+r3*1-8]
     punpckhbw   mm1, [r0+r3*2-8]
-    mov          r4, r0
+    mov          r4, r0          ; r4 init 2
     punpckhwd   mm1, mm0
     lea          r0, [r0+r3*4]
     movq        mm2, [r0+r3*1-8]
@@ -896,6 +921,8 @@ cglobal pred8x8l_dc_8, 4,5
     mov          r0, r4
     movq        mm4, mm3
     movq        mm2, mm3
+    PIC_BEGIN r4, 0 ; r4 unused till 'r4 init 3'
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3"
     PALIGNR     mm4, mm0, 7, mm0
     PALIGNR     mm1, mm2, 1, mm2
     test        r1d, r1d
@@ -924,10 +951,10 @@ cglobal pred8x8l_dc_8, 4,5
     jmp .body
 .do_left:
     movq        mm0, mm4
-    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5
+    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5 ; PIC
     movq        mm4, mm0
     movq        mm7, mm2
-    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5
+    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5 ; PIC
     psllq       mm1, 56
     PALIGNR     mm7, mm1, 7, mm3
     movq        mm0, [r0-8]
@@ -943,15 +970,16 @@ cglobal pred8x8l_dc_8, 4,5
     jz .fix_tr_1
 .body:
     lea          r1, [r0+r3*2]
-    PRED4x4_LOWPASS mm6, mm2, mm1, mm3, mm5
+    PRED4x4_LOWPASS mm6, mm2, mm1, mm3, mm5 ; PIC
     pxor        mm0, mm0
     pxor        mm1, mm1
     lea          r2, [r1+r3*2]
     psadbw      mm0, mm7
     psadbw      mm1, mm6
-    paddw       mm0, [pw_8]
+    paddw       mm0, [pic(pw_8)]
     paddw       mm0, mm1
-    lea          r4, [r2+r3*2]
+    PIC_END ; r4, no-save
+    lea          r4, [r2+r3*2] ; r4 init 3
     psrlw       mm0, 4
     pshufw      mm0, mm0, 0
     packuswb    mm0, mm0
@@ -1004,16 +1032,19 @@ cglobal pred8x8l_horizontal_8, 4,4
     movq        mm4, mm3
     movq        mm2, mm3
     PALIGNR     mm4, mm0, 7, mm0
+    PIC_BEGIN r1, 0           ; r1 unused till re-init
+    CHECK_REG_COLLISION "rpic","r0","r2","r3"
     PALIGNR     mm1, mm2, 1, mm2
     movq        mm0, mm4
-    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5
+    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5 ; PIC
     movq        mm4, mm0
     movq        mm7, mm2
-    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5
+    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5 ; PIC
     psllq       mm1, 56
     PALIGNR     mm7, mm1, 7, mm3
     movq        mm3, mm7
-    lea         r1, [r0+r3*2]
+    PIC_END                   ; r1, no-save
+    lea         r1, [r0+r3*2] ; r1 re-init
     movq       mm7, mm3
     punpckhbw  mm3, mm3
     punpcklbw  mm7, mm7
@@ -1078,7 +1109,10 @@ cglobal pred8x8l_vertical_8, 4,4
     psllq       mm5, 56
     pxor        mm1, mm5
 .body:
-    PRED4x4_LOWPASS mm0, mm2, mm1, mm3, mm5
+    PIC_BEGIN r1, 0           ; r1 not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r2","r3"
+    PRED4x4_LOWPASS mm0, mm2, mm1, mm3, mm5 ; PIC
+    PIC_END                   ; r1, no-save
 %rep 3
     movq [r0+r3*1], mm0
     movq [r0+r3*2], mm0
@@ -1101,6 +1135,9 @@ PRED8x8L_VERTICAL
 
 %macro PRED8x8L_DOWN_LEFT 0
 cglobal pred8x8l_down_left_8, 4,4
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3"
     sub          r0, r3
     movq        mm0, [r0-8]
     movq        mm3, [r0]
@@ -1134,7 +1171,7 @@ cglobal pred8x8l_down_left_8, 4,4
     pshufw      mm1, mm3, 0xFF
     jmp .do_topright
 .do_top:
-    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5
+    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5 ; PIC
     movq2dq    xmm3, mm4
     test        r2d, r2d ; top_right
     jz .fix_tr_2
@@ -1145,7 +1182,7 @@ cglobal pred8x8l_down_left_8, 4,4
     psrlq       mm5, 56
     PALIGNR     mm2, mm3, 7, mm3
     PALIGNR     mm5, mm4, 1, mm4
-    PRED4x4_LOWPASS mm1, mm2, mm5, mm0, mm4
+    PRED4x4_LOWPASS mm1, mm2, mm5, mm0, mm4 ; PIC
 .do_topright:
     movq2dq    xmm4, mm1
     psrlq       mm1, 56
@@ -1161,7 +1198,7 @@ cglobal pred8x8l_down_left_8, 4,4
     movdqa    xmm1, xmm3
     pslldq    xmm1, 1
 INIT_XMM cpuname
-    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm3, xmm4
+    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm3, xmm4 ; PIC
     psrldq    xmm0, 1
     movq [r0+r3*1], xmm0
     psrldq    xmm0, 1
@@ -1179,6 +1216,7 @@ INIT_XMM cpuname
     movq [r0+r3*1], xmm0
     psrldq    xmm0, 1
     movq [r0+r3*2], xmm0
+    PIC_END ; r4, push/pop
     RET
 %endmacro
 
@@ -1194,6 +1232,9 @@ PRED8x8L_DOWN_LEFT
 
 %macro PRED8x8L_DOWN_RIGHT 0
 cglobal pred8x8l_down_right_8, 4,5
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4"
     sub          r0, r3
     lea          r4, [r0+r3*2]
     movq        mm0, [r0+r3*1-8]
@@ -1245,11 +1286,11 @@ cglobal pred8x8l_down_right_8, 4,5
     jmp .do_top
 .do_left:
     movq        mm0, mm4
-    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5
+    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5 ; PIC
     movq        mm4, mm0
     movq        mm7, mm2
     movq2dq    xmm3, mm2
-    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5
+    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5 ; PIC
     psllq       mm1, 56
     PALIGNR     mm7, mm1, 7, mm3
     movq2dq    xmm1, mm7
@@ -1265,7 +1306,7 @@ cglobal pred8x8l_down_right_8, 4,5
     test        r2d, r2d
     jz .fix_tr_1
 .do_top:
-    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5
+    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5 ; PIC
     movq2dq   xmm4, mm4
     lea         r1, [r0+r3*2]
     movdqa    xmm0, xmm3
@@ -1282,7 +1323,7 @@ cglobal pred8x8l_down_right_8, 4,5
     movdqa    xmm2, xmm3
     psrldq    xmm2, 1
 INIT_XMM cpuname
-    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm3, xmm4
+    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm3, xmm4 ; PIC
     movdqa    xmm1, xmm0
     psrldq    xmm1, 1
     movq [r0+r3*2], xmm0
@@ -1299,6 +1340,7 @@ INIT_XMM cpuname
     psrldq    xmm1, 2
     movq [r4+r3*2], xmm0
     movq [r4+r3*1], xmm1
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
@@ -1317,6 +1359,9 @@ cglobal pred8x8l_vertical_right_8, 4,5,7
     ; manually spill XMM registers for Win64 because
     ; the code here is initialized with INIT_MMX
     WIN64_SPILL_XMM 7
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4"
     sub          r0, r3
     lea          r4, [r0+r3*2]
     movq        mm0, [r0+r3*1-8]
@@ -1367,7 +1412,7 @@ cglobal pred8x8l_vertical_right_8, 4,5,7
     jmp .do_top
 .do_left:
     movq        mm0, mm4
-    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5
+    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5 ; PIC
     movq2dq    xmm0, mm2
     movq        mm0, [r0-8]
     movq        mm3, [r0]
@@ -1381,12 +1426,12 @@ cglobal pred8x8l_vertical_right_8, 4,5,7
     test        r2d, r2d
     jz .fix_tr_1
 .do_top:
-    PRED4x4_LOWPASS mm6, mm2, mm1, mm3, mm5
+    PRED4x4_LOWPASS mm6, mm2, mm1, mm3, mm5 ; PIC
     lea           r1, [r0+r3*2]
     movq2dq     xmm4, mm6
     pslldq      xmm4, 8
     por         xmm0, xmm4
-    movdqa      xmm6, [pw_ff00]
+    movdqa      xmm6, [pic(pw_ff00)]
     movdqa      xmm1, xmm0
     lea           r2, [r1+r3*2]
     movdqa      xmm2, xmm0
@@ -1395,7 +1440,7 @@ cglobal pred8x8l_vertical_right_8, 4,5,7
     pslldq      xmm1, 2
     pavgb       xmm2, xmm0
 INIT_XMM cpuname
-    PRED4x4_LOWPASS xmm4, xmm3, xmm1, xmm0, xmm5
+    PRED4x4_LOWPASS xmm4, xmm3, xmm1, xmm0, xmm5 ; PIC
     pandn       xmm6, xmm4
     movdqa      xmm5, xmm4
     psrlw       xmm4, 8
@@ -1420,6 +1465,7 @@ INIT_XMM cpuname
     psrldq      xmm2, 1
     movq        [r1+r3*2], xmm5
     movq        [r1+r3*1], xmm2
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
@@ -1435,6 +1481,9 @@ PRED8x8L_VERTICAL_RIGHT
 
 %macro PRED8x8L_VERTICAL_LEFT 0
 cglobal pred8x8l_vertical_left_8, 4,4
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3"
     sub          r0, r3
     movq        mm0, [r0-8]
     movq        mm3, [r0]
@@ -1468,7 +1517,7 @@ cglobal pred8x8l_vertical_left_8, 4,4
     pshufw      mm1, mm3, 0xFF
     jmp .do_topright
 .do_top:
-    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5
+    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5 ; PIC
     movq2dq    xmm4, mm4
     test        r2d, r2d
     jz .fix_tr_2
@@ -1479,7 +1528,7 @@ cglobal pred8x8l_vertical_left_8, 4,4
     psrlq       mm5, 56
     PALIGNR     mm2, mm3, 7, mm3
     PALIGNR     mm5, mm4, 1, mm4
-    PRED4x4_LOWPASS mm1, mm2, mm5, mm0, mm4
+    PRED4x4_LOWPASS mm1, mm2, mm5, mm0, mm4 ; PIC
 .do_topright:
     movq2dq   xmm3, mm1
     lea         r1, [r0+r3*2]
@@ -1493,7 +1542,7 @@ cglobal pred8x8l_vertical_left_8, 4,4
     pavgb     xmm3, xmm2
     lea         r2, [r1+r3*2]
 INIT_XMM cpuname
-    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm4, xmm5
+    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm4, xmm5 ; PIC
     psrldq    xmm0, 1
     movq [r0+r3*1], xmm3
     movq [r0+r3*2], xmm0
@@ -1510,6 +1559,7 @@ INIT_XMM cpuname
     psrldq    xmm0, 1
     movq [r0+r3*1], xmm3
     movq [r0+r3*2], xmm0
+    PIC_END ; r4, push/pop
     RET
 %endmacro
 
@@ -1525,6 +1575,9 @@ PRED8x8L_VERTICAL_LEFT
 
 %macro PRED8x8L_HORIZONTAL_UP 0
 cglobal pred8x8l_horizontal_up_8, 4,4
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3"
     sub          r0, r3
     lea          r2, [r0+r3*2]
     movq        mm0, [r0+r3*1-8]
@@ -1553,10 +1606,10 @@ cglobal pred8x8l_horizontal_up_8, 4,4
     PALIGNR     mm4, mm0, 7, mm0
     PALIGNR     mm1, mm2, 1, mm2
     movq       mm0, mm4
-    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5
+    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5 ; PIC
     movq       mm4, mm0
     movq       mm7, mm2
-    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5
+    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5 ; PIC
     psllq      mm1, 56
     PALIGNR    mm7, mm1, 7, mm3
     lea         r1, [r0+r3*2]
@@ -1576,7 +1629,7 @@ cglobal pred8x8l_horizontal_up_8, 4,4
     punpckhbw  mm7, mm7
     por        mm3, mm7            ; l7 l7 l7 l6 l5 l4 l3 l2
     pavgb      mm4, mm2
-    PRED4x4_LOWPASS mm1, mm3, mm5, mm2, mm6
+    PRED4x4_LOWPASS mm1, mm3, mm5, mm2, mm6 ; PIC
     movq       mm5, mm4
     punpcklbw  mm4, mm1            ; p4 p3 p2 p1
     punpckhbw  mm5, mm1            ; p8 p7 p6 p5
@@ -1598,6 +1651,7 @@ cglobal pred8x8l_horizontal_up_8, 4,4
     movq [r2+r3*2], mm1
     movq [r0+r3*1], mm2
     movq [r0+r3*2], mm3
+    PIC_END ; r4, push/pop
     RET
 %endmacro
 
@@ -1613,6 +1667,9 @@ PRED8x8L_HORIZONTAL_UP
 
 %macro PRED8x8L_HORIZONTAL_DOWN 0
 cglobal pred8x8l_horizontal_down_8, 4,5
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4"
     sub          r0, r3
     lea          r4, [r0+r3*2]
     movq        mm0, [r0+r3*1-8]
@@ -1667,11 +1724,11 @@ cglobal pred8x8l_horizontal_down_8, 4,5
     jmp .do_topright
 .do_left:
     movq        mm0, mm4
-    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5
+    PRED4x4_LOWPASS mm2, mm1, mm4, mm3, mm5 ; PIC
     movq2dq    xmm0, mm2
     pslldq     xmm0, 8
     movq        mm4, mm0
-    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5
+    PRED4x4_LOWPASS mm1, mm3, mm0, mm4, mm5 ; PIC
     movq2dq    xmm2, mm1
     pslldq     xmm2, 15
     psrldq     xmm2, 8
@@ -1688,7 +1745,7 @@ cglobal pred8x8l_horizontal_down_8, 4,5
     test        r2d, r2d
     jz .fix_tr_1
 .do_top:
-    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5
+    PRED4x4_LOWPASS mm4, mm2, mm1, mm3, mm5 ; PIC
     movq2dq    xmm1, mm4
     test        r2d, r2d
     jz .fix_tr_2
@@ -1699,7 +1756,7 @@ cglobal pred8x8l_horizontal_down_8, 4,5
     psrlq       mm5, 56
     PALIGNR     mm2, mm3, 7, mm3
     PALIGNR     mm5, mm4, 1, mm4
-    PRED4x4_LOWPASS mm1, mm2, mm5, mm0, mm4
+    PRED4x4_LOWPASS mm1, mm2, mm5, mm0, mm4 ; PIC
 .do_topright:
     movq2dq    xmm5, mm1
     pslldq     xmm5, 8
@@ -1715,7 +1772,7 @@ INIT_XMM cpuname
     movdqa    xmm4, xmm1
     pavgb     xmm4, xmm3
     lea         r0, [r1+r3*2]
-    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm3, xmm5
+    PRED4x4_LOWPASS xmm0, xmm1, xmm2, xmm3, xmm5 ; PIC
     punpcklbw xmm4, xmm0
     movhlps   xmm0, xmm4
     movq   [r0+r3*2], xmm4
@@ -1732,6 +1789,7 @@ INIT_XMM cpuname
     psrldq xmm0, 2
     movq   [r1+r3*1], xmm4
     movq   [r4+r3*1], xmm0
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
@@ -1806,14 +1864,17 @@ cglobal pred4x4_tm_vp8_8, 3,6
 
 INIT_XMM ssse3
 cglobal pred4x4_tm_vp8_8, 3,3
+    PIC_BEGIN r1, 0             ; r1 is going to be re-initialized
+    CHECK_REG_COLLISION "rpic","r0","r2"
     sub         r0, r2
-    movq       mm6, [tm_shuf]
+    movq       mm6, [pic(tm_shuf)]
     pxor       mm1, mm1
     movd       mm0, [r0]
     punpcklbw  mm0, mm1
     movd       mm7, [r0-4]
     pshufb     mm7, mm6
-    lea         r1, [r0+r2*2]
+    PIC_END                     ; r1, no-save
+    lea         r1, [r0+r2*2]   ; r1 re-init
     movd       mm2, [r0+r2*1-4]
     movd       mm3, [r0+r2*2-4]
     movd       mm4, [r1+r2*1-4]
@@ -1849,9 +1910,11 @@ cglobal pred4x4_vertical_vp8_8, 3,3
     movd      m0, [r0]
     mova      m2, m0   ;t0 t1 t2 t3
     punpckldq m0, [r1] ;t0 t1 t2 t3 t4 t5 t6 t7
-    lea       r1, [r0+r2*2]
     psrlq     m0, 8    ;t1 t2 t3 t4
-    PRED4x4_LOWPASS m3, m1, m0, m2, m4
+    PIC_BEGIN r1, 0         ; r1 is going to be re-initialized
+    PRED4x4_LOWPASS m3, m1, m0, m2, m4 ; PIC
+    PIC_END                 ; r1, no-save
+    lea       r1, [r0+r2*2] ; r1 re-init
     movd [r0+r2*1], m3
     movd [r0+r2*2], m3
     movd [r1+r2*1], m3
@@ -1873,8 +1936,10 @@ cglobal pred4x4_down_left_8, 3,3
     pxor      m2, m1
     psrlq     m2, 8
     pxor      m2, m3
-    PRED4x4_LOWPASS m0, m1, m2, m3, m4
-    lea       r1, [r0+r2*2]
+    PIC_BEGIN r1, 0         ; r1 is going to be re-initialized
+    PRED4x4_LOWPASS m0, m1, m2, m3, m4 ; PIC
+    PIC_END                 ; r1, no-save
+    lea       r1, [r0+r2*2] ; r1 re-init
     psrlq     m0, 8
     movd      [r0+r2*1], m0
     psrlq     m0, 8
@@ -1901,8 +1966,10 @@ cglobal pred4x4_vertical_left_8, 3,3
     psrlq     m2, 16
     movq      m4, m3
     pavgb     m4, m1
-    PRED4x4_LOWPASS m0, m1, m2, m3, m5
-    lea       r1, [r0+r2*2]
+    PIC_BEGIN r1, 0         ; r1 is going to be re-initialized
+    PRED4x4_LOWPASS m0, m1, m2, m3, m5 ; PIC
+    PIC_END                 ; r1, no-save
+    lea       r1, [r0+r2*2] ; r1 re-init
     movh      [r0+r2*1], m4
     movh      [r0+r2*2], m0
     psrlq     m4, 8
@@ -1918,6 +1985,9 @@ cglobal pred4x4_vertical_left_8, 3,3
 
 INIT_MMX mmxext
 cglobal pred4x4_horizontal_up_8, 3,3
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
     sub       r0, r2
     lea       r1, [r0+r2*2]
     movd      m0, [r0+r2*1-4]
@@ -1935,7 +2005,7 @@ cglobal pred4x4_horizontal_up_8, 3,3
     psrlq     m2, 16
     psrlq     m3, 8
     pavgb     m7, m3
-    PRED4x4_LOWPASS m4, m0, m2, m3, m5
+    PRED4x4_LOWPASS m4, m0, m2, m3, m5 ; PIC
     punpcklbw m7, m4
     movd    [r0+r2*1], m7
     psrlq    m7, 16
@@ -1943,6 +2013,7 @@ cglobal pred4x4_horizontal_up_8, 3,3
     psrlq    m7, 16
     movd    [r1+r2*1], m7
     movd    [r1+r2*2], m1
+    PIC_END ; r3, push/pop
     RET
 
 ;------------------------------------------------------------------------------
@@ -1953,6 +2024,9 @@ cglobal pred4x4_horizontal_up_8, 3,3
 
 INIT_MMX mmxext
 cglobal pred4x4_horizontal_down_8, 3,3
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
     sub       r0, r2
     lea       r1, [r0+r2*2]
     movh      m0, [r0-4]      ; lt ..
@@ -1970,7 +2044,7 @@ cglobal pred4x4_horizontal_down_8, 3,3
     psrlq     m0, 16          ; .. .. t2 t1 t0 lt l0 l1
     psrlq     m2, 8           ; .. t2 t1 t0 lt l0 l1 l2
     pavgb     m5, m2
-    PRED4x4_LOWPASS m3, m1, m0, m2, m4
+    PRED4x4_LOWPASS m3, m1, m0, m2, m4 ; PIC
     punpcklbw m5, m3
     psrlq     m3, 32
     PALIGNR   m3, m5, 6, m4
@@ -1980,6 +2054,7 @@ cglobal pred4x4_horizontal_down_8, 3,3
     psrlq     m5, 16
     movh      [r0+r2*2], m5
     movh      [r0+r2*1], m3
+    PIC_END ; r3, push/pop
     RET
 
 ;-----------------------------------------------------------------------------
@@ -1990,6 +2065,9 @@ cglobal pred4x4_horizontal_down_8, 3,3
 
 INIT_MMX mmxext
 cglobal pred4x4_vertical_right_8, 3,3
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
     sub     r0, r2
     lea     r1, [r0+r2*2]
     movh    m0, [r0]                    ; ........t3t2t1t0
@@ -2001,7 +2079,7 @@ cglobal pred4x4_vertical_right_8, 3,3
     PALIGNR m0, [r0+r2*2-8], 7, m2      ; ..t3t2t1t0ltl0l1
     movq    m2, m0
     PALIGNR m0, [r1+r2*1-8], 7, m3      ; t3t2t1t0ltl0l1l2
-    PRED4x4_LOWPASS m3, m1, m0, m2, m4
+    PRED4x4_LOWPASS m3, m1, m0, m2, m4 ; PIC
     movq    m1, m3
     psrlq   m3, 16
     psllq   m1, 48
@@ -2012,6 +2090,7 @@ cglobal pred4x4_vertical_right_8, 3,3
     movh    [r1+r2*1], m5
     PALIGNR m3, m1, 7, m1
     movh    [r1+r2*2], m3
+    PIC_END ; r3, push/pop
     RET
 
 ;-----------------------------------------------------------------------------
@@ -2021,6 +2100,9 @@ cglobal pred4x4_vertical_right_8, 3,3
 
 INIT_MMX mmxext
 cglobal pred4x4_down_right_8, 3,3
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
     sub       r0, r2
     lea       r1, [r0+r2*2]
     movq      m1, [r1-8]
@@ -2033,7 +2115,7 @@ cglobal pred4x4_down_right_8, 3,3
     PALIGNR   m3, [r1+r2*1-8], 7, m4
     movq      m2, m3
     PALIGNR   m3, [r1+r2*2-8], 7, m4
-    PRED4x4_LOWPASS m0, m3, m1, m2, m4
+    PRED4x4_LOWPASS m0, m3, m1, m2, m4 ; PIC
     movh      [r1+r2*2], m0
     psrlq     m0, 8
     movh      [r1+r2*1], m0
@@ -2041,4 +2123,5 @@ cglobal pred4x4_down_right_8, 3,3
     movh      [r0+r2*2], m0
     psrlq     m0, 8
     movh      [r0+r2*1], m0
+    PIC_END ; r3, push/pop
     RET
