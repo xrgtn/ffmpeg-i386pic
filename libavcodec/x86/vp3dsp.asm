@@ -49,32 +49,35 @@ SECTION .text
 ; this is off by one or two for some cases when filter_limit is greater than 63
 ; in:  p0 in mm6, p1 in mm4, p2 in mm2, p3 in mm1
 ; out: p1 in mm4, p2 in mm3
-%macro VP3_LOOP_FILTER 0
+%macro VP3_LOOP_FILTER 0 ; r2, PIC
     movq          m7, m6
-    pand          m6, [pb_7]    ; p0&7
+    CHECK_REG_COLLISION "rpic","r2"
+    PIC_BEGIN r4
+    pand          m6, [pic(pb_7)]  ; p0&7
     psrlw         m7, 3
-    pand          m7, [pb_1F]   ; p0>>3
-    movq          m3, m2        ; p2
+    pand          m7, [pic(pb_1F)] ; p0>>3
+    movq          m3, m2           ; p2
     pxor          m2, m4
-    pand          m2, [pb_1]    ; (p2^p1)&1
+    pand          m2, [pic(pb_1)]  ; (p2^p1)&1
     movq          m5, m2
     paddb         m2, m2
-    paddb         m2, m5        ; 3*(p2^p1)&1
-    paddb         m2, m6        ; extra bits lost in shifts
+    paddb         m2, m5           ; 3*(p2^p1)&1
+    paddb         m2, m6           ; extra bits lost in shifts
     pcmpeqb       m0, m0
-    pxor          m1, m0        ; 255 - p3
-    pavgb         m1, m2        ; (256 - p3 + extrabits) >> 1
-    pxor          m0, m4        ; 255 - p1
-    pavgb         m0, m3        ; (256 + p2-p1) >> 1
-    paddb         m1, [pb_3]
-    pavgb         m1, m0        ; 128+2+(   p2-p1  - p3) >> 2
-    pavgb         m1, m0        ; 128+1+(3*(p2-p1) - p3) >> 3
-    paddusb       m7, m1        ; d+128+1
-    movq          m6, [pb_81]
+    pxor          m1, m0           ; 255 - p3
+    pavgb         m1, m2           ; (256 - p3 + extrabits) >> 1
+    pxor          m0, m4           ; 255 - p1
+    pavgb         m0, m3           ; (256 + p2-p1) >> 1
+    paddb         m1, [pic(pb_3)]
+    pavgb         m1, m0           ; 128+2+(   p2-p1  - p3) >> 2
+    pavgb         m1, m0           ; 128+1+(3*(p2-p1) - p3) >> 3
+    paddusb       m7, m1           ; d+128+1
+    movq          m6, [pic(pb_81)]
     psubusb       m6, m7
-    psubusb       m7, [pb_81]
+    psubusb       m7, [pic(pb_81)]
+    PIC_END
 
-    movq          m5, [r2+516]  ; flim
+    movq          m5, [r2+516]     ; flim
     pminub        m6, m5
     pminub        m7, m5
     movq          m0, m6
@@ -91,7 +94,7 @@ SECTION .text
     paddusb       m3, m6
 %endmacro
 
-%macro STORE_4_WORDS 1
+%macro STORE_4_WORDS 1 ; r0..3
     movd         r2d, %1
     mov  [r0     -1], r2w
     psrlq         %1, 32
@@ -110,9 +113,10 @@ cglobal vp3_v_loop_filter, 3, 4
     movq          m6, [r0+r1*2]
     movq          m4, [r0+r1  ]
     movq          m2, [r0     ]
-    movq          m1, [r0+r3  ]
+    movq          m1, [r0+r3  ] ; last use of r3
 
-    VP3_LOOP_FILTER
+    DESIGNATE_RPIC r3 ; r3 not used anymore
+    VP3_LOOP_FILTER   ; r2, PIC
 
     movq     [r0+r1], m4
     movq     [r0   ], m3
@@ -134,12 +138,14 @@ cglobal vp3_h_loop_filter, 3, 4
     sub           r0, r1
 
     TRANSPOSE4x4B  6, 4, 2, 1, 0
-    VP3_LOOP_FILTER
+    %define rpicsave ; safe to push/pop rpic
+    VP3_LOOP_FILTER  ; r2; PIC:r4,1
+    %undef rpicsave  ; no more PIC
     SBUTTERFLY    bw, 4, 3, 5
 
-    STORE_4_WORDS m4
+    STORE_4_WORDS m4 ; r0..3
     lea           r0, [r0+r1*4  ]
-    STORE_4_WORDS m3
+    STORE_4_WORDS m3 ; r0..3
     RET
 
 %macro PAVGB_NO_RND 0
@@ -159,8 +165,11 @@ cglobal vp3_h_loop_filter, 3, 4
 
 INIT_MMX mmx
 cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
-    mova   m6, [pb_FE]
-    lea    stride3q,[strideq+strideq*2]
+    PIC_BEGIN stride3q, 0               ; stride3q not initialized yet
+    CHECK_REG_COLLISION "rpic","strideq"
+    mova   m6, [pic(pb_FE)]
+    PIC_END                             ; stride3q, no-save
+    lea    stride3q,[strideq+strideq*2] ; stride3q init
 .loop:
     mova   m0, [src1q]
     mova   m1, [src2q]
@@ -186,8 +195,10 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
     RET
 
 ; from original comments: The Macro does IDct on 4 1-D Dcts
-%macro BeginIDCT 0
+%macro BeginIDCT 0 ; PIC
     movq          m2, I(3)
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","I(0)","I(3)","J(4)","J(7)"
     movq          m6, C(3)
     movq          m4, m2
     movq          m7, J(5)
@@ -264,8 +275,8 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
 %endmacro
 
 ; RowIDCT gets ready to transpose
-%macro RowIDCT 0
-    BeginIDCT
+%macro RowIDCT 0 ; PIC
+    BeginIDCT    ; PIC
     movq          m3, I(2)      ; r3 = D.
     psubsw        m4, m7        ; r4 = E. = E - G
     paddsw        m1, m1        ; r1 = H. + H.
@@ -285,8 +296,10 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
 %endmacro
 
 ; Column IDCT normalizes and stores final results
-%macro ColumnIDCT 0
-    BeginIDCT
+%macro ColumnIDCT 0 ; PIC
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","I(0)","I(3)","J(4)","J(7)"
+    BeginIDCT       ; PIC
     paddsw        m2, OC_8      ; adjust R2 (and R1) for shift
     paddsw        m1, m1        ; r1 = H. + H.
     paddsw        m1, m2        ; r1 = R1 = A.. + H.
@@ -314,6 +327,7 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
     movq        I(3), m3        ; store NR3 at I3
     psubsw        m7, m0        ; r7 = R7 = G. - C.
     paddsw        m7, OC_8      ; adjust R7 (and R0) for shift
+    PIC_END
     paddsw        m0, m0        ; r0 = C. + C.
     paddsw        m0, m7        ; r0 = R0 = G. + C.
     psraw         m7, 4         ; r7 = NR7
@@ -392,8 +406,10 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
     movq        I(2), m2
 %endmacro
 
-%macro VP3_1D_IDCT_SSE2 0
+%macro VP3_1D_IDCT_SSE2 0 ; PIC
     movdqa        m2, I(3)      ; xmm2 = i3
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic","I(0)","I(7)"
     movdqa        m6, C(3)      ; xmm6 = c3
     movdqa        m4, m2        ; xmm4 = i3
     movdqa        m7, I(5)      ; xmm7 = i5
@@ -490,6 +506,7 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
     SHIFT(m5)                   ; xmm5 = op5
     psubsw        m7, m0        ; xmm7 = G. - C. = R7
     ADD(m7)                     ; Adjust R7 and R0 before shifting
+    PIC_END
     paddsw        m0, m0        ; xmm0 = C. + C.
     paddsw        m0, m7        ; xmm0 = G. + C.
     SHIFT(m7)                   ; xmm7 = op7
@@ -507,14 +524,14 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
     movdqa      O(7), m%8
 %endmacro
 
-%macro VP3_IDCT 1
+%macro VP3_IDCT 1 ; PIC
 %if mmsize == 16
 %define I(x) [%1+16*x]
 %define O(x) [%1+16*x]
-%define C(x) [vp3_idct_data+16*(x-1)]
+%define C(x) [pic(vp3_idct_data)+16*(x-1)]
 %define SHIFT(x)
 %define ADD(x)
-        VP3_1D_IDCT_SSE2
+        VP3_1D_IDCT_SSE2 ; PIC
 %if ARCH_X86_64
         TRANSPOSE8x8W 0, 1, 2, 3, 4, 5, 6, 7, 8
 %else
@@ -523,8 +540,8 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
         PUT_BLOCK 0, 1, 2, 3, 4, 5, 6, 7
 
 %define SHIFT(x) psraw  x, 4
-%define ADD(x)   paddsw x, [pw_8]
-        VP3_1D_IDCT_SSE2
+%define ADD(x)   paddsw x, [pic(pw_8)]
+        VP3_1D_IDCT_SSE2 ; PIC
         PUT_BLOCK 0, 1, 2, 3, 4, 5, 6, 7
 %else ; mmsize == 8
     ; eax = quantized input
@@ -534,37 +551,40 @@ cglobal put_vp_no_rnd_pixels8_l2, 5, 6, 0, dst, src1, src2, stride, h, stride3
     ;  C(I) = ecx + CosineOffset(32) + (I-1) * 8
     ; edx = output
     ; r0..r7 = mm0..mm7
-%define OC_8 [pw_8]
-%define C(x) [vp3_idct_data+16*(x-1)]
+%define OC_8 [pic(pw_8)]
+%define C(x) [pic(vp3_idct_data)+16*(x-1)]
 
     ; at this point, function has completed dequantization + dezigzag +
     ; partial transposition; now do the idct itself
 %define I(x) [%1+16*x]
 %define J(x) [%1+16*x]
-    RowIDCT
+    RowIDCT    ; PIC
     Transpose
 
 %define I(x) [%1+16*x+8]
 %define J(x) [%1+16*x+8]
-    RowIDCT
+    RowIDCT    ; PIC
     Transpose
 
 %define I(x) [%1+16* x]
 %define J(x) [%1+16*(x-4)+8]
-    ColumnIDCT
+    ColumnIDCT ; PIC
 
 %define I(x) [%1+16* x   +64]
 %define J(x) [%1+16*(x-4)+72]
-    ColumnIDCT
+    ColumnIDCT ; PIC
 %endif ; mmsize == 16/8
 %endmacro
 
 %macro vp3_idct_funcs 0
 cglobal vp3_idct_put, 3, 4, 9
-    VP3_IDCT      r2
+    PIC_BEGIN r3, 0          ; r3 not initialized yet
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
+    VP3_IDCT      r2         ; r2, PIC
 
-    mova          m4, [pb_80]
-    lea           r3, [r1*3]
+    mova          m4, [pic(pb_80)]
+    PIC_END                  ; r3, no-save
+    lea           r3, [r1*3] ; r3 init
 %assign %%i 0
 %rep 16/mmsize
     mova          m0, [r2+mmsize*0+%%i]
@@ -602,9 +622,12 @@ cglobal vp3_idct_put, 3, 4, 9
     RET
 
 cglobal vp3_idct_add, 3, 4, 9
-    VP3_IDCT      r2
+    PIC_BEGIN r3, 0          ; r3 not initialized yet
+    CHECK_REG_COLLISION "rpic","r0","r1","r2"
+    VP3_IDCT      r2         ; r2, PIC
+    PIC_END                  ; r3, no-save
 
-    lea           r3, [r1*3]
+    lea           r3, [r1*3] ; r3 init
     pxor          m4, m4
 %assign %%i 0
 %rep 2
