@@ -58,7 +58,7 @@ SECTION .text
 ; v210_planar_unpack(const uint32_t *src, uint16_t *y, uint16_t *u, uint16_t *v, int width)
 cglobal v210_planar_unpack_%1, 4, 5, 6 + 2 * cpuflag(avx2), src, y, u, v, w
     PIC_BEGIN wq, 0      ; wq loading delayed
-    CHECK_REG_COLLISION "rpic","srcq","yq","uq","vq","wm"
+    CHECK_REG_COLLISION "rpic","srcq","yq","uq","vq","wmp"
     VBROADCASTI128   m3, [pic(v210_mult)]
 
 %if cpuflag(avx2)
@@ -155,7 +155,7 @@ INIT_ZMM avx512icl
 
 cglobal v210_planar_unpack, 4, 5, 6, src, y, u, v, w
     PIC_BEGIN wq, 0          ; wq loading delayed
-    CHECK_REG_COLLISION "rpic","srcq","yq","uq","vq","wm"
+    CHECK_REG_COLLISION "rpic","srcq","yq","uq","vq","wmp"
     kmovw k1, [pic(kmask)]   ; odd dword mask
     kmovw k2, [pic(kmask)+2] ; even dword mask
 
