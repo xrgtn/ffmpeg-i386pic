@@ -36,13 +36,15 @@ SECTION .text
 ;***********************************************************************
 %macro ICT_FLOAT 1
 cglobal ict_float, 4, 4, %1, src0, src1, src2, csize
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r4
     shl  csized, 2
     add   src0q, csizeq
     add   src1q, csizeq
     add   src2q, csizeq
     neg  csizeq
-    movaps   m6, [pf_ict0]
-    movaps   m7, [pf_ict1]
+    movaps   m6, [pic(pf_ict0)]
+    movaps   m7, [pic(pf_ict1)]
     %define ICT0 m6
     %define ICT1 m7
 
@@ -58,12 +60,12 @@ cglobal ict_float, 4, 4, %1, src0, src1, src2, csize
 %endif
 
 %else ; ARCH_X86_32
-    %define ICT2 [pf_ict2]
+    %define ICT2 [pic(pf_ict2)]
 %if cpuflag(avx)
-    movaps   m3, [pf_ict3]
+    movaps   m3, [pic(pf_ict3)]
     %define ICT3 m3
 %else
-    %define ICT3 [pf_ict3]
+    %define ICT3 [pic(pf_ict3)]
 %endif
 
 %endif ; ARCH
@@ -113,6 +115,7 @@ align 16
     movaps   [src1q+csizeq], m5
     add  csizeq, mmsize
     jl .loop
+    PIC_END ; r4, push/pop
     RET
 %endmacro
 
