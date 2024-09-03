@@ -38,7 +38,7 @@ SECTION .text
 %endif
 %endmacro
 
-%macro ANALYZE_MAC 9 ; out1, out2, in1, in2, tmp1, tmp2, add1, add2, offset
+%macro ANALYZE_MAC 9 ; out1, out2, in1, in2, tmp1, tmp2, add1, add2, offset ; constsq
     NIDN movq,    %5, %3
     NIDN movq,    %6, %4
     pmaddwd       %5, [constsq+%9]
@@ -47,11 +47,11 @@ SECTION .text
     NIDN paddd,   %2, %8
 %endmacro
 
-%macro ANALYZE_MAC_IN 7 ; out1, out2, tmp1, tmp2, add1, add2, offset
+%macro ANALYZE_MAC_IN 7 ; out1, out2, tmp1, tmp2, add1, add2, offset ; inq,constsq
     ANALYZE_MAC   %1, %2, [inq+%7], [inq+%7+8], %3, %4, %5, %6, %7
 %endmacro
 
-%macro ANALYZE_MAC_REG 7 ; out1, out2, in, tmp1, tmp2, offset, pack
+%macro ANALYZE_MAC_REG 7 ; out1, out2, in, tmp1, tmp2, offset, pack ; inq,constsq
 %ifidn %7, pack
     psrad         %3, 16    ; SBC_PROTO_FIXED_SCALE
     packssdw      %3, %3
@@ -63,12 +63,17 @@ SECTION .text
 ;void ff_sbc_analyze_4(const int16_t *in, int32_t *out, const int16_t *consts);
 ;*******************************************************************
 INIT_MMX mmx
-cglobal sbc_analyze_4, 3, 3, 4, in, out, consts
-    ANALYZE_MAC_IN   m0, m1, m0, m1, [scale_mask], [scale_mask], 0
+cglobal sbc_analyze_4, 1, 3, 4, in, out, consts
+    movifnidn      constsq, constsmp
+    PIC_BEGIN outq, 0 ; outq loading delayed
+    CHECK_REG_COLLISION "rpic","inq",,"constsq"
+    ANALYZE_MAC_IN   m0, m1, m0, m1, [pic(scale_mask)], [pic(scale_mask)], 0
     ANALYZE_MAC_IN   m0, m1, m2, m3, m2, m3, 16
     ANALYZE_MAC_IN   m0, m1, m2, m3, m2, m3, 32
     ANALYZE_MAC_IN   m0, m1, m2, m3, m2, m3, 48
     ANALYZE_MAC_IN   m0, m1, m2, m3, m2, m3, 64
+    PIC_END ; outq, no-save
+    movifnidn         outq, outmp
 
     ANALYZE_MAC_REG  m0, m2, m0, m0, m2, 80, pack
     ANALYZE_MAC_REG  m0, m2, m1, m1, m3, 96, pack
@@ -83,9 +88,12 @@ cglobal sbc_analyze_4, 3, 3, 4, in, out, consts
 ;void ff_sbc_analyze_8(const int16_t *in, int32_t *out, const int16_t *consts);
 ;*******************************************************************
 INIT_MMX mmx
-cglobal sbc_analyze_8, 3, 3, 4, in, out, consts
-    ANALYZE_MAC_IN   m0, m1, m0, m1, [scale_mask], [scale_mask],  0
-    ANALYZE_MAC_IN   m2, m3, m2, m3, [scale_mask], [scale_mask], 16
+cglobal sbc_analyze_8, 1, 3, 4, in, out, consts
+    movifnidn      constsq, constsmp
+    PIC_BEGIN outq, 0 ; outq loading delayed
+    CHECK_REG_COLLISION "rpic","inq",,"constsq"
+    ANALYZE_MAC_IN   m0, m1, m0, m1, [pic(scale_mask)], [pic(scale_mask)],  0
+    ANALYZE_MAC_IN   m2, m3, m2, m3, [pic(scale_mask)], [pic(scale_mask)], 16
     ANALYZE_MAC_IN   m0, m1, m4, m5, m4, m5,  32
     ANALYZE_MAC_IN   m2, m3, m6, m7, m6, m7,  48
     ANALYZE_MAC_IN   m0, m1, m4, m5, m4, m5,  64
@@ -94,6 +102,8 @@ cglobal sbc_analyze_8, 3, 3, 4, in, out, consts
     ANALYZE_MAC_IN   m2, m3, m6, m7, m6, m7, 112
     ANALYZE_MAC_IN   m0, m1, m4, m5, m4, m5, 128
     ANALYZE_MAC_IN   m2, m3, m6, m7, m6, m7, 144
+    PIC_END ; outq, no-save
+    movifnidn         outq, outmp
 
     ANALYZE_MAC_REG  m4, m5, m0, m4, m5, 160, pack
     ANALYZE_MAC_REG  m4, m5, m1, m6, m7, 192, pack
@@ -122,7 +132,11 @@ cglobal sbc_analyze_8, 3, 3, 4, in, out, consts
 INIT_MMX mmx
 cglobal sbc_calc_scalefactors, 5, 7, 4, sb_sample_f, scale_factor, blocks, channels, subbands, ptr, blk
     ; subbands = 4 * subbands * channels
-    movq          m3, [scale_mask]
+    PIC_BEGIN blkq, 0 ; blkq not yet initialized
+    CHECK_REG_COLLISION "rpic","subbandsd","channelsd",\
+        "ptrq","sb_sample_fq","blocksq"
+    movq          m3, [pic(scale_mask)]
+    PIC_END           ; blkq, no-save
     shl           subbandsd, 2
     cmp           channelsd, 2
     jl            .loop_1
