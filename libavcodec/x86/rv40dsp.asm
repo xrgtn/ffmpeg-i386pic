@@ -58,8 +58,8 @@ sixtap_filter_v_m:   times 8 dw   1
 %define npicregs 1
 %else
 %define sixtap_filter_hw   sixtap_filter_hw_m
-%define sixtap_filter_hb   sixtap_filter_hb_m
-%define sixtap_filter_v    sixtap_filter_v_m
+%define sixtap_filter_hb   pic(sixtap_filter_hb_m)
+%define sixtap_filter_v    pic(sixtap_filter_v_m)
 %define npicregs 0
 %endif
 
@@ -76,9 +76,9 @@ SECTION .text
 ;-----------------------------------------------------------------------------
 ; subpel MC functions:
 ;
-; void ff_[put|rv40]_rv40_qpel_[h|v]_<opt>(uint8_t *dst, int deststride,
-;                                          uint8_t *src, int srcstride,
-;                                          int len, int m);
+; void ff_[put|avg]_rv40_qpel_[h|v]_<opt>(uint8_t *dst, int deststride,
+;                                         uint8_t *src, int srcstride,
+;                                         int len, int m);
 ;----------------------------------------------------------------------
 %macro LOAD  2
 %if WIN64
@@ -86,6 +86,8 @@ SECTION .text
 %endif
 %ifdef PIC
    add      %1q, picregq
+%elif i386pic
+   lea      %1q, [%1q+%2]
 %else
    add      %1q, %2
 %endif
@@ -103,12 +105,20 @@ SECTION .text
 %endmacro
 
 %macro FILTER_V 1
-cglobal %1_rv40_qpel_v, 6,6+npicregs,12, dst, dststride, src, srcstride, height, my, picreg
+cglobal %1_rv40_qpel_v, 4,6+npicregs,12, dst, dststride, src, srcstride, height, my, picreg
+%if !i386pic
+    movifnidn heightq, heightmp ; don't load heightq in i386pic mode
+%endif
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0 ; use heightq for i386 PIC, heightm for row counter
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","src","srcstrideq",\
+        "heightm","myq","picregq"
 %ifdef PIC
     lea  picregq, [sixtap_filter_v_m]
 %endif
     pxor      m7, m7
-    LOAD      my, sixtap_filter_v
+
+    LOAD      my, sixtap_filter_v  ; PIC
 
     ; read 5 lines
     sub     srcq, srcstrideq
@@ -151,7 +161,7 @@ cglobal %1_rv40_qpel_v, 6,6+npicregs,12, dst, dststride, src, srcstride, height,
     pmullw    m0, COEFF05
     paddw     m6, m0
     mova      m0, m1
-    paddw     m6, [pw_32]
+    paddw     m6, [pic(pw_32)]
     mova      m1, m2
     pmullw    m2, COEFF2
     paddw     m6, m2
@@ -168,19 +178,29 @@ cglobal %1_rv40_qpel_v, 6,6+npicregs,12, dst, dststride, src, srcstride, height,
     ; go to next line
     add     dstq, dststrideq
     add     srcq, srcstrideq
+%if i386pic
+    dec  dword heightm
+%else
     dec  heightd                           ; next row
+%endif
     jg .nextrow
+    PIC_END ; heightq, no-save
     RET
 %endmacro
 
 %macro FILTER_H  1
-cglobal %1_rv40_qpel_h, 6, 6+npicregs, 12, dst, dststride, src, srcstride, height, mx, picreg
+cglobal %1_rv40_qpel_h, 4, 6+npicregs, 12, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
 %ifdef PIC
     lea  picregq, [sixtap_filter_v_m]
 %endif
+    PIC_BEGIN heightq, 0          ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","heightmp","mxq"
     pxor      m7, m7
-    LOAD      mx, sixtap_filter_v
-    mova      m6, [pw_32]
+    LOAD      mx, sixtap_filter_v ; PIC
+    mova      m6, [pic(pw_32)]
+    PIC_END                       ; heightq, no-save
+    movifnidn heightq, heightmp   ; load heightq from arg[4]
 %ifdef m8
     mova      m8, [mxq+ 0]
     mova      m9, [mxq+16]
@@ -237,14 +257,21 @@ FILTER_V  put
 FILTER_V  avg
 
 %macro FILTER_SSSE3 1
-cglobal %1_rv40_qpel_v, 6,6+npicregs,8, dst, dststride, src, srcstride, height, my, picreg
+cglobal %1_rv40_qpel_v, 4,6+npicregs,8, dst, dststride, src, srcstride, height, my, picreg
+%if !i386pic
+    movifnidn heightq, heightmp ; don't load heightq in i386pic mode
+%endif
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0 ; use heightq for i386 PIC, heightm for row counter
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","src","srcstrideq",\
+        "heightm","myq","picregq"
 %ifdef PIC
     lea  picregq, [sixtap_filter_hb_m]
 %endif
 
     ; read 5 lines
     sub     srcq, srcstrideq
-    LOAD      my, sixtap_filter_hb
+    LOAD      my, sixtap_filter_hb ; PIC
     sub     srcq, srcstrideq
     movh      m0, [srcq]
     movh      m1, [srcq+srcstrideq]
@@ -272,26 +299,38 @@ cglobal %1_rv40_qpel_v, 6,6+npicregs,8, dst, dststride, src, srcstride, height, 
     punpcklbw m7, m3
     pmaddubsw m7, m5
     paddw     m6, m7
-    pmulhrsw  m6, [pw_512]
+    pmulhrsw  m6, [pic(pw_512)]
     STORE     m6, m7, %1
 
     ; go to next line
     add     dstq, dststrideq
     add     srcq, srcstrideq
+%if i386pic
+    dec dword heightm
+%else
     dec       heightd                          ; next row
+%endif
     jg       .nextrow
+    PIC_END ; heightq, no-save
     RET
 
-cglobal %1_rv40_qpel_h, 6,6+npicregs,8, dst, dststride, src, srcstride, height, mx, picreg
+cglobal %1_rv40_qpel_h, 4,6+npicregs,8, dst, dststride, src, srcstride, height, mx, picreg
+%if !i386pic
+    movifnidn heightq, heightmp ; don't load heightq in i386pic mode
+%endif
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0 ; use heightq for i386 PIC, heightm for row counter
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","src","srcstrideq",\
+        "heightm","mxq","picregq"
 %ifdef PIC
     lea  picregq, [sixtap_filter_hb_m]
 %endif
-    mova      m3, [filter_h6_shuf2]
-    mova      m4, [filter_h6_shuf3]
-    LOAD      mx, sixtap_filter_hb
+    mova      m3, [pic(filter_h6_shuf2)]
+    mova      m4, [pic(filter_h6_shuf3)]
+    LOAD      mx, sixtap_filter_hb ; PIC
     mova      m5, [mxq] ; set up 6tap filter in bytes
     mova      m6, [mxq+16]
-    mova      m7, [filter_h6_shuf1]
+    mova      m7, [pic(filter_h6_shuf1)]
 
 .nextrow:
     movu      m0, [srcq-2]
@@ -305,14 +344,19 @@ cglobal %1_rv40_qpel_h, 6,6+npicregs,8, dst, dststride, src, srcstride, height, 
     pmaddubsw m2, m5
     paddw     m0, m1
     paddw     m0, m2
-    pmulhrsw  m0, [pw_512]
+    pmulhrsw  m0, [pic(pw_512)]
     STORE     m0, m1, %1
 
     ; go to next line
     add     dstq, dststrideq
     add     srcq, srcstrideq
+%if i386pic
+    dec  dword heightm
+%else
     dec  heightd            ; next row
+%endif
     jg .nextrow
+    PIC_END ; heightq, no-save
     RET
 %endmacro
 
@@ -321,7 +365,7 @@ FILTER_SSSE3  put
 FILTER_SSSE3  avg
 
 ; %1=5-bit weights?, %2=dst %3=src1 %4=src3 %5=stride if SSE2
-%macro RV40_WCORE  4-5
+%macro RV40_WCORE  4-5 ; r5*,6
     movh       m4, [%3 + r6 + 0]
     movh       m5, [%4 + r6 + 0]
 %if %0 == 4
@@ -400,22 +444,22 @@ FILTER_SSSE3  avg
 %endmacro
 
 
-%macro MAIN_LOOP   2
+%macro MAIN_LOOP   2 ; r0..2,5,6
 %if mmsize == 8
-    RV40_WCORE %2, r0, r1, r2
+    RV40_WCORE %2, r0, r1, r2 ; r0..2,6
 %if %1 == 16
-    RV40_WCORE %2, r0 + 8, r1 + 8, r2 + 8
+    RV40_WCORE %2, r0 + 8, r1 + 8, r2 + 8 ; r0..2,6
 %endif
 
     ; Prepare for next loop
     add        r6, r5
 %else
 %ifidn %1, 8
-    RV40_WCORE %2, r0, r1, r2, r5
+    RV40_WCORE %2, r0, r1, r2, r5 ; r0..2,5,6
     ; Prepare 2 next lines
     add        r6, r5
 %else
-    RV40_WCORE %2, r0, r1, r2
+    RV40_WCORE %2, r0, r1, r2 ; r0..2,6
     ; Prepare single next line
     add        r6, r5
 %endif
@@ -432,14 +476,16 @@ FILTER_SSSE3  avg
 ; those simplifications to occur.
 %macro RV40_WEIGHT  3
 cglobal rv40_weight_func_%1_%2, 6, 7, 8
+    PIC_BEGIN r6, 0   ; r6 not initialized yet
 %if cpuflag(ssse3)
-    mova       m1, [pw_1024]
+    mova       m1, [pic(pw_1024)]
 %else
-    mova       m1, [pw_16]
+    mova       m1, [pic(pw_16)]
 %endif
     pxor       m0, m0
+    PIC_END           ; r6, no-save
     ; Set loop counter and increments
-    mov        r6, r5
+    mov        r6, r5 ; r6 init
     shl        r6, %3
     add        r0, r6
     add        r1, r6
