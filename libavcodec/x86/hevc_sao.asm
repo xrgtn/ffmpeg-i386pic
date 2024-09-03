@@ -201,15 +201,17 @@ HEVC_SAO_BAND_FILTER 64, 2
 %define PADDING_SIZE 64 ; AV_INPUT_BUFFER_PADDING_SIZE
 %define EDGE_SRCSTRIDE 2 * MAX_PB_SIZE + PADDING_SIZE
 
-%macro HEVC_SAO_EDGE_FILTER_INIT 0
+%macro HEVC_SAO_EDGE_FILTER_INIT 0 ; eoq",tmp2q/q",a/b_strideq"; r4m*; PIC
 %if WIN64
     movsxd           eoq, dword eom
 %elif ARCH_X86_64
     movsxd           eoq, eod
 %else
-    mov              eoq, r4m
+    mov              eoq, r4m      ; r1"
 %endif
-    lea            tmp2q, [pb_eo]
+    PIC_BEGIN tmp2q, 0 ; this PIC block is used to load tmp2q and init cache
+    lea            tmp2q, [pic(pb_eo)]
+    PIC_END
     movsx      a_strideq, byte [tmp2q+eoq*4+1]
     movsx      b_strideq, byte [tmp2q+eoq*4+3]
     imul       a_strideq, EDGE_SRCSTRIDE
@@ -260,28 +262,32 @@ cglobal hevc_sao_edge_filter_%1_8, 4, 9, 8, dst, src, dststride, offset, eo, a_s
 
 %else ; ARCH_X86_32
 cglobal hevc_sao_edge_filter_%1_8, 1, 6, 8, dst, src, dststride, a_stride, b_stride, height
-%define eoq   srcq
-%define tmpq  heightq
-%define tmp2q dststrideq
-%define offsetq heightq
-    HEVC_SAO_EDGE_FILTER_INIT
-    mov             srcq, srcm
-    mov          offsetq, r3m
-    mov       dststrideq, dststridem
+%define eoq   srcq                   ; r1
+%define tmpq  heightq                ; r5
+%define tmp2q dststrideq             ; r2
+%define offsetq heightq              ; r5
+%define lpiccache r5m                ; arg[5] (width) unused
+    HEVC_SAO_EDGE_FILTER_INIT        ; r1"..5"; r4m*; PIC
+    mov             srcq, srcm       ; r1",r1m
+    mov          offsetq, r3m        ; r5",r3m
+    mov       dststrideq, dststridem ; r2",r2m
 %endif ; ARCH
 
 %if mmsize > 16
-    vbroadcasti128    m0, [offsetq]
+    vbroadcasti128    m0, [offsetq]  ; r5
 %else
-    movu              m0, [offsetq]
+    movu              m0, [offsetq]  ; r5
 %endif
-    mova              m1, [pb_edge_shuffle]
+    PIC_BEGIN heightd, 0      ; heightd (r5) is going to be re-loaded from r6m
+    CHECK_REG_COLLISION "rpic","r6m"
+    mova              m1, [pic(pb_edge_shuffle)]
     packsswb          m0, m0
-    mova              m7, [pb_1]
+    mova              m7, [pic(pb_1)]
     pshufb            m0, m1
-    mova              m6, [pb_2]
+    mova              m6, [pic(pb_2)]
+    PIC_END                   ; heightd, no-save
 %if ARCH_X86_32
-    mov          heightd, r6m
+    mov          heightd, r6m ; heightd re-loaded from r6m
 %endif
 
 align 16
