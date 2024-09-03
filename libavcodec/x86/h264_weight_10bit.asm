@@ -39,7 +39,7 @@ SECTION .text
 ; void ff_h264_weight_16_10(uint8_t *dst, int stride, int height,
 ;                           int log2_denom, int weight, int offset);
 ;-----------------------------------------------------------------------------
-%macro WEIGHT_PROLOGUE 0
+%macro WEIGHT_PROLOGUE 0 ; r0..2,4,5
 .prologue:
     PROLOGUE 0,6,8
     movifnidn  r0, r0mp
@@ -49,23 +49,26 @@ SECTION .text
     movifnidn r5d, r5m
 %endmacro
 
-%macro WEIGHT_SETUP 0
-    mova       m0, [pw_1]
+%macro WEIGHT_SETUP 0 ; r4,5; r3m; PIC
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r3m","r4","r5"
+    mova       m0, [pic(pw_1)]
     movd       m2, r3m
-    pslld      m0, m2       ; 1<<log2_denom
+    pslld      m0, m2          ; 1<<log2_denom
     SPLATW     m0, m0
-    shl        r5, 19       ; *8, move to upper half of dword
+    shl        r5, 19          ; *8, move to upper half of dword
     lea        r5, [r5+r4*2+0x10000]
-    movd       m3, r5d      ; weight<<1 | 1+(offset<<(3))
+    movd       m3, r5d         ; weight<<1 | 1+(offset<<(3))
     pshufd     m3, m3, 0
-    mova       m4, [pw_pixel_max]
-    paddw      m2, [sq_1]   ; log2_denom+1
+    mova       m4, [pic(pw_pixel_max)]
+    paddw      m2, [pic(sq_1)] ; log2_denom+1
+    PIC_END
 %if notcpuflag(sse4)
     pxor       m7, m7
 %endif
 %endmacro
 
-%macro WEIGHT_OP 1-2
+%macro WEIGHT_OP 1-2 ; r0
 %if %0==1
     mova        m5, [r0+%1]
     punpckhwd   m6, m5, m0
@@ -91,13 +94,14 @@ SECTION .text
 
 %macro WEIGHT_FUNC_DBL 0
 cglobal h264_weight_16_10
-    WEIGHT_PROLOGUE
-    WEIGHT_SETUP
+    WEIGHT_PROLOGUE        ; r0..2,4,5
+    DESIGNATE_RPIC r3      ; unused
+    WEIGHT_SETUP           ; r4,5; r3m; PIC
 .nextrow:
-    WEIGHT_OP  0
+    WEIGHT_OP  0           ; r0
     mova [r0   ], m5
     WEIGHT_OP 16
-    mova [r0+16], m5
+    mova [r0+16], m5       ; r0
     add       r0, r1
     dec       r2d
     jnz .nextrow
@@ -112,10 +116,11 @@ WEIGHT_FUNC_DBL
 
 %macro WEIGHT_FUNC_MM 0
 cglobal h264_weight_8_10
-    WEIGHT_PROLOGUE
-    WEIGHT_SETUP
+    WEIGHT_PROLOGUE        ; r0..2,4,5
+    DESIGNATE_RPIC r3      ; unused
+    WEIGHT_SETUP           ; r4,5; r3m; PIC
 .nextrow:
-    WEIGHT_OP   0
+    WEIGHT_OP   0          ; r0
     mova     [r0], m5
     add        r0, r1
     dec        r2d
@@ -131,12 +136,13 @@ WEIGHT_FUNC_MM
 
 %macro WEIGHT_FUNC_HALF_MM 0
 cglobal h264_weight_4_10
-    WEIGHT_PROLOGUE
+    WEIGHT_PROLOGUE        ; r0..2,4,5
     sar         r2d, 1
-    WEIGHT_SETUP
-    lea         r3, [r1*2]
+    DESIGNATE_RPIC r3      ; unused till init
+    WEIGHT_SETUP           ; r4,5; r3m; PIC
+    lea         r3, [r1*2] ; r3 init
 .nextrow:
-    WEIGHT_OP    0, r1
+    WEIGHT_OP    0, r1     ; r0,1
     movh      [r0], m5
     movhps [r0+r1], m5
     add         r0, r3
@@ -162,7 +168,7 @@ DECLARE_REG_TMP 3
 DECLARE_REG_TMP 7
 %endif
 
-%macro BIWEIGHT_PROLOGUE 0
+%macro BIWEIGHT_PROLOGUE 0  ; r0..3*,5,6
 .prologue:
     PROLOGUE 0,8,8
     movifnidn  r0, r0mp
@@ -173,7 +179,7 @@ DECLARE_REG_TMP 7
     movifnidn t0d, r7m
 %endmacro
 
-%macro BIWEIGHT_SETUP 0
+%macro BIWEIGHT_SETUP 0     ; r3,5,6; r3m,4m; PIC:r3,0
     lea        t0, [t0*4+1] ; (offset<<2)+1
     or         t0, 1
     shl        r6, 16
@@ -182,17 +188,20 @@ DECLARE_REG_TMP 7
     movd       m5, t0d      ; (offset+1)|1
     movd       m6, r4m      ; log2_denom
     pslld      m5, m6       ; (((offset<<2)+1)|1)<<log2_denom
-    paddd      m6, [sq_1]
+    PIC_BEGIN r3, 0         ; r3 is going to be re-initialized
+    CHECK_REG_COLLISION "rpic","r3m"
+    paddd      m6, [pic(sq_1)]
     pshufd     m4, m4, 0
     pshufd     m5, m5, 0
-    mova       m3, [pw_pixel_max]
-    movifnidn r3d, r3m
+    mova       m3, [pic(pw_pixel_max)]
+    PIC_END                 ; r3, no-save
+    movifnidn r3d, r3m      ; r3 re-init
 %if notcpuflag(sse4)
     pxor       m7, m7
 %endif
 %endmacro
 
-%macro BIWEIGHT 1-2
+%macro BIWEIGHT 1-2         ; r0,1
 %if %0==1
     mova       m0, [r0+%1]
     mova       m1, [r1+%1]
@@ -223,10 +232,10 @@ DECLARE_REG_TMP 7
 
 %macro BIWEIGHT_FUNC_DBL 0
 cglobal h264_biweight_16_10
-    BIWEIGHT_PROLOGUE
-    BIWEIGHT_SETUP
+    BIWEIGHT_PROLOGUE       ; r0..3*,5,6
+    BIWEIGHT_SETUP          ; r3,5,6; r3m,4m; PIC:r3,0
 .nextrow:
-    BIWEIGHT   0
+    BIWEIGHT   0            ; r0,1
     mova [r0   ], m0
     BIWEIGHT  16
     mova [r0+16], m0
@@ -244,10 +253,10 @@ BIWEIGHT_FUNC_DBL
 
 %macro BIWEIGHT_FUNC 0
 cglobal h264_biweight_8_10
-    BIWEIGHT_PROLOGUE
-    BIWEIGHT_SETUP
+    BIWEIGHT_PROLOGUE       ; r0..3*,5,6
+    BIWEIGHT_SETUP          ; r3,5,6; r3m,4m; PIC:r3,0
 .nextrow:
-    BIWEIGHT  0
+    BIWEIGHT  0             ; r0,1
     mova   [r0], m0
     add      r0, r2
     add      r1, r2
@@ -263,12 +272,12 @@ BIWEIGHT_FUNC
 
 %macro BIWEIGHT_FUNC_HALF 0
 cglobal h264_biweight_4_10
-    BIWEIGHT_PROLOGUE
-    BIWEIGHT_SETUP
+    BIWEIGHT_PROLOGUE       ; r0..3*,5,6
+    BIWEIGHT_SETUP          ; r3,5,6; r3m,4m; PIC:r3,0
     sar        r3d, 1
     lea        r4, [r2*2]
 .nextrow:
-    BIWEIGHT     0, r2
+    BIWEIGHT     0, r2      ; r0..2
     movh   [r0   ], m0
     movhps [r0+r2], m0
     add         r0, r4
