@@ -133,8 +133,10 @@ PUT_PIXELS8_X2
 ; void ff_put_no_rnd_pixels8_x2(uint8_t *block, const uint8_t *pixels, ptrdiff_t line_size, int h)
 INIT_MMX mmxext
 cglobal put_no_rnd_pixels8_x2, 4,5
-    mova         m6, [pb_1]
-    lea          r4, [r2*2]
+    PIC_BEGIN r4, 0          ; r4 not initialized yet
+    mova         m6, [pic(pb_1)]
+    PIC_END                  ; r4, no-save
+    lea          r4, [r2*2]  ; r4 init
 .loop:
     mova         m0, [r1]
     mova         m2, [r1+r2]
@@ -248,8 +250,10 @@ PUT_PIXELS8_Y2
 ; void ff_put_no_rnd_pixels8_y2(uint8_t *block, const uint8_t *pixels, ptrdiff_t line_size, int h)
 INIT_MMX mmxext
 cglobal put_no_rnd_pixels8_y2, 4,5
-    mova         m6, [pb_1]
-    lea          r4, [r2+r2]
+    PIC_BEGIN r4, 0          ; r4 not initialized yet
+    mova         m6, [pic(pb_1)]
+    PIC_END                  ; r4, no-save
+    lea          r4, [r2+r2] ; r4 init
     mova         m0, [r1]
     sub          r0, r2
 .loop:
@@ -415,8 +419,10 @@ AVG_PIXELS8_Y2
 ; not-bitexact output
 INIT_MMX mmxext
 cglobal avg_approx_pixels8_xy2, 4,5
-    mova         m6, [pb_1]
-    lea          r4, [r2*2]
+    PIC_BEGIN r4, 0          ; r4 not initialized yet
+    mova         m6, [pic(pb_1)]
+    PIC_END                  ; r4, no-save
+    lea          r4, [r2*2]  ; r4 init
     mova         m0, [r1]
     PAVGB        m0, [r1+1]
 .loop:
@@ -458,7 +464,8 @@ cglobal %1_pixels16_xy2, 4,5,8
 cglobal %1_pixels8_xy2, 4,5
 %endif
     pxor        m7, m7
-    mova        m6, [pw_2]
+    PIC_BEGIN r4, 0          ; r4 not initialized yet
+    mova        m6, [pic(pw_2)]
     movu        m0, [r1]
     movu        m4, [r1+1]
     mova        m1, m0
@@ -469,7 +476,8 @@ cglobal %1_pixels8_xy2, 4,5
     punpckhbw   m5, m7
     paddusw     m4, m0
     paddusw     m5, m1
-    xor         r4, r4
+    PIC_END                  ; r4, no-save
+    xor         r4, r4       ; r4 init
     add         r1, r2
 .loop:
     movu        m0, [r1+r4]
@@ -537,12 +545,16 @@ SET_PIXELS_XY2 avg
 %macro SSSE3_PIXELS_XY2 1-2
 %if %0 == 2 ; sse2
 cglobal %1_pixels16_xy2, 4,5,%2
-    mova        m4, [pb_interleave16]
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    mova        m4, [pic(pb_interleave16)]
 %else
 cglobal %1_pixels8_xy2, 4,5
-    mova        m4, [pb_interleave8]
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    mova        m4, [pic(pb_interleave8)]
 %endif
-    mova        m5, [pb_1]
+    mova        m5, [pic(pb_1)]
     movu        m0, [r1]
     movu        m1, [r1+1]
     pmaddubsw   m0, m5
@@ -556,8 +568,8 @@ cglobal %1_pixels8_xy2, 4,5
     pmaddubsw   m3, m5
     paddusw     m0, m2
     paddusw     m1, m3
-    pmulhrsw    m0, [pw_8192]
-    pmulhrsw    m1, [pw_8192]
+    pmulhrsw    m0, [pic(pw_8192)]
+    pmulhrsw    m1, [pic(pw_8192)]
 %ifidn %1, avg
     mova        m6, [r0+r4]
     packuswb    m0, m1
@@ -576,8 +588,8 @@ cglobal %1_pixels8_xy2, 4,5
     pmaddubsw   m1, m5
     paddusw     m2, m0
     paddusw     m3, m1
-    pmulhrsw    m2, [pw_8192]
-    pmulhrsw    m3, [pw_8192]
+    pmulhrsw    m2, [pic(pw_8192)]
+    pmulhrsw    m3, [pic(pw_8192)]
 %ifidn %1, avg
     mova        m6, [r0+r4]
     packuswb    m2, m3
@@ -591,6 +603,7 @@ cglobal %1_pixels8_xy2, 4,5
     add         r4, r2
     sub        r3d, 2
     jnz .loop
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
