@@ -28,8 +28,12 @@ pdw_80000000: times 4 dd 0x80000000
 SECTION .text
 
 INIT_XMM sse
-cglobal vorbis_inverse_coupling, 3, 3, 6, mag, ang, block_size
-    mova                     m5, [pdw_80000000]
+cglobal vorbis_inverse_coupling, 2, 3, 6, mag, ang, block_size
+    PIC_BEGIN block_sizeq, 0                  ; delayed load
+    CHECK_REG_COLLISION "rpic","magq","angq","block_sizemp"
+    mova                     m5, [pic(pdw_80000000)]
+    PIC_END                                   ; block_sizeq, no-save
+    movifnidn       block_sizeq, block_sizemp ; load from arg[2]
     shl             block_sized, 2
     add                    magq, block_sizeq
     add                    angq, block_sizeq
