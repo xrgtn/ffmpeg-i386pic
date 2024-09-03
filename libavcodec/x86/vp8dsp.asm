@@ -125,14 +125,14 @@ bilinear_filter_vb_m: times 8 db 7, 1
 %define bilinear_filter_vb picregq
 %define npicregs 1
 %else
-%define fourtap_filter_hw  fourtap_filter_hw_m
-%define sixtap_filter_hw   sixtap_filter_hw_m
-%define fourtap_filter_hb  fourtap_filter_hb_m
-%define sixtap_filter_hb   sixtap_filter_hb_m
-%define fourtap_filter_v   fourtap_filter_v_m
-%define sixtap_filter_v    sixtap_filter_v_m
-%define bilinear_filter_vw bilinear_filter_vw_m
-%define bilinear_filter_vb bilinear_filter_vb_m
+%define fourtap_filter_hw  pic(fourtap_filter_hw_m)
+%define sixtap_filter_hw   pic(sixtap_filter_hw_m)
+%define fourtap_filter_hb  pic(fourtap_filter_hb_m)
+%define sixtap_filter_hb   pic(sixtap_filter_hb_m)
+%define fourtap_filter_v   pic(fourtap_filter_v_m)
+%define sixtap_filter_v    pic(sixtap_filter_v_m)
+%define bilinear_filter_vw pic(bilinear_filter_vw_m)
+%define bilinear_filter_vb pic(bilinear_filter_vb_m)
 %define npicregs 0
 %endif
 
@@ -162,16 +162,25 @@ SECTION .text
 ;-------------------------------------------------------------------------------
 
 %macro FILTER_SSSE3 1
-cglobal put_vp8_epel%1_h6, 6, 6 + npicregs, 8, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_epel%1_h6, 4, 6 + npicregs, 8, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     lea      mxd, [mxq*3]
-    mova      m3, [filter_h6_shuf2]
-    mova      m4, [filter_h6_shuf3]
+    mova      m3, [pic(filter_h6_shuf2)]
+    mova      m4, [pic(filter_h6_shuf3)]
 %ifdef PIC
     lea  picregq, [sixtap_filter_hb_m]
 %endif
-    mova      m5, [sixtap_filter_hb+mxq*8-48] ; set up 6tap filter in bytes
-    mova      m6, [sixtap_filter_hb+mxq*8-32]
-    mova      m7, [sixtap_filter_hb+mxq*8-16]
+    mova      m5, [sixtap_filter_hb+mxq*8-48] ; set up 6tap filter in bytes ; PIC
+    mova      m6, [sixtap_filter_hb+mxq*8-32] ; PIC
+    mova      m7, [sixtap_filter_hb+mxq*8-16] ; PIC
+%if i386pic
+    mov      mxq, heightq       ; mxq is now free, switch rpic to mxq
+    %xdefine rpic mxq
+%endif
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
 .nextrow:
     movu      m0, [srcq-2]
@@ -182,7 +191,7 @@ cglobal put_vp8_epel%1_h6, 6, 6 + npicregs, 8, dst, dststride, src, srcstride, h
 ; shuffle with a memory operand
     punpcklbw m0, [srcq+3]
 %else
-    pshufb    m0, [filter_h6_shuf1]
+    pshufb    m0, [pic(filter_h6_shuf1)]
 %endif
     pshufb    m1, m3
     pshufb    m2, m4
@@ -191,7 +200,7 @@ cglobal put_vp8_epel%1_h6, 6, 6 + npicregs, 8, dst, dststride, src, srcstride, h
     pmaddubsw m2, m7
     paddsw    m0, m1
     paddsw    m0, m2
-    pmulhrsw  m0, [pw_256]
+    pmulhrsw  m0, [pic(pw_256)]
     packuswb  m0, m0
     movh  [dstq], m0        ; store
 
@@ -200,18 +209,25 @@ cglobal put_vp8_epel%1_h6, 6, 6 + npicregs, 8, dst, dststride, src, srcstride, h
     add     srcq, srcstrideq
     dec  heightd            ; next row
     jg .nextrow
+    PIC_END ; mxq, no-save
     RET
 
-cglobal put_vp8_epel%1_h4, 6, 6 + npicregs, 7, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_epel%1_h4, 4, 6 + npicregs, 7, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     shl      mxd, 4
-    mova      m2, [pw_256]
-    mova      m3, [filter_h2_shuf]
-    mova      m4, [filter_h4_shuf]
+    mova      m2, [pic(pw_256)]
+    mova      m3, [pic(filter_h2_shuf)]
+    mova      m4, [pic(filter_h4_shuf)]
 %ifdef PIC
     lea  picregq, [fourtap_filter_hb_m]
 %endif
-    mova      m5, [fourtap_filter_hb+mxq-16] ; set up 4tap filter in bytes
-    mova      m6, [fourtap_filter_hb+mxq]
+    mova      m5, [fourtap_filter_hb+mxq-16] ; set up 4tap filter in bytes ; PIC
+    mova      m6, [fourtap_filter_hb+mxq]    ; PIC
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
 .nextrow:
     movu      m0, [srcq-1]
@@ -232,14 +248,20 @@ cglobal put_vp8_epel%1_h4, 6, 6 + npicregs, 7, dst, dststride, src, srcstride, h
     jg .nextrow
     RET
 
-cglobal put_vp8_epel%1_v4, 7, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+cglobal put_vp8_epel%1_v4, 4, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","picregq","myq"
     shl      myd, 4
 %ifdef PIC
     lea  picregq, [fourtap_filter_hb_m]
 %endif
-    mova      m5, [fourtap_filter_hb+myq-16]
-    mova      m6, [fourtap_filter_hb+myq]
-    mova      m7, [pw_256]
+    mova      m5, [fourtap_filter_hb+myq-16] ; PIC
+    mova      m6, [fourtap_filter_hb+myq]    ; PIC
+    mova      m7, [pic(pw_256)]
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
     ; read 3 lines
     sub     srcq, srcstrideq
@@ -270,12 +292,21 @@ cglobal put_vp8_epel%1_v4, 7, 7, 8, dst, dststride, src, srcstride, height, picr
     jg .nextrow
     RET
 
-cglobal put_vp8_epel%1_v6, 7, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+cglobal put_vp8_epel%1_v6, 4, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","picregq","myq"
     lea      myd, [myq*3]
 %ifdef PIC
     lea  picregq, [sixtap_filter_hb_m]
 %endif
-    lea      myq, [sixtap_filter_hb+myq*8]
+    lea      myq, [sixtap_filter_hb+myq*8] ; PIC
+%if i386pic
+    mov  picregq, heightq       ; picregq is now free, switch rpic to picregq
+    %xdefine rpic picregq
+%endif
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
     ; read 5 lines
     sub     srcq, srcstrideq
@@ -303,7 +334,7 @@ cglobal put_vp8_epel%1_v6, 7, 7, 8, dst, dststride, src, srcstride, height, picr
     paddsw    m6, m7
     mova      m1, m2
     mova      m2, m3
-    pmulhrsw  m6, [pw_256]
+    pmulhrsw  m6, [pic(pw_256)]
     mova      m3, m4
     packuswb  m6, m6
     mova      m4, m5
@@ -314,6 +345,7 @@ cglobal put_vp8_epel%1_v6, 7, 7, 8, dst, dststride, src, srcstride, height, picr
     add      srcq, srcstrideq
     dec   heightd                          ; next row
     jg .nextrow
+    PIC_END ; picregq, no-save
     RET
 %endmacro
 
@@ -324,15 +356,21 @@ FILTER_SSSE3 8
 
 ; 4x4 block, H-only 4-tap filter
 INIT_MMX mmxext
-cglobal put_vp8_epel4_h4, 6, 6 + npicregs, 0, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_epel4_h4, 4, 6 + npicregs, 0, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     shl       mxd, 4
 %ifdef PIC
     lea   picregq, [fourtap_filter_hw_m]
 %endif
-    movq      mm4, [fourtap_filter_hw+mxq-16] ; set up 4tap filter in words
-    movq      mm5, [fourtap_filter_hw+mxq]
-    movq      mm7, [pw_64]
+    movq      mm4, [fourtap_filter_hw+mxq-16] ; set up 4tap filter in words ; PIC
+    movq      mm5, [fourtap_filter_hw+mxq]    ; PIC
+    movq      mm7, [pic(pw_64)]
     pxor      mm6, mm6
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
 .nextrow:
     movq      mm1, [srcq-1]                ; (ABCDEFGH) load 8 horizontal pixels
@@ -372,16 +410,22 @@ cglobal put_vp8_epel4_h4, 6, 6 + npicregs, 0, dst, dststride, src, srcstride, he
 
 ; 4x4 block, H-only 6-tap filter
 INIT_MMX mmxext
-cglobal put_vp8_epel4_h6, 6, 6 + npicregs, 0, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_epel4_h6, 4, 6 + npicregs, 0, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     lea       mxd, [mxq*3]
 %ifdef PIC
     lea   picregq, [sixtap_filter_hw_m]
 %endif
-    movq      mm4, [sixtap_filter_hw+mxq*8-48] ; set up 4tap filter in words
-    movq      mm5, [sixtap_filter_hw+mxq*8-32]
-    movq      mm6, [sixtap_filter_hw+mxq*8-16]
-    movq      mm7, [pw_64]
+    movq      mm4, [sixtap_filter_hw+mxq*8-48] ; set up 4tap filter in words ; PIC
+    movq      mm5, [sixtap_filter_hw+mxq*8-32] ; PIC
+    movq      mm6, [sixtap_filter_hw+mxq*8-16] ; PIC
+    movq      mm7, [pic(pw_64)]
     pxor      mm3, mm3
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
 .nextrow:
     movq      mm1, [srcq-2]                ; (ABCDEFGH) load 8 horizontal pixels
@@ -429,14 +473,20 @@ cglobal put_vp8_epel4_h6, 6, 6 + npicregs, 0, dst, dststride, src, srcstride, he
     RET
 
 INIT_XMM sse2
-cglobal put_vp8_epel8_h4, 6, 6 + npicregs, 10, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_epel8_h4, 4, 6 + npicregs, 10, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     shl      mxd, 5
 %ifdef PIC
     lea  picregq, [fourtap_filter_v_m]
 %endif
-    lea      mxq, [fourtap_filter_v+mxq-32]
+    lea      mxq, [fourtap_filter_v+mxq-32] ; PIC
     pxor      m7, m7
-    mova      m4, [pw_64]
+    mova      m4, [pic(pw_64)]
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
     mova      m5, [mxq+ 0]
     mova      m6, [mxq+16]
 %ifdef m8
@@ -477,15 +527,21 @@ cglobal put_vp8_epel8_h4, 6, 6 + npicregs, 10, dst, dststride, src, srcstride, h
     RET
 
 INIT_XMM sse2
-cglobal put_vp8_epel8_h6, 6, 6 + npicregs, 14, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_epel8_h6, 4, 6 + npicregs, 14, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     lea      mxd, [mxq*3]
     shl      mxd, 4
 %ifdef PIC
     lea  picregq, [sixtap_filter_v_m]
 %endif
-    lea      mxq, [sixtap_filter_v+mxq-96]
+    lea      mxq, [sixtap_filter_v+mxq-96] ; PIC
     pxor      m7, m7
-    mova      m6, [pw_64]
+    mova      m6, [pic(pw_64)]
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 %ifdef m8
     mova      m8, [mxq+ 0]
     mova      m9, [mxq+16]
@@ -541,15 +597,21 @@ cglobal put_vp8_epel8_h6, 6, 6 + npicregs, 14, dst, dststride, src, srcstride, h
 
 %macro FILTER_V 1
 ; 4x4 block, V-only 4-tap filter
-cglobal put_vp8_epel%1_v4, 7, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+cglobal put_vp8_epel%1_v4, 4, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","picregq","myq"
     shl      myd, 5
 %ifdef PIC
     lea  picregq, [fourtap_filter_v_m]
 %endif
-    lea      myq, [fourtap_filter_v+myq-32]
-    mova      m6, [pw_64]
+    lea      myq, [fourtap_filter_v+myq-32] ; PIC
+    mova      m6, [pic(pw_64)]
     pxor      m7, m7
     mova      m5, [myq+48]
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
     ; read 3 lines
     sub     srcq, srcstrideq
@@ -594,14 +656,23 @@ cglobal put_vp8_epel%1_v4, 7, 7, 8, dst, dststride, src, srcstride, height, picr
 
 
 ; 4x4 block, V-only 6-tap filter
-cglobal put_vp8_epel%1_v6, 7, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+cglobal put_vp8_epel%1_v6, 4, 7, 8, dst, dststride, src, srcstride, height, picreg, my
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","picregq","myq"
     shl      myd, 4
     lea      myq, [myq*3]
 %ifdef PIC
     lea  picregq, [sixtap_filter_v_m]
 %endif
-    lea      myq, [sixtap_filter_v+myq-96]
+    lea      myq, [sixtap_filter_v+myq-96] ; PIC
     pxor      m7, m7
+%if i386pic
+    mov  picregq, heightq       ; picregq is now free, switch rpic to picregq
+    %xdefine rpic picregq
+%endif
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 
     ; read 5 lines
     sub     srcq, srcstrideq
@@ -645,7 +716,7 @@ cglobal put_vp8_epel%1_v6, 7, 7, 8, dst, dststride, src, srcstride, height, picr
     paddsw    m6, m5
 
     ; round/clip/store
-    paddsw    m6, [pw_64]
+    paddsw    m6, [pic(pw_64)]
     psraw     m6, 7
     packuswb  m6, m7
     movh  [dstq], m6
@@ -655,6 +726,7 @@ cglobal put_vp8_epel%1_v6, 7, 7, 8, dst, dststride, src, srcstride, height, picr
     add     srcq, srcstrideq
     dec  heightd                           ; next row
     jg .nextrow
+    PIC_END ; picregq, no-save
     RET
 %endmacro
 
@@ -665,13 +737,19 @@ FILTER_V 8
 
 %macro FILTER_BILINEAR 1
 %if cpuflag(ssse3)
-cglobal put_vp8_bilinear%1_v, 7, 7, 5, dst, dststride, src, srcstride, height, picreg, my
+cglobal put_vp8_bilinear%1_v, 4, 7, 5, dst, dststride, src, srcstride, height, picreg, my
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","picregq","myq"
     shl      myd, 4
 %ifdef PIC
     lea  picregq, [bilinear_filter_vb_m]
 %endif
     pxor      m4, m4
-    mova      m3, [bilinear_filter_vb+myq-16]
+    mova      m3, [bilinear_filter_vb+myq-16] ; PIC
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 .nextrow:
     movh      m0, [srcq+srcstrideq*0]
     movh      m1, [srcq+srcstrideq*1]
@@ -694,16 +772,22 @@ cglobal put_vp8_bilinear%1_v, 7, 7, 5, dst, dststride, src, srcstride, height, p
     movh   [dstq+dststrideq*0], m0
     movhps [dstq+dststrideq*1], m0
 %endif
-%else ; cpuflag(ssse3)
-cglobal put_vp8_bilinear%1_v, 7, 7, 7, dst, dststride, src, srcstride, height, picreg, my
+%else ; !cpuflag(ssse3)
+cglobal put_vp8_bilinear%1_v, 4, 7, 7, dst, dststride, src, srcstride, height, picreg, my
+    movifnidn myq, mymp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","picregq","myq"
     shl      myd, 4
 %ifdef PIC
     lea  picregq, [bilinear_filter_vw_m]
 %endif
     pxor      m6, m6
-    mova      m5, [bilinear_filter_vw+myq-1*16]
+    mova      m5, [bilinear_filter_vw+myq-1*16] ; PIC
     neg      myq
-    mova      m4, [bilinear_filter_vw+myq+7*16]
+    mova      m4, [bilinear_filter_vw+myq+7*16] ; PIC
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 .nextrow:
     movh      m0, [srcq+srcstrideq*0]
     movh      m1, [srcq+srcstrideq*1]
@@ -732,7 +816,7 @@ cglobal put_vp8_bilinear%1_v, 7, 7, 7, dst, dststride, src, srcstride, height, p
     movh   [dstq+dststrideq*0], m0
     movhps [dstq+dststrideq*1], m0
 %endif
-%endif ; cpuflag(ssse3)
+%endif ; cpuflag(ssse3) / !cpuflag(ssse3)
 
     lea     dstq, [dstq+dststrideq*2]
     lea     srcq, [srcq+srcstrideq*2]
@@ -741,14 +825,20 @@ cglobal put_vp8_bilinear%1_v, 7, 7, 7, dst, dststride, src, srcstride, height, p
     RET
 
 %if cpuflag(ssse3)
-cglobal put_vp8_bilinear%1_h, 6, 6 + npicregs, 5, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_bilinear%1_h, 4, 6 + npicregs, 5, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     shl      mxd, 4
 %ifdef PIC
     lea  picregq, [bilinear_filter_vb_m]
 %endif
     pxor      m4, m4
-    mova      m2, [filter_h2_shuf]
-    mova      m3, [bilinear_filter_vb+mxq-16]
+    mova      m2, [pic(filter_h2_shuf)]
+    mova      m3, [bilinear_filter_vb+mxq-16] ; PIC
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 .nextrow:
     movu      m0, [srcq+srcstrideq*0]
     movu      m1, [srcq+srcstrideq*1]
@@ -771,15 +861,21 @@ cglobal put_vp8_bilinear%1_h, 6, 6 + npicregs, 5, dst, dststride, src, srcstride
     movhps [dstq+dststrideq*1], m0
 %endif
 %else ; cpuflag(ssse3)
-cglobal put_vp8_bilinear%1_h, 6, 6 + npicregs, 7, dst, dststride, src, srcstride, height, mx, picreg
+cglobal put_vp8_bilinear%1_h, 4, 6 + npicregs, 7, dst, dststride, src, srcstride, height, mx, picreg
+    movifnidn mxq, mxmp
+    PIC_BEGIN heightq, 0        ; heightq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","dststrideq","srcq","srcstrideq",\
+        "heightmp","mxq","picregq"
     shl      mxd, 4
 %ifdef PIC
     lea  picregq, [bilinear_filter_vw_m]
 %endif
     pxor      m6, m6
-    mova      m5, [bilinear_filter_vw+mxq-1*16]
+    mova      m5, [bilinear_filter_vw+mxq-1*16] ; PIC
     neg      mxq
-    mova      m4, [bilinear_filter_vw+mxq+7*16]
+    mova      m4, [bilinear_filter_vw+mxq+7*16] ; PIC
+    PIC_END                     ; heightq, no-save
+    movifnidn heightq, heightmp ; heightq loaded from arg[4]
 .nextrow:
     movh      m0, [srcq+srcstrideq*0+0]
     movh      m1, [srcq+srcstrideq*0+1]
@@ -857,7 +953,7 @@ cglobal put_vp8_pixels16, 5, 5, 2, dst, dststride, src, srcstride, height
 ; void ff_vp8_idct_dc_add_<opt>(uint8_t *dst, int16_t block[16], ptrdiff_t stride);
 ;-----------------------------------------------------------------------------
 
-%macro ADD_DC 4
+%macro ADD_DC 4 ; dst1/2q,strideq
     %4        m2, [dst1q+%3]
     %4        m3, [dst1q+strideq+%3]
     %4        m4, [dst2q+%3]
@@ -877,13 +973,17 @@ cglobal put_vp8_pixels16, 5, 5, 2, dst, dststride, src, srcstride, height
 %endmacro
 
 %macro VP8_IDCT_DC_ADD 0
-cglobal vp8_idct_dc_add, 3, 3, 6, dst, block, stride
+cglobal vp8_idct_dc_add, 2, 3, 6, dst, block, stride
     ; load data
     movd       m0, [blockq]
     pxor       m1, m1
 
     ; calculate DC
-    paddw      m0, [pw_4]
+    PIC_BEGIN strideq, 0        ; strideq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","blockq","stridemp"
+    paddw      m0, [pic(pw_4)]
+    PIC_END                     ; strideq, no-save
+    movifnidn strideq, stridemp ; strideq loaded from arg[2]
     movd [blockq], m1
     DEFINE_ARGS dst1, dst2, stride
     lea     dst2q, [dst1q+strideq*2]
@@ -927,7 +1027,7 @@ VP8_IDCT_DC_ADD
 ;-----------------------------------------------------------------------------
 
 INIT_XMM sse2
-cglobal vp8_idct_dc_add4y, 3, 3, 6, dst, block, stride
+cglobal vp8_idct_dc_add4y, 2, 3, 6, dst, block, stride
     ; load data
     movd      m0, [blockq+32*0] ; A
     movd      m1, [blockq+32*2] ; C
@@ -937,7 +1037,11 @@ cglobal vp8_idct_dc_add4y, 3, 3, 6, dst, block, stride
     pxor      m1, m1
 
     ; calculate DC
-    paddw     m0, [pw_4]
+    PIC_BEGIN strideq, 0        ; strideq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","blockq","stridemp"
+    paddw     m0, [pic(pw_4)]
+    PIC_END                     ; strideq, no-save
+    movifnidn strideq, stridemp ; strideq loaded from arg[2]
     movd [blockq+32*0], m1
     movd [blockq+32*1], m1
     movd [blockq+32*2], m1
@@ -954,7 +1058,7 @@ cglobal vp8_idct_dc_add4y, 3, 3, 6, dst, block, stride
     ; add DC
     DEFINE_ARGS dst1, dst2, stride
     lea    dst2q, [dst1q+strideq*2]
-    ADD_DC    m0, m1, 0, mova
+    ADD_DC    m0, m1, 0, mova ; dst1/2q,strideq
     RET
 
 ;-----------------------------------------------------------------------------
@@ -962,7 +1066,7 @@ cglobal vp8_idct_dc_add4y, 3, 3, 6, dst, block, stride
 ;-----------------------------------------------------------------------------
 
 INIT_MMX mmx
-cglobal vp8_idct_dc_add4uv, 3, 3, 0, dst, block, stride
+cglobal vp8_idct_dc_add4uv, 2, 3, 0, dst, block, stride
     ; load data
     movd      m0, [blockq+32*0] ; A
     movd      m1, [blockq+32*2] ; C
@@ -972,7 +1076,11 @@ cglobal vp8_idct_dc_add4uv, 3, 3, 0, dst, block, stride
     pxor      m6, m6
 
     ; calculate DC
-    paddw     m0, [pw_4]
+    PIC_BEGIN strideq, 0        ; strideq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","blockq","stridemp"
+    paddw     m0, [pic(pw_4)]
+    PIC_END                     ; strideq, no-save
+    movifnidn strideq, stridemp ; strideq loaded from arg[2]
     movd [blockq+32*0], m6
     movd [blockq+32*1], m6
     movd [blockq+32*2], m6
@@ -993,10 +1101,10 @@ cglobal vp8_idct_dc_add4uv, 3, 3, 0, dst, block, stride
     ; add DC
     DEFINE_ARGS dst1, dst2, stride
     lea    dst2q, [dst1q+strideq*2]
-    ADD_DC    m0, m6, 0, mova
+    ADD_DC    m0, m6, 0, mova ; dst1/2q,strideq
     lea    dst1q, [dst1q+strideq*4]
     lea    dst2q, [dst2q+strideq*4]
-    ADD_DC    m1, m7, 0, mova
+    ADD_DC    m1, m7, 0, mova ; dst1/2q,strideq
     RET
 
 ;-----------------------------------------------------------------------------
@@ -1035,14 +1143,16 @@ cglobal vp8_idct_dc_add4uv, 3, 3, 0, dst, block, stride
 %endmacro
 
 INIT_MMX sse
-cglobal vp8_idct_add, 3, 3, 0, dst, block, stride
+cglobal vp8_idct_add, 2, 3, 0, dst, block, stride
     ; load block data
     movq         m0, [blockq+ 0]
     movq         m1, [blockq+ 8]
     movq         m2, [blockq+16]
     movq         m3, [blockq+24]
-    movq         m6, [pw_20091]
-    movq         m7, [pw_17734]
+    PIC_BEGIN strideq, 0        ; strideq loading delayed
+    CHECK_REG_COLLISION "rpic","dstq","blockq","stridemp"
+    movq         m6, [pic(pw_20091)]
+    movq         m7, [pic(pw_17734)]
     xorps      xmm0, xmm0
     movaps [blockq+ 0], xmm0
     movaps [blockq+16], xmm0
@@ -1050,7 +1160,9 @@ cglobal vp8_idct_add, 3, 3, 0, dst, block, stride
     ; actual IDCT
     VP8_IDCT_TRANSFORM4x4_1D 0, 1, 2, 3, 4, 5
     TRANSPOSE4x4W            0, 1, 2, 3, 4
-    paddw        m0, [pw_4]
+    paddw        m0, [pic(pw_4)]
+    PIC_END                     ; strideq, no-save
+    movifnidn strideq, stridemp ; strideq loaded from arg[2]
     VP8_IDCT_TRANSFORM4x4_1D 0, 1, 2, 3, 4, 5
     TRANSPOSE4x4W            0, 1, 2, 3, 4
 
@@ -1067,7 +1179,7 @@ cglobal vp8_idct_add, 3, 3, 0, dst, block, stride
 ; void ff_vp8_luma_dc_wht(int16_t block[4][4][16], int16_t dc[16])
 ;-----------------------------------------------------------------------------
 
-%macro SCATTER_WHT 3
+%macro SCATTER_WHT 3 ; dc1/2d",blockq
     movd dc1d, m%1
     movd dc2d, m%2
     mov [blockq+2*16*(0+%3)], dc1w
@@ -1104,13 +1216,16 @@ cglobal vp8_luma_dc_wht, 2, 3, 0, block, dc1, dc2
     movaps [dc1q+ 0], xmm0
     movaps [dc1q+16], xmm0
     HADAMARD4_1D  0, 1, 2, 3
+    PIC_BEGIN dc2d, 0     ; dc2d unused till re-init
+    CHECK_REG_COLLISION "rpic","blockq","dc1q"
     TRANSPOSE4x4W 0, 1, 2, 3, 4
-    paddw         m0, [pw_3]
+    paddw         m0, [pic(pw_3)]
     HADAMARD4_1D  0, 1, 2, 3
     psraw         m0, 3
     psraw         m1, 3
     psraw         m2, 3
     psraw         m3, 3
-    SCATTER_WHT   0, 1, 0
-    SCATTER_WHT   2, 3, 2
+    PIC_END               ; dc2d, no-save
+    SCATTER_WHT   0, 1, 0 ; dc1d/dc2d re-init
+    SCATTER_WHT   2, 3, 2 ; dc1d/dc2d re-init
     RET
