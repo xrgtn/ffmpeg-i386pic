@@ -58,7 +58,7 @@ cglobal rv34_idct_dc_noround, 1, 2, 0
 
 ; Load coeffs and perform row transform
 ; Output: coeffs in mm[0467], rounder in mm5
-%macro ROW_TRANSFORM  1
+%macro ROW_TRANSFORM  1 ; PIC
     pxor        mm7, mm7
     mova        mm0, [%1+ 0*8]
     mova        mm1, [%1+ 1*8]
@@ -69,26 +69,29 @@ cglobal rv34_idct_dc_noround, 1, 2, 0
     mova  [%1+ 2*8], mm7
     mova  [%1+ 3*8], mm7
     mova        mm4, mm0
-    mova        mm6, [pw_row_coeffs+ 0]
-    paddsw      mm0, mm2                ; b0 + b2
-    psubsw      mm4, mm2                ; b0 - b2
-    pmullw      mm0, mm6                ; *13 = z0
-    pmullw      mm4, mm6                ; *13 = z1
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    PIC_BEGIN r4
+    mova        mm6, [pic(pw_row_coeffs)+ 0]
+    paddsw      mm0, mm2                     ; b0 + b2
+    psubsw      mm4, mm2                     ; b0 - b2
+    pmullw      mm0, mm6                     ; *13 = z0
+    pmullw      mm4, mm6                     ; *13 = z1
     mova        mm5, mm1
-    pmullw      mm1, [pw_row_coeffs+ 8] ; b1*17
-    pmullw      mm5, [pw_row_coeffs+16] ; b1* 7
+    pmullw      mm1, [pic(pw_row_coeffs)+ 8] ; b1*17
+    pmullw      mm5, [pic(pw_row_coeffs)+16] ; b1* 7
     mova        mm7, mm3
-    pmullw      mm3, [pw_row_coeffs+ 8] ; b3*17
-    pmullw      mm7, [pw_row_coeffs+16] ; b3* 7
-    paddsw      mm1, mm7                ; z3 = b1*17 + b3* 7
-    psubsw      mm5, mm3                ; z2 = b1* 7 - b3*17
+    pmullw      mm3, [pic(pw_row_coeffs)+ 8] ; b3*17
+    pmullw      mm7, [pic(pw_row_coeffs)+16] ; b3* 7
+    paddsw      mm1, mm7                     ; z3 = b1*17 + b3* 7
+    psubsw      mm5, mm3                     ; z2 = b1* 7 - b3*17
     mova        mm7, mm0
     mova        mm6, mm4
-    paddsw      mm0, mm1                ; z0 + z3
-    psubsw      mm7, mm1                ; z0 - z3
-    paddsw      mm4, mm5                ; z1 + z2
-    psubsw      mm6, mm5                ; z1 - z2
-    mova        mm5, [pd_512]           ; 0x200
+    paddsw      mm0, mm1                     ; z0 + z3
+    psubsw      mm7, mm1                     ; z0 - z3
+    paddsw      mm4, mm5                     ; z1 + z2
+    psubsw      mm6, mm5                     ; z1 - z2
+    mova        mm5, [pic(pd_512)]           ; 0x200
+    PIC_END
 %endmacro
 
 ; ff_rv34_idct_add_mmxext(uint8_t *dst, ptrdiff_t stride, int16_t *block);
@@ -113,15 +116,21 @@ cglobal rv34_idct_dc_noround, 1, 2, 0
     movd         %1, %2
 %endmacro
 INIT_MMX mmxext
-cglobal rv34_idct_add, 3,3,0, d, s, b
-    ROW_TRANSFORM       bq
-    COL_TRANSFORM     [dq], mm0, [pw_col_coeffs+ 0], [pw_col_coeffs+ 8]
-    mova               mm0, [pw_col_coeffs+ 0]
-    COL_TRANSFORM  [dq+sq], mm4, mm0, [pw_col_coeffs+ 8]
-    mova               mm4, [pw_col_coeffs+ 8]
+cglobal rv34_idct_add, 1,3,0, d, s, b
+    movifnidn           bq, bmp ; load r2 from arg[2]
+    PIC_BEGIN sq, 0             ; delayed loading of sq (from arg[1])
+    ROW_TRANSFORM       bq      ; bq, PIC
+    mov                 bq, sq  ; switch rpic from sq to bq
+    %xdefine rpic bq
+    movifnidn           sq, smp ; load sq
+    COL_TRANSFORM     [dq], mm0, [pic(pw_col_coeffs)+ 0], [pic(pw_col_coeffs)+ 8]
+    mova               mm0, [pic(pw_col_coeffs)+ 0]
+    COL_TRANSFORM  [dq+sq], mm4, mm0, [pic(pw_col_coeffs)+ 8]
+    mova               mm4, [pic(pw_col_coeffs)+ 8]
     lea                 dq, [dq + 2*sq]
     COL_TRANSFORM     [dq], mm6, mm0, mm4
     COL_TRANSFORM  [dq+sq], mm7, mm0, mm4
+    PIC_END                     ; bq, no-save
     ret
 
 ; ff_rv34_idct_dc_add_sse4(uint8_t *dst, int stride, int dc);
