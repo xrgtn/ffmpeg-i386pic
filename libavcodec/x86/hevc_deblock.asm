@@ -273,7 +273,7 @@ INIT_XMM sse2
 
 ALIGN 16
 ; input in m0 ... m3 and tcs in r2. Output in m1 and m2
-%macro CHROMA_DEBLOCK_BODY 1
+%macro CHROMA_DEBLOCK_BODY 1-3+ "" ; tcq; PIC
     psubw            m4, m2, m1; q0 - p0
     psubw            m5, m0, m3; p1 - q1
     psllw            m4, 2; << 2
@@ -283,14 +283,25 @@ ALIGN 16
     movq             m6, [tcq]; tc0
     punpcklwd        m6, m6
     pshufd           m6, m6, 0xA0; tc0, tc1
-%if cpuflag(ssse3)
-    psignw           m4, m6, [pw_m1]; -tc0, -tc1
+    CHECK_REG_COLLISION "rpic",%1,"tcq"
+%ifidn %2, PIC_BEGIN
+    PIC_BEGIN %3
 %else
-    pmullw           m4, m6, [pw_m1]; -tc0, -tc1
+    PIC_BEGIN r4
+%endif
+%if cpuflag(ssse3)
+    psignw           m4, m6, [pic(pw_m1)]; -tc0, -tc1
+%else
+    pmullw           m4, m6, [pic(pw_m1)]; -tc0, -tc1
 %endif
     ;end tc calculations
 
-    paddw            m5, [pw_4]; +4
+    paddw            m5, [pic(pw_4)]; +4
+%ifidn %2, PIC_BEGIN
+    ; PIC block continues beyond %endmacro
+%else
+    PIC_END
+%endif
     psraw            m5, 3; >> 3
 
 %if %1 > 8
@@ -304,7 +315,7 @@ ALIGN 16
 %endmacro
 
 ; input in m0 ... m7, beta in r2 tcs in r3. Output in m1...m6
-%macro LUMA_DEBLOCK_BODY 2
+%macro LUMA_DEBLOCK_BODY 2 ; amd64-only
     psllw            m9, m2, 1; *2
     psubw           m10, m1, m9
     paddw           m10, m3
@@ -631,7 +642,8 @@ cglobal hevc_v_loop_filter_chroma_8, 3, 5, 7, pix, stride, tc, pix0, r3stride
     mov           pix0q, pixq
     add            pixq, r3strideq
     TRANSPOSE4x8B_LOAD  PASS8ROWS(pix0q, pixq, strideq, r3strideq)
-    CHROMA_DEBLOCK_BODY 8
+    DESIGNATE_RPIC tcq ; tcq not used beyond CHROMA_DEBLOCK_BODY
+    CHROMA_DEBLOCK_BODY 8  ; tcq; PIC
     TRANSPOSE8x4B_STORE PASS8ROWS(pix0q, pixq, strideq, r3strideq)
     RET
 
@@ -641,8 +653,11 @@ cglobal hevc_v_loop_filter_chroma_10, 3, 5, 7, pix, stride, tc, pix0, r3stride
     mov           pix0q, pixq
     add            pixq, r3strideq
     TRANSPOSE4x8W_LOAD  PASS8ROWS(pix0q, pixq, strideq, r3strideq)
-    CHROMA_DEBLOCK_BODY 10
-    TRANSPOSE8x4W_STORE PASS8ROWS(pix0q, pixq, strideq, r3strideq), [pw_pixel_max_10]
+    DESIGNATE_RPIC tcq
+    CHROMA_DEBLOCK_BODY 10, PIC_BEGIN,tcq,0 ; tcq; PIC
+    CHECK_REG_COLLISION "rpic","pix0q","pixq","strideq","r3strideq"
+    TRANSPOSE8x4W_STORE PASS8ROWS(pix0q, pixq, strideq, r3strideq), [pic(pw_pixel_max_10)]
+    PIC_END ; tcq, no-save
     RET
 
 cglobal hevc_v_loop_filter_chroma_12, 3, 5, 7, pix, stride, tc, pix0, r3stride
@@ -651,8 +666,10 @@ cglobal hevc_v_loop_filter_chroma_12, 3, 5, 7, pix, stride, tc, pix0, r3stride
     mov           pix0q, pixq
     add            pixq, r3strideq
     TRANSPOSE4x8W_LOAD  PASS8ROWS(pix0q, pixq, strideq, r3strideq)
-    CHROMA_DEBLOCK_BODY 12
-    TRANSPOSE8x4W_STORE PASS8ROWS(pix0q, pixq, strideq, r3strideq), [pw_pixel_max_12]
+    CHROMA_DEBLOCK_BODY 12, PIC_BEGIN,tcq,0 ; tcq; PIC
+    CHECK_REG_COLLISION "rpic","pix0q","pixq","strideq","r3strideq"
+    TRANSPOSE8x4W_STORE PASS8ROWS(pix0q, pixq, strideq, r3strideq), [pic(pw_pixel_max_12)]
+    PIC_END ; tcq, no-save
     RET
 
 ;-----------------------------------------------------------------------------
@@ -672,7 +689,8 @@ cglobal hevc_h_loop_filter_chroma_8, 3, 4, 7, pix, stride, tc, pix0
     punpcklbw        m1, m5
     punpcklbw        m2, m5
     punpcklbw        m3, m5
-    CHROMA_DEBLOCK_BODY  8
+    DESIGNATE_RPIC tcq ; tcq not used beyond CHROMA_DEBLOCK_BODY
+    CHROMA_DEBLOCK_BODY  8  ; tcq; PIC
     packuswb         m1, m2
     movh[pix0q+strideq], m1
     movhps       [pixq], m1
@@ -686,10 +704,12 @@ cglobal hevc_h_loop_filter_chroma_10, 3, 4, 7, pix, stride, tc, pix0
     movu            m1, [pix0q+strideq]; p0
     movu            m2, [pixq];    q0
     movu            m3, [pixq+strideq]; q1
-    CHROMA_DEBLOCK_BODY 10
+    CHROMA_DEBLOCK_BODY 10, PIC_BEGIN,tcq,0 ; tcq; PIC
+    CHECK_REG_COLLISION "rpic","pix0q","pixq","strideq"
     pxor            m5, m5; zeros reg
-    CLIPW           m1, m5, [pw_pixel_max_10]
-    CLIPW           m2, m5, [pw_pixel_max_10]
+    CLIPW           m1, m5, [pic(pw_pixel_max_10)]
+    CLIPW           m2, m5, [pic(pw_pixel_max_10)]
+    PIC_END ; tcq, no-save
     movu [pix0q+strideq], m1
     movu        [pixq], m2
     RET
@@ -702,10 +722,12 @@ cglobal hevc_h_loop_filter_chroma_12, 3, 4, 7, pix, stride, tc, pix0
     movu            m1, [pix0q+strideq]; p0
     movu            m2, [pixq];    q0
     movu            m3, [pixq+strideq]; q1
-    CHROMA_DEBLOCK_BODY 12
+    CHROMA_DEBLOCK_BODY 12, PIC_BEGIN,tcq,0 ; tcq; PIC
+    CHECK_REG_COLLISION "rpic","pix0q","pixq","strideq"
     pxor            m5, m5; zeros reg
-    CLIPW           m1, m5, [pw_pixel_max_12]
-    CLIPW           m2, m5, [pw_pixel_max_12]
+    CLIPW           m1, m5, [pic(pw_pixel_max_12)]
+    CLIPW           m2, m5, [pic(pw_pixel_max_12)]
+    PIC_END ; tcq, no-save
     movu [pix0q+strideq], m1
     movu        [pixq], m2
     RET
