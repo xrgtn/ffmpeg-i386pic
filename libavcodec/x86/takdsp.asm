@@ -90,16 +90,21 @@ cglobal tak_decorrelate_sm, 3, 3, 6, p1, p2, length
     RET
 
 INIT_XMM sse4
-cglobal tak_decorrelate_sf, 3, 3, 5, p1, p2, length, dshift, dfactor
+cglobal tak_decorrelate_sf, 1, 3, 5, p1, p2, length, dshift, dfactor
+    PIC_BEGIN p2q, 0                  ; p2q loading delayed
+    CHECK_REG_COLLISION "rpic","p2mp","dshiftm","dfactorm"
+    mova                 m4, [pic(pd_128)]
+    movd                 m2, dshiftm  ; m2 loaded from arg[3]
+    movd                 m3, dfactorm ; m3 loaded from arg[4]
+    PIC_END                           ; p2q, no-save
+    movifnidn           p2q, p2mp     ; p2q loaded from arg[1]
+    pshufd               m3, m3, 0
+
+    movifnidn       lengthq, lengthmp ; lengthq loaded from arg[2]
     shl             lengthd, 2
     add                 p1q, lengthq
     add                 p2q, lengthq
     neg             lengthq
-
-    movd                 m2, dshiftm
-    movd                 m3, dfactorm
-    pshufd               m3, m3, 0
-    mova                 m4, [pd_128]
 
 .loop:
     mova                 m0, [p1q+lengthq]
