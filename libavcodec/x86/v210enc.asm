@@ -92,13 +92,16 @@ SECTION .text
 
 ; v210_planar_pack_10(const uint16_t *y, const uint16_t *u, const uint16_t *v, uint8_t *dst, ptrdiff_t width)
 cglobal v210_planar_pack_10, 5, 5, 4+cpuflag(avx2), y, u, v, dst, width
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","yq","uq","vq","dstq","widthq"
     lea     yq, [yq+2*widthq]
     add     uq, widthq
     add     vq, widthq
     neg     widthq
 
-    mova    m2, [v210_enc_min_10]
-    mova    m3, [v210_enc_max_10]
+    mova    m2, [pic(v210_enc_min_10)]
+    mova    m3, [pic(v210_enc_max_10)]
 
 .loop:
     movu        xm0, [yq+2*widthq]
@@ -116,11 +119,11 @@ cglobal v210_planar_pack_10, 5, 5, 4+cpuflag(avx2), y, u, v, dst, width
 %endif
     CLIPW   m1, m2, m3
 
-    pmullw  m0, [v210_enc_luma_mult_10]
-    pshufb  m0, [v210_enc_luma_shuf_10]
+    pmullw  m0, [pic(v210_enc_luma_mult_10)]
+    pshufb  m0, [pic(v210_enc_luma_shuf_10)]
 
-    pmullw  m1, [v210_enc_chroma_mult_10]
-    pshufb  m1, [v210_enc_chroma_shuf_10]
+    pmullw  m1, [pic(v210_enc_chroma_mult_10)]
+    pshufb  m1, [pic(v210_enc_chroma_shuf_10)]
 
     por     m0, m1
 
@@ -130,6 +133,7 @@ cglobal v210_planar_pack_10, 5, 5, 4+cpuflag(avx2), y, u, v, dst, width
     add     widthq, (mmsize*3)/8
     jl .loop
 
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
@@ -145,27 +149,31 @@ v210_planar_pack_10
 
 %macro v210_planar_pack_10_new 0
 
-cglobal v210_planar_pack_10, 5, 5, 8+2*notcpuflag(avx512icl), y, u, v, dst, width
+cglobal v210_planar_pack_10, 4, 5, 8+2*notcpuflag(avx512icl), y, u, v, dst, width
+    PIC_BEGIN widthq, 0       ; widthq loading delayed
+    CHECK_REG_COLLISION "rpic","yq","uq","vq","dstq","widthmp"
+    %if cpuflag(avx512icl)
+        movu  m6, [pic(icl_perm_y)]
+        movu  m7, [pic(icl_perm_uv)]
+        kmovq k1, [pic(icl_perm_y_kmask)]
+        kmovq k2, [pic(icl_perm_uv_kmask)]
+    %else
+        movu           m6, [pic(v210enc_10_permd_y)]
+        VBROADCASTI128 m7, [pic(v210enc_10_shufb_y)]
+        movu           m8, [pic(v210enc_10_permd_uv)]
+        movu           m9, [pic(v210enc_10_shufb_uv)]
+    %endif
+    movu  m2, [pic(icl_shift_y)]
+    movu  m3, [pic(icl_shift_uv)]
+    VBROADCASTI128 m4, [pic(v210_enc_min_10)] ; only ymm sized
+    VBROADCASTI128 m5, [pic(v210_enc_max_10)] ; only ymm sized
+    PIC_END                   ; widthq, no-save
+
+    movifnidn widthq, widthmp ; load widthq from arg[4]
     lea     yq, [yq+2*widthq]
     add     uq, widthq
     add     vq, widthq
     neg     widthq
-
-    %if cpuflag(avx512icl)
-        movu  m6, [icl_perm_y]
-        movu  m7, [icl_perm_uv]
-        kmovq k1, [icl_perm_y_kmask]
-        kmovq k2, [icl_perm_uv_kmask]
-    %else
-        movu           m6, [v210enc_10_permd_y]
-        VBROADCASTI128 m7, [v210enc_10_shufb_y]
-        movu           m8, [v210enc_10_permd_uv]
-        movu           m9, [v210enc_10_shufb_uv]
-    %endif
-    movu  m2, [icl_shift_y]
-    movu  m3, [icl_shift_uv]
-    VBROADCASTI128 m4, [v210_enc_min_10] ; only ymm sized
-    VBROADCASTI128 m5, [v210_enc_max_10] ; only ymm sized
 
     .loop:
         movu m0, [yq + widthq*2]
@@ -216,14 +224,17 @@ v210_planar_pack_10_new
 
 ; v210_planar_pack_8(const uint8_t *y, const uint8_t *u, const uint8_t *v, uint8_t *dst, ptrdiff_t width)
 cglobal v210_planar_pack_8, 5, 5, 7, y, u, v, dst, width
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","yq","uq","vq","dstq","widthq"
     add     yq, widthq
     shr     widthq, 1
     add     uq, widthq
     add     vq, widthq
     neg     widthq
 
-    mova    m4, [v210_enc_min_8]
-    mova    m5, [v210_enc_max_8]
+    mova    m4, [pic(v210_enc_min_8)]
+    mova    m5, [pic(v210_enc_max_8)]
     pxor    m6, m6
 
 .loop:
@@ -236,12 +247,12 @@ cglobal v210_planar_pack_8, 5, 5, 7, y, u, v, dst, width
     punpcklbw m0, m1, m6
     ; can't unpack high bytes in the same way because we process
     ; only six bytes at a time
-    pshufb  m1, [v210_enc_luma_shuf_8]
+    pshufb  m1, [pic(v210_enc_luma_shuf_8)]
 
-    pmullw  m0, [v210_enc_luma_mult_8]
-    pmullw  m1, [v210_enc_luma_mult_8]
-    pshufb  m0, [v210_enc_luma_shuf_10]
-    pshufb  m1, [v210_enc_luma_shuf_10]
+    pmullw  m0, [pic(v210_enc_luma_mult_8)]
+    pmullw  m1, [pic(v210_enc_luma_mult_8)]
+    pshufb  m0, [pic(v210_enc_luma_shuf_10)]
+    pshufb  m1, [pic(v210_enc_luma_shuf_10)]
 
     movq         xm3, [uq+widthq]
     movhps       xm3, [vq+widthq]
@@ -253,13 +264,13 @@ cglobal v210_planar_pack_8, 5, 5, 7, y, u, v, dst, width
     CLIPUB  m3, m4, m5
 
     ; shuffle and multiply to get the same packing as in 10-bit
-    pshufb  m2, m3, [v210_enc_chroma_shuf1_8]
-    pshufb  m3, [v210_enc_chroma_shuf2_8]
+    pshufb  m2, m3, [pic(v210_enc_chroma_shuf1_8)]
+    pshufb  m3, [pic(v210_enc_chroma_shuf2_8)]
 
-    pmullw  m2, [v210_enc_chroma_mult_8]
-    pmullw  m3, [v210_enc_chroma_mult_8]
-    pshufb  m2, [v210_enc_chroma_shuf_10]
-    pshufb  m3, [v210_enc_chroma_shuf_10]
+    pmullw  m2, [pic(v210_enc_chroma_mult_8)]
+    pmullw  m3, [pic(v210_enc_chroma_mult_8)]
+    pshufb  m2, [pic(v210_enc_chroma_shuf_10)]
+    pshufb  m3, [pic(v210_enc_chroma_shuf_10)]
 
     por     m0, m2
     por     m1, m3
@@ -275,6 +286,7 @@ cglobal v210_planar_pack_8, 5, 5, 7, y, u, v, dst, width
     add     widthq, (mmsize*3)/8
     jl .loop
 
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
@@ -289,25 +301,29 @@ v210_planar_pack_8
 
 %macro v210_planar_pack_8_new 0
 
-cglobal v210_planar_pack_8, 5, 5, 7+notcpuflag(avx512icl), y, u, v, dst, width
+cglobal v210_planar_pack_8, 4, 5, 7+notcpuflag(avx512icl), y, u, v, dst, width
+    PIC_BEGIN widthq, 0       ; widthq loading delayed
+    CHECK_REG_COLLISION "rpic","yq","uq","vq","dstq","widthmp"
+    %if cpuflag(avx512icl)
+        mova m2, [pic(v210enc_8_permb)]
+    %else
+        mova m2, [pic(v210enc_8_permd)]
+    %endif
+    vpbroadcastd   m3, [pic(v210enc_8_mult)]
+    VBROADCASTI128 m4, [pic(v210_enc_min_8)] ; only ymm sized
+    VBROADCASTI128 m5, [pic(v210_enc_max_8)] ; only ymm sized
+    vpbroadcastd   m6, [pic(v210enc_8_mask)]
+    %if notcpuflag(avx512icl)
+        movu m7, [pic(v210enc_8_shufb)]
+    %endif
+    PIC_END                   ; widthq, no-save
+
+    movifnidn widthq, widthmp ; load widthq from arg[4]
     add     yq, widthq
     shr     widthq, 1
     add     uq, widthq
     add     vq, widthq
     neg     widthq
-
-    %if cpuflag(avx512icl)
-        mova m2, [v210enc_8_permb]
-    %else
-        mova m2, [v210enc_8_permd]
-    %endif
-    vpbroadcastd   m3, [v210enc_8_mult]
-    VBROADCASTI128 m4, [v210_enc_min_8] ; only ymm sized
-    VBROADCASTI128 m5, [v210_enc_max_8] ; only ymm sized
-    vpbroadcastd   m6, [v210enc_8_mask]
-    %if notcpuflag(avx512icl)
-        movu m7, [v210enc_8_shufb]
-    %endif
 
     .loop:
         %if cpuflag(avx512icl)
