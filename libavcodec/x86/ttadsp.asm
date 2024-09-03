@@ -69,6 +69,10 @@ cglobal tta_filter_process, 5,5,%2, qm, dx, dl, error, in, shift, round
     pshufd     m3, m3, 0xd8
     punpckldq  m3, m6
 %endif
+
+    PIC_BEGIN qmq, 0 ; qmq not used anymore
+    CHECK_REG_COLLISION "rpic",,"dxq","dlq","errorq","inq","shiftm","roundm"
+
     ; Using horizontal add (phaddd) seems to be slower than shuffling stuff around
     paddd      m2, m3               ; int sum = filter->round +
                                     ;           filter->dl[0] * filter->qm[0] +
@@ -87,8 +91,8 @@ cglobal tta_filter_process, 5,5,%2, qm, dx, dl, error, in, shift, round
                                     ; filter->dl[2] = filter->dl[3]; filter->dl[3] = filter->dl[4];
 
     psrad      m4, m1, 30           ; filter->dx[4] = ((filter->dl[4] >> 30) | 1);
-    por        m4, [pd_1224 ]       ; filter->dx[5] = ((filter->dl[5] >> 30) | 2) & ~1;
-    pand       m4, [pd_n0113]       ; filter->dx[6] = ((filter->dl[6] >> 30) | 2) & ~1;
+    por        m4, [pic(pd_1224) ]  ; filter->dx[5] = ((filter->dl[5] >> 30) | 2) & ~1;
+    pand       m4, [pic(pd_n0113)]  ; filter->dx[6] = ((filter->dl[6] >> 30) | 2) & ~1;
                                     ; filter->dx[7] = ((filter->dl[7] >> 30) | 4) & ~3;
 
     mova       [dlq       ], m2
@@ -112,6 +116,7 @@ cglobal tta_filter_process, 5,5,%2, qm, dx, dl, error, in, shift, round
     psrldq     m1, 4                ;
     paddd      m0, m1               ;
     mova       [dlq + 0x10], m0     ;
+    PIC_END ; qmq, no-save
     RET
 %endmacro
 
