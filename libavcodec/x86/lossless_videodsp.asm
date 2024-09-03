@@ -161,21 +161,27 @@ cglobal add_median_pred, 6,6,8, dst, top, diff, w, left, left_top
 ; int ff_add_left_pred(uint8_t *dst, const uint8_t *src, int w, int left)
 ;------------------------------------------------------------------------------
 INIT_MMX ssse3
-cglobal add_left_pred, 3,3,7, dst, src, w, left
-.skip_prologue:
-    mova    m5, [pb_7]
-    mova    m4, [pb_zzzz3333zzzzbbbb]
-    mova    m3, [pb_zz11zz55zz99zzdd]
+cglobal add_left_pred, 2,3,7, dst, src, w, left
+;.skip_prologue:
+    PIC_BEGIN wq, 0   ; wq loading delayed
+    mova    m5, [pic(pb_7)]
+    mova    m4, [pic(pb_zzzz3333zzzzbbbb)]
+    mova    m3, [pic(pb_zz11zz55zz99zzdd)]
+    PIC_END           ; wq, no-save
+    movifnidn wq, wmp ; wq loaded from arg[2]
     movd    m0, leftm
     psllq   m0, 56
     ADD_LEFT_LOOP 1, 1
 
 %macro ADD_LEFT_PRED_UNALIGNED 0
-cglobal add_left_pred_unaligned, 3,3,7, dst, src, w, left
-    mova    xm5, [pb_15]
-    VBROADCASTI128    m6, [pb_zzzzzzzz77777777]
-    VBROADCASTI128    m4, [pb_zzzz3333zzzzbbbb]
-    VBROADCASTI128    m3, [pb_zz11zz55zz99zzdd]
+cglobal add_left_pred_unaligned, 2,3,7, dst, src, w, left
+    PIC_BEGIN wq, 0   ; wq loading delayed
+    mova    xm5, [pic(pb_15)]
+    VBROADCASTI128    m6, [pic(pb_zzzzzzzz77777777)]
+    VBROADCASTI128    m4, [pic(pb_zzzz3333zzzzbbbb)]
+    VBROADCASTI128    m3, [pic(pb_zz11zz55zz99zzdd)]
+    PIC_END           ; wq, no-save
+    movifnidn wq, wmp ; wq loaded from arg[2]
     movd    xm0, leftm
     pslldq  xm0, 15
     test    srcq, mmsize - 1
@@ -285,10 +291,13 @@ ADD_BYTES
 ; int add_left_pred_int16(uint16_t *dst, const uint16_t *src, unsigned mask, int w, int left)
 ;---------------------------------------------------------------------------------------------
 INIT_MMX ssse3
-cglobal add_left_pred_int16, 4,4,8, dst, src, mask, w, left
-.skip_prologue:
-    mova    m5, [pb_67]
-    mova    m3, [pb_zzzz2323zzzzabab]
+cglobal add_left_pred_int16, 3,4,8, dst, src, mask, w, left
+;.skip_prologue:
+    PIC_BEGIN wq, 0   ; wq loading delayed
+    mova    m5, [pic(pb_67)]
+    mova    m3, [pic(pb_zzzz2323zzzzabab)]
+    PIC_END           ; wq, no-save
+    movifnidn wq, wmp ; wq loaded from arg[3]
     movd    m0, leftm
     psllq   m0, 48
     movd    m7, maskm
@@ -296,10 +305,13 @@ cglobal add_left_pred_int16, 4,4,8, dst, src, mask, w, left
     ADD_HFYU_LEFT_LOOP_INT16 a, a
 
 INIT_XMM ssse3
-cglobal add_left_pred_int16_unaligned, 4,4,8, dst, src, mask, w, left
-    mova    m5, [pb_ef]
-    mova    m4, [pb_zzzzzzzz67676767]
-    mova    m3, [pb_zzzz2323zzzzabab]
+cglobal add_left_pred_int16_unaligned, 3,4,8, dst, src, mask, w, left
+    PIC_BEGIN wq, 0   ; wq loading delayed
+    mova    m5, [pic(pb_ef)]
+    mova    m4, [pic(pb_zzzzzzzz67676767)]
+    mova    m3, [pic(pb_zzzz2323zzzzabab)]
+    PIC_END           ; wq, no-save
+    movifnidn wq, wmp ; wq loaded from arg[3]
     movd    m0, leftm
     pslldq  m0, 14
     movd    m7, maskm
@@ -320,7 +332,9 @@ cglobal add_left_pred_int16_unaligned, 4,4,8, dst, src, mask, w, left
 ;---------------------------------------------------------------------------------------------
 %macro ADD_GRADIENT_PRED 0
 cglobal add_gradient_pred, 3,4,5, src, stride, width, tmp
-    mova         xm0, [pb_15]
+    PIC_BEGIN tmpq, 0 ; tmpq not initialized yet
+    mova         xm0, [pic(pb_15)]
+    PIC_END           ; tmpq, no-save
 
 ;load src - 1 in xm1
     movd         xm1, [srcq-1]
@@ -336,7 +350,7 @@ cglobal add_gradient_pred, 3,4,5, src, stride, width, tmp
     neg strideq
 
 .loop:
-    lea    tmpq, [srcq + strideq]
+    lea    tmpq, [srcq + strideq] ; tmpq init
     mova     m2, [tmpq + widthq] ; A = src[x-stride]
     movu     m3, [tmpq + widthq - 1] ; B = src[x - (stride + 1)]
     mova     m4, [srcq + widthq] ; current val (src[x])
