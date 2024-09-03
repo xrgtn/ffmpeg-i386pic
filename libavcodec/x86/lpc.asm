@@ -36,6 +36,8 @@ SECTION .text
 
 %macro APPLY_WELCH_FN 0
 cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
     cmp lenq, 0
     je .end_e
     cmp lenq, 2
@@ -43,7 +45,7 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     cmp lenq, 1
     je .one
 
-    movapd m6, [one_tab]
+    movapd m6, [pic(one_tab)]
 
     movd xm1, lend
     cvtdq2pd xm1, xm1      ; len
@@ -62,7 +64,7 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     je .even
 
     movapd m5, m0
-    addpd m0, [sub_tab]
+    addpd m0, [pic(sub_tab)]
 
     lea off2q, [lenq*4 - mmsize/2]
     sub lenq, mmsize/4     ; avoid overwriting
@@ -72,9 +74,9 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     jl .scalar_o
 
 %if cpuflag(avx2)
-    movapd m7, [dec_tab_avx2]
+    movapd m7, [pic(dec_tab_avx2)]
 %else
-    movapd m7, [dec_tab_sse2]
+    movapd m7, [pic(dec_tab_sse2)]
 %endif
 
 .loop_o:
@@ -109,7 +111,7 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     sub lenq, (mmsize/4 - 1)
 
 .scalar_o:
-    movapd xm7, [dec_tab_scalar]
+    movapd xm7, [pic(dec_tab_scalar)]
 
     ; Set offsets
     add off2q, (mmsize/4) + 4*cpuflag(avx2)
@@ -144,13 +146,16 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
 .end_o:
     xorpd xm3, xm3
     movlpd [outq + off1q*2], xm3
+    PIC_CONTEXT_PUSH
+    PIC_END ; r5, push/pop
     RET
+    PIC_CONTEXT_POP
 
 .even:
 %if cpuflag(avx2)
-    addpd m0, [seq_tab_avx2]
+    addpd m0, [pic(seq_tab_avx2)]
 %else
-    addpd m0, [seq_tab_sse2]
+    addpd m0, [pic(seq_tab_sse2)]
 %endif
 
     mov off1d, lend
@@ -165,9 +170,9 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     subpd m0, m1
 
 %if cpuflag(avx2)
-    movapd m7, [add_tab_avx2]
+    movapd m7, [pic(add_tab_avx2)]
 %else
-    movapd m7, [add_tab_sse2]
+    movapd m7, [pic(add_tab_sse2)]
 %endif
 
     lea off2q, [lenq*2]
@@ -208,14 +213,14 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
 
 .scalar_e:
     subpd xm0, xm7
-    movapd xm7, [dec_tab_scalar]
+    movapd xm7, [pic(dec_tab_scalar)]
     subpd xm0, xm7
 
     add off1q, (mmsize/2)
     sub off2q, (mmsize/2) - 8*cpuflag(avx2)
     add lenq, 6 + 4*cpuflag(avx2)
 
-    addpd xm0, [sub_tab]
+    addpd xm0, [pic(sub_tab)]
 
 .loop_e_scalar:
     movapd xm1, xm6
@@ -242,7 +247,10 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     sub off1q, 4
     sub lenq, 2
     jg .loop_e_scalar
+    PIC_CONTEXT_PUSH
+    PIC_END ; r5, push/pop
     RET
+    PIC_CONTEXT_POP
 
 .two:
     xorpd xm0, xm0
@@ -251,6 +259,7 @@ cglobal lpc_apply_welch_window, 3, 5, 8, data, len, out, off1, off2
     xorpd xm0, xm0
     movhpd [outq], xm0
 .end_e:
+    PIC_END ; r5, push/pop
     RET
 %endmacro
 
