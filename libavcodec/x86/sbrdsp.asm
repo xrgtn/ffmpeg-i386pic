@@ -163,11 +163,13 @@ cglobal sbr_hf_gen, 4,4,8, X_high, X_low, alpha0, alpha1, BW, S, E
 
     mova        m0, [X_lowq + startq]
     shufps      m3, m3, q1111
+    PIC_BEGIN endq, 0 ; endq not used anymore
     shufps      m4, m4, q1111
-    xorps       m3, [ps_mask]
+    xorps       m3, [pic(ps_mask)]
     shufps      m1, m1, q0000
     shufps      m2, m2, q0000
-    xorps       m4, [ps_mask]
+    xorps       m4, [pic(ps_mask)]
+    PIC_END           ; endq, no-save
 .loop2:
     movu        m7, [X_lowq + startq + 8]       ; BbCc
     mova        m6, m0
@@ -212,8 +214,10 @@ cglobal sbr_sum64x5, 1,2,4,z
 
 INIT_XMM sse
 cglobal sbr_qmf_post_shuffle, 2,3,4,W,z
-    lea              r2q, [zq + (64-4)*4]
-    mova              m3, [ps_neg]
+    PIC_BEGIN r2, 0                       ; r2 not initialized yet
+    mova              m3, [pic(ps_neg)]
+    PIC_END ; r2, no-save
+    lea              r2q, [zq + (64-4)*4] ; r2 init
 .loop:
     mova              m1, [zq]
     xorps             m0, m3, [r2q]
@@ -231,16 +235,18 @@ cglobal sbr_qmf_post_shuffle, 2,3,4,W,z
 
 INIT_XMM sse
 cglobal sbr_neg_odd_64, 1,2,4,z
+    PIC_BEGIN r2, 0 ; r2 is unused and scratch reg
+    CHECK_REG_COLLISION "rpic","zq","r1q"
     lea        r1q, [zq+256]
 .loop:
     mova        m0, [zq+ 0]
     mova        m1, [zq+16]
     mova        m2, [zq+32]
     mova        m3, [zq+48]
-    xorps       m0, [ps_mask2]
-    xorps       m1, [ps_mask2]
-    xorps       m2, [ps_mask2]
-    xorps       m3, [ps_mask2]
+    xorps       m0, [pic(ps_mask2)]
+    xorps       m1, [pic(ps_mask2)]
+    xorps       m2, [pic(ps_mask2)]
+    xorps       m3, [pic(ps_mask2)]
     mova   [zq+ 0], m0
     mova   [zq+16], m1
     mova   [zq+32], m2
@@ -248,6 +254,7 @@ cglobal sbr_neg_odd_64, 1,2,4,z
     add         zq, 64
     cmp         zq, r1q
     jne      .loop
+    PIC_END ; r2, no-save
     RET
 
 ; void ff_sbr_qmf_deint_bfly_sse2(float *v, const float *src0, const float *src1)
@@ -281,10 +288,13 @@ cglobal sbr_qmf_deint_bfly, 3,5,8, v,src0,src1,vrev,c
 INIT_XMM sse2
 cglobal sbr_qmf_pre_shuffle, 1,4,6,z
 %define OFFSET  (32*4-2*mmsize)
+    PIC_BEGIN r2, 0            ; r2 not initialized yet
+    CHECK_REG_COLLISION "rpic","zq","r1q","r3q"
+    mova       m5, [pic(ps_neg)]
     mov       r3q, OFFSET
     lea       r1q, [zq + (32+1)*4]
-    lea       r2q, [zq + 64*4]
-    mova       m5, [ps_neg]
+    PIC_END                    ; r2, no-save
+    lea       r2q, [zq + 64*4] ; r2 init
 .loop:
     movu       m0, [r1q]
     movu       m2, [r1q + mmsize]
@@ -315,7 +325,10 @@ cglobal sbr_qmf_pre_shuffle, 1,4,6,z
 %else
 %define NOISE_TABLE r5q
 %endif
-%else
+%elif i386pic
+%define NREGS 1
+%define NOISE_TABLE pic(sbr_noise_table)
+%else ; !i386pic && !PIC
 %define NREGS 0
 %define NOISE_TABLE sbr_noise_table
 %endif
@@ -324,6 +337,8 @@ cglobal sbr_qmf_pre_shuffle, 1,4,6,z
 %ifdef PIC
     lea  NOISE_TABLE, [%1]
     mova          m0, [kxq + NOISE_TABLE]
+%elif i386pic
+    mova          m0, [kxq + pic(%1)]
 %else
     mova          m0, [kxq + %1]
 %endif
@@ -334,37 +349,47 @@ INIT_XMM sse2
 ;                      const float *q_filt, int noise,
 ;                      int kx, int m_max)
 cglobal sbr_hf_apply_noise_0, 5,5+NREGS+UNIX64,8, Y,s_m,q_filt,noise,kx,m_max
-    mova       m0, [ps_noise0]
+    PIC_BEGIN r5, 0 ; r5 is saved by PROLOGUE 5,5+NREGS(==1)
+    mova       m0, [pic(ps_noise0)]
     jmp apply_noise_main
+    PIC_END ; r5, no-save: no-op
 
 ; sbr_hf_apply_noise_1(float (*Y)[2], const float *s_m,
 ;                      const float *q_filt, int noise,
 ;                      int kx, int m_max)
 cglobal sbr_hf_apply_noise_1, 5,5+NREGS+UNIX64,8, Y,s_m,q_filt,noise,kx,m_max
+    PIC_BEGIN r5, 0 ; r5 is saved by PROLOGUE 5,5+NREGS(==1)
+    CHECK_REG_COLLISION "rpic","kxq"
     and       kxq, 1
     shl       kxq, 4
-    LOAD_NST  ps_noise13
+    LOAD_NST  ps_noise13 ; PIC
     jmp apply_noise_main
+    PIC_END ; no-op
 
 ; sbr_hf_apply_noise_2(float (*Y)[2], const float *s_m,
 ;                      const float *q_filt, int noise,
 ;                      int kx, int m_max)
 cglobal sbr_hf_apply_noise_2, 5,5+NREGS+UNIX64,8, Y,s_m,q_filt,noise,kx,m_max
-    mova       m0, [ps_noise2]
+    PIC_BEGIN r5, 0 ; r5 is saved by PROLOGUE 5,5+NREGS(==1)
+    mova       m0, [pic(ps_noise2)]
     jmp apply_noise_main
+    PIC_END ; no-op
 
 ; sbr_hf_apply_noise_3(float (*Y)[2], const float *s_m,
 ;                      const float *q_filt, int noise,
 ;                      int kx, int m_max)
 cglobal sbr_hf_apply_noise_3, 5,5+NREGS+UNIX64,8, Y,s_m,q_filt,noise,kx,m_max
+    PIC_BEGIN r5, 0 ; r5 is saved by PROLOGUE 5,5+NREGS(==1)
+    CHECK_REG_COLLISION "rpic","Yq","s_mq","q_filtq","noiseq","kxq","m_maxm"
     and       kxq, 1
     shl       kxq, 4
-    LOAD_NST  ps_noise13+16
+    LOAD_NST  ps_noise13+16 ; PIC
 
 apply_noise_main:
 %if ARCH_X86_64 == 0 || WIN64
     mov       kxd, m_maxm
     DEFINE_ARGS Y, s_m, q_filt, noise, count
+    CHECK_REG_COLLISION "rpic","Yq","s_mq","q_filtq","noiseq","countq"
 %else
     DEFINE_ARGS Y, s_m, q_filt, noise, kx, count
 %endif
@@ -382,8 +407,8 @@ apply_noise_main:
     neg    countq
 .loop:
     mova       m1, [q_filtq + countq]
-    movu       m3, [noiseq + NOISE_TABLE + 1*mmsize]
-    movu       m4, [noiseq + NOISE_TABLE + 2*mmsize]
+    movu       m3, [noiseq + NOISE_TABLE + 1*mmsize] ; PIC
+    movu       m4, [noiseq + NOISE_TABLE + 2*mmsize] ; PIC
     add    noiseq, 2*mmsize
     and    noiseq, 0x1ff<<3
     punpckhdq  m2, m1, m1
@@ -410,17 +435,21 @@ apply_noise_main:
     movu    [Yq + 2*countq + mmsize], m7
     add    countq, mmsize
     jl      .loop
+    PIC_END ; r5, no-save
     RET
 
 INIT_XMM sse
 cglobal sbr_qmf_deint_neg, 2,4,4,v,src,vrev,c
 %define COUNT  32*4
 %define OFFSET 32*4
+    PIC_BEGIN vrevq, 0                   ; vrevq not initialized yet
+    CHECK_REG_COLLISION "rpic","vq","srcq","cq"
+    mova       m3, [pic(ps_neg)]
     mov        cq, -COUNT
-    lea     vrevq, [vq + OFFSET + COUNT]
+    PIC_END                              ; vrevq, no-save
+    lea     vrevq, [vq + OFFSET + COUNT] ; vrevq init
     add        vq, OFFSET-mmsize
     add      srcq, 2*COUNT
-    mova       m3, [ps_neg]
 .loop:
     mova       m0, [srcq + 2*cq + 0*mmsize]
     mova       m1, [srcq + 2*cq + 1*mmsize]
@@ -501,6 +530,8 @@ align 16
     addps   m7, m0       ; real_sum0 += x[i][0] * x[i][0],     x[i][1] * x[i][1];
     jl .loop
 
+    PIC_BEGIN cntq, 0    ; cntq not used anymore
+    CHECK_REG_COLLISION "rpic","[rsp+16]","phiq"
     movlhps m1, m1
     mulps   m2, m1
     mulps   m1, m1
@@ -509,9 +540,9 @@ align 16
     addps   m6, [rsp   ] ; real_sum1 + x[ 0][0] * x[ 1][0], x[ 0][1] * x[ 1][1]; imag_sum1 + x[ 0][0] * x[ 1][1], x[ 0][1] * x[ 1][0];
     addps   m7, [rsp+16] ; real_sum0 + x[ 0][0] * x[ 0][0], x[ 0][1] * x[ 0][1];
 
-    xorps   m2, [ps_mask3]
-    xorps   m5, [ps_mask3]
-    xorps   m6, [ps_mask3]
+    xorps   m2, [pic(ps_mask3)]
+    xorps   m5, [pic(ps_mask3)]
+    xorps   m6, [pic(ps_mask3)]
     HADDPS  m2, m5, m3
     HADDPS  m7, m6, m4
 %if cpuflag(sse3)
@@ -525,6 +556,7 @@ align 16
     movhps  [phiq+0x18], m7
     movss   [phiq+0x28], m7
     movss   [phiq+0x10], m1
+    PIC_END              ; cntq, no-save
     RET
 %endmacro
 
