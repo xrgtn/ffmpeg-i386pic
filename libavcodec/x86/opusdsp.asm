@@ -31,7 +31,7 @@ INIT_XMM fma3
 %if UNIX64
 cglobal opus_deemphasis, 3, 3, 8, out, in, len
 %else
-cglobal opus_deemphasis, 4, 4, 8, out, in, coeff, len
+cglobal opus_deemphasis, 3, 4, 8, out, in, coeff, len
 %endif
 %if ARCH_X86_32
     VBROADCASTSS m0, coeffm
@@ -41,7 +41,11 @@ cglobal opus_deemphasis, 4, 4, 8, out, in, coeff, len
     shufps m0, m0, 0
 %endif
 
-    movaps m4, [tab_st]
+    PIC_BEGIN lenq, 0     ; lenq loading delayed
+    movaps m4, [pic(tab_st)]
+    PIC_END               ; lenq, no-save
+    movifnidn lenq, lenmp ; load lenq from arg[3]
+
     VBROADCASTSS m5, m4
     shufps m6, m4, m4, q1111
     shufps m7, m4, m4, q2222
