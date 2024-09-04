@@ -32,19 +32,24 @@ cextern pw_4095
 SECTION .text
 
 %macro filter_h4_fn 1-2 12
-cglobal vp9_%1_8tap_1d_h_4_10, 6, 6, %2, dst, dstride, src, sstride, h, filtery
-    mova        m5, [pw_1023]
+cglobal vp9_%1_8tap_1d_h_4_10, 4, 6, %2, dst, dstride, src, sstride, h, filtery
+    movifnidn filteryq, filterymp
+    PIC_BEGIN hq, 0     ; hq loading delayed
+    CHECK_REG_COLLISION "rpic","hmp"
+    mova        m5, [pic(pw_1023)]
 .body:
 %if notcpuflag(sse4) && ARCH_X86_64
     pxor       m11, m11
 %endif
-    mova        m6, [pd_64]
+    mova        m6, [pic(pd_64)]
+    PIC_END             ; hq, no-save
     mova        m7, [filteryq+ 0]
 %if ARCH_X86_64 && mmsize > 8
     mova        m8, [filteryq+32]
     mova        m9, [filteryq+64]
     mova       m10, [filteryq+96]
 %endif
+    movifnidn   hq, hmp ; load hq from arg[4]
 .loop:
     movh        m0, [srcq-6]
     movh        m1, [srcq-4]
@@ -103,9 +108,12 @@ cglobal vp9_%1_8tap_1d_h_4_10, 6, 6, %2, dst, dstride, src, sstride, h, filtery
     jg .loop
     RET
 
-cglobal vp9_%1_8tap_1d_h_4_12, 6, 6, %2, dst, dstride, src, sstride, h, filtery
-    mova        m5, [pw_4095]
+cglobal vp9_%1_8tap_1d_h_4_12, 4, 6, %2, dst, dstride, src, sstride, h, filtery
+    movifnidn filteryq, filterymp
+    PIC_BEGIN hq, 0 ; hq loading delayed
+    mova        m5, [pic(pw_4095)]
     jmp mangle(private_prefix %+ _ %+ vp9_%1_8tap_1d_h_4_10 %+ SUFFIX).body
+    PIC_END ; hq, no-save
 %endmacro
 
 INIT_XMM sse2
@@ -114,19 +122,24 @@ filter_h4_fn avg
 
 %macro filter_h_fn 1-2 12
 %assign %%px mmsize/2
-cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _10, 6, 6, %2, dst, dstride, src, sstride, h, filtery
-    mova        m5, [pw_1023]
+cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _10, 4, 6, %2, dst, dstride, src, sstride, h, filtery
+    movifnidn filteryq, filterymp
+    PIC_BEGIN hq, 0     ; hq loading delayed
+    CHECK_REG_COLLISION "rpic","hmp"
+    mova        m5, [pic(pw_1023)]
 .body:
 %if notcpuflag(sse4) && ARCH_X86_64
     pxor       m11, m11
 %endif
-    mova        m6, [pd_64]
+    mova        m6, [pic(pd_64)]
+    PIC_END             ; hq, no-save
     mova        m7, [filteryq+ 0]
 %if ARCH_X86_64 && mmsize > 8
     mova        m8, [filteryq+32]
     mova        m9, [filteryq+64]
     mova       m10, [filteryq+96]
 %endif
+    movifnidn   hq, hmp ; load hq from arg[4]
 .loop:
     movu        m0, [srcq-6]
     movu        m1, [srcq-4]
@@ -193,9 +206,13 @@ cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _10, 6, 6, %2, dst, dstride, src, sstride, 
     jg .loop
     RET
 
-cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _12, 6, 6, %2, dst, dstride, src, sstride, h, filtery
-    mova        m5, [pw_4095]
+cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _12, 4, 6, %2, dst, dstride, src, sstride, h, filtery
+    movifnidn filteryq, filterymp
+    PIC_BEGIN hq, 0     ; hq loading delayed
+    CHECK_REG_COLLISION "rpic","hmp"
+    mova        m5, [pic(pw_4095)]
     jmp mangle(private_prefix %+ _ %+ vp9_%1_8tap_1d_h_ %+ %%px %+ _10 %+ SUFFIX).body
+    PIC_END             ; hq, no-save
 %endmacro
 
 INIT_XMM sse2
@@ -215,14 +232,18 @@ cglobal vp9_%1_8tap_1d_v_4_10, 4, 7, %2, dst, dstride, src, sstride, filtery, sr
     mov   filteryq, r5mp
 %define hd r4mp
 %endif
-    mova        m5, [pw_1023]
+    PIC_BEGIN src4q, 0              ; src4q isn't initialized yet
+    CHECK_REG_COLLISION "rpic","dstq","dstrideq","srcq","sstrideq",\
+        "filteryq",,"sstride3q","r4mp"
+    mova        m5, [pic(pw_1023)]
 .body:
 %if notcpuflag(sse4) && ARCH_X86_64
     pxor       m11, m11
 %endif
-    mova        m6, [pd_64]
+    mova        m6, [pic(pd_64)]
+    PIC_END                         ; src4q, no-save
     lea  sstride3q, [sstrideq*3]
-    lea      src4q, [srcq+sstrideq]
+    lea      src4q, [srcq+sstrideq] ; src4q init
     sub       srcq, sstride3q
     mova        m7, [filteryq+  0]
 %if ARCH_X86_64 && mmsize > 8
@@ -298,8 +319,10 @@ cglobal vp9_%1_8tap_1d_v_4_12, 6, 8, %2, dst, dstride, src, sstride, h, filtery,
 cglobal vp9_%1_8tap_1d_v_4_12, 4, 7, %2, dst, dstride, src, sstride, filtery, src4, sstride3
     mov   filteryq, r5mp
 %endif
-    mova        m5, [pw_4095]
+    PIC_BEGIN src4q, 0              ; src4q isn't initialized yet
+    mova        m5, [pic(pw_4095)]
     jmp mangle(private_prefix %+ _ %+ vp9_%1_8tap_1d_v_4_10 %+ SUFFIX).body
+    PIC_END                         ; src4q, no-save
 %endmacro
 
 INIT_XMM sse2
@@ -311,11 +334,17 @@ filter_v4_fn avg
 %if ARCH_X86_64
 cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _10, 6, 8, %2, dst, dstride, src, sstride, h, filtery, src4, sstride3
 %else
-cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _10, 4, 7, %2, dst, dstride, src, sstride, filtery, src4, sstride3
+cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _10, 1, 7, %2, dst, dstride, src, sstride, filtery, src4, sstride3
+    mov       srcq, srcmp
+    mov   sstrideq, sstridemp
     mov   filteryq, r5mp
 %define hd r4mp
 %endif
-    mova        m5, [pw_1023]
+    %define lpiccache r0m
+    PIC_BEGIN dstrideq, 0 ; dstrideq will be loaded from arg[1] before use
+    CHECK_REG_COLLISION "rpic","dstq","dstridemp","srcq","sstrideq",\
+        "filteryq","src4q","sstride3q","r4mp"
+    mova        m5, [pic(pw_1023)]
 .body:
 %if notcpuflag(sse4) && ARCH_X86_64
     pxor       m12, m12
@@ -383,11 +412,13 @@ cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _10, 4, 7, %2, dst, dstride, src, sstride, 
     paddd       m0, m11
     paddd       m1, m11
 %else
-    paddd       m0, [pd_64]
-    paddd       m1, [pd_64]
+    paddd       m0, [pic(pd_64)]
+    paddd       m1, [pic(pd_64)]
 %endif
+    PIC_END                         ; dstrideq, no-save
     psrad       m0, 7
     psrad       m1, 7
+    movifnidn  dstrideq, dstridemp  ; load arg[1] into dstrideq
 %if cpuflag(sse4)
     packusdw    m0, m1
 %else
@@ -407,18 +438,27 @@ cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _10, 4, 7, %2, dst, dstride, src, sstride, 
 %endif
     mova    [dstq], m0
     add       dstq, dstrideq
+    PIC_BEGIN dstrideq, 0           ; load cached lpic from r0m to dstrideq
     dec         hd
     jg .loop
+    PIC_END                         ; dstrideq, no-save
     RET
 
 %if ARCH_X86_64
 cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _12, 6, 8, %2, dst, dstride, src, sstride, h, filtery, src4, sstride3
 %else
-cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _12, 4, 7, %2, dst, dstride, src, sstride, filtery, src4, sstride3
+cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _12, 1, 7, %2, dst, dstride, src, sstride, filtery, src4, sstride3
+    mov       srcq, srcmp
+    mov   sstrideq, sstridemp
     mov   filteryq, r5mp
 %endif
-    mova        m5, [pw_4095]
+    %define lpiccache r0m
+    PIC_BEGIN dstrideq, 0 ; dstrideq will be loaded from arg[1] before use
+    CHECK_REG_COLLISION "rpic","dstq","dstridemp","srcq","sstrideq",\
+        "filteryq","src4q","sstride3q","r4mp"
+    mova        m5, [pic(pw_4095)]
     jmp mangle(private_prefix %+ _ %+ vp9_%1_8tap_1d_v_ %+ %%px %+ _10 %+ SUFFIX).body
+    PIC_END                         ; dstrideq, no-save
 %endmacro
 
 INIT_XMM sse2
