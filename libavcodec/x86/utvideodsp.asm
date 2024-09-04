@@ -48,9 +48,12 @@ DEFINE_ARGS src_r, src_g, src_b, linesize_r, linesize_g, linesize_b, x
 %define wq r6m
 %define hd r7mp
 %endif
-    mova         m3, [pb_80]
+    PIC_BEGIN xq, 0     ; xq is going to be initialized (from wq)
+    CHECK_REG_COLLISION "rpic","wq"
+    mova         m3, [pic(pb_80)]
+    PIC_END             ; xq, no-save
 .nextrow:
-    mov          xq, wq
+    mov          xq, wq ; xq init
 
     .loop:
         mova           m0, [src_rq + xq]
@@ -94,8 +97,6 @@ cglobal restore_rgb_planes10, 7 + ARCH_X86_64, 7 + ARCH_X86_64 * 2, 5, src_r, sr
     add      src_rq, wq
     add      src_gq, wq
     add      src_bq, wq
-    mova         m3, [pw_512]
-    mova         m4, [pw_1023]
     neg          wq
 %if ARCH_X86_64 == 0
     mov          wm, wq
@@ -103,8 +104,13 @@ DEFINE_ARGS src_r, src_g, src_b, linesize_r, linesize_g, linesize_b, x
 %define wq r6m
 %define hd r7mp
 %endif
+    PIC_BEGIN xq, 0     ; xq is going to be initialized (from wq)
+    CHECK_REG_COLLISION "rpic","wq"
+    mova         m3, [pic(pw_512)]
+    mova         m4, [pic(pw_1023)]
+    PIC_END             ; xq, no-save
 .nextrow:
-    mov          xq, wq
+    mov          xq, wq ; xq init
 
     .loop:
         mova           m0, [src_rq + xq]
