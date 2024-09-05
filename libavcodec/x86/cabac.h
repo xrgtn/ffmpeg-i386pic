@@ -320,7 +320,7 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
         "pop    %%ecx                         \n\t"  /* pop state ptr */ \
         "movb   "tmpbyte"   , (%%ecx)         \n\t"  /* *state = tmp */
     __asm__ volatile (
-        "mov    %[ret]      , %[ctx]          \n\t" /* c ptr passed in ret/eax */
+        "mov %"FF_Q("q","")"[ret], %[ctx]     \n\t" /* c ptr passed in ret/eax */
         "mov    %c[LOW](%[ctx]) , %[low]      \n\t" /* read c->low */
         "mov    %c[RANGE](%[ctx]) , %[range]  \n\t" /* read c->range */
         "movzbl (%[tblp])   , %[ret]          \n\t" /* ret = *state */
