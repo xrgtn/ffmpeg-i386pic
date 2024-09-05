@@ -177,6 +177,7 @@
 
 #if HAVE_7REGS && !BROKEN_COMPILER
 #define get_cabac_inline get_cabac_inline_x86
+#ifndef I386PIC
 static
 #if ARCH_X86_32
 av_noinline
@@ -196,6 +197,22 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
     );
 #endif
 
+/* BRANCHLESS_GET_CABAC() parameters:            __asm__() operands:
+ * ret      "%0"                                 0> "=&r"(bit)
+ * retq     "%q0"                                0> "=&r"(bit)
+ * statep   "(%4)"                               4< "r"(state)
+ * low      "%1"                                 1> "=&r"(c->low)    9< "1"(c->low)
+ * lowword  "%w1"                                1> "=&r"(c->low)    9< "1"(c->low)
+ * range    "%2"                                 2> "=&r"(c->range) 10< "2"(c->range)
+ * rangeq   "%q2"                                2> "=&r"(c->range) 10< "2"(c->range)
+ * tmp      "%3"                                 3> "=&q"(tmp)
+ * tmpbyte  "%b3"                                3> "=&q"(tmp)
+ * byte     "%c6(%5)"                            6< "i"(offsetof(CABACContext, bytestream)),     5< "r"(c)
+ * end      "%c7(%5)"                            7< "i"(offsetof(CABACContext, bytestream_end)), 5< "r"(c)
+ * norm_off AV_STRINGIFY(H264_NORM_SHIFT_OFFSET)    n/a
+ * lps_off  AV_STRINGIFY(H264_LPS_RANGE_OFFSET)     n/a
+ * mlps_off AV_STRINGIFY(H264_MLPS_STATE_OFFSET)    n/a
+ * tables   "%8"                                 8< TABLES_ARG: n/a or "r"(tables) */
     __asm__ volatile(
         BRANCHLESS_GET_CABAC("%0", "%q0", "(%4)", "%1", "%w1",
                              "%2", "%q2", "%3", "%b3",
@@ -214,6 +231,100 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
     );
     return bit & 1;
 }
+#else /* I386PIC */
+static
+av_noinline
+int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
+{
+    /* on entry: eax==c, edx==state */
+    register void *ctx, *tblp;
+    register int ret, low, range, tmp;
+    __asm__ volatile (
+	"\n     mov    %[ret]     , %[ctx]"      /* c ptr passed in ret/eax */
+        "\n	mov    %c[LOW](%[ctx]) , %[low]" /* c->low */
+        "\n	mov    %c[RANGE](%[ctx]) , %[range]" /* c->range */
+        "\n	movzbl (%[tblp])  , %[ret]"      /* ret = *state */
+	"\n	push   %[tblp]"                  /* push state ptr */
+        "\n     call   0f"
+        "\n 0:  pop    %[tblp]"
+        "\n	mov    %[range]   , %[tmp]"
+        "\n	and    $0xC0      , %[range]"
+        "\n     add    %[ret]     , %[tblp]"
+        "\n	movzbl ff_h264_cabac_tables-0b+%c[LPS](%[tblp], %[range], 2), %[range]"
+        "\n     sub    %[ret]     , %[tblp]"     /* restore tblp */
+        "\n	sub    %[range]   , %[tmp]"
+#if HAVE_FAST_CMOV
+        "\n	mov    %[tmp]     , %%ecx"
+        "\n	shl    $17        , %[tmp]"
+        "\n	cmp    %[low]     , %[tmp]"
+        "\n	cmova  %%ecx      , %[range]"
+        "\n	sbb    %%ecx      , %%ecx"
+        "\n	and    %%ecx      , %[tmp]"
+        "\n	xor    %%ecx      , %[ret]"
+        "\n	sub    %[tmp]     , %[low]"
+#else /* !HAVE_FAST_CMOV */
+        "\n	mov    %[tmp]     , %%ecx"
+        "\n	shl    $17        , %[tmp]"
+        "\n	sub    %[low]     , %[tmp]"
+        "\n	sar    $31        , %[tmp]"      /* lps_mask */
+        "\n	sub    %%ecx      , %[range]"    /* RangeLPS - range */
+        "\n	and    %[tmp]     , %[range]"    /* (RangeLPS - range)&lps_mask */
+        "\n	add    %%ecx      , %[range]"    /* new range */
+        "\n	shl    $17        , %%ecx"
+        "\n	and    %[tmp]     , %%ecx"
+        "\n	sub    %%ecx      , %[low]"
+        "\n	xor    %[tmp]     , %[ret]"
+#endif /* HAVE_FAST_CMOV / !HAVE_FAST_CMOV */
+        "\n	movzbl ff_h264_cabac_tables-0b+%c[NORM](%[tblp],%[range]), %%ecx"
+        "\n	shl    %%cl       , %[range]"
+        "\n	movzbl ff_h264_cabac_tables-0b+%c[MLPS]+128(%[tblp],%[ret]), %[tmp]"
+        "\n	shl    %%cl       , %[low]"
+	"\n     pop    %%ecx"                    /* pop state ptr */
+        "\n	movb   %b[tmp]    , (%%ecx)"     /* *state = tmp */
+        "\n	test   %w[low]    , %w[low]"
+        "\n	jnz    2f"
+        "\n	mov    %c[BSTREAM](%[ctx]) , %%ecx"
+#if CONFIG_SAFE_BITSTREAM_READER
+        "\n	cmp    %c[BSEND](%[ctx]) , %%ecx"
+        "\n	jge    1f"
+#endif
+        "\n	addl   $2         , %c[BSTREAM](%[ctx])"
+        "\n 1:	movzwl (%%ecx)    , %[tmp]"
+        "\n	lea    -1(%[low]) , %%ecx"
+        "\n	xor    %[low]     , %%ecx"
+        "\n	shr    $15        , %%ecx"
+        "\n	bswap  %[tmp]"
+        "\n	shr    $15        , %[tmp]"
+        "\n	movzbl %c[NORM](%[tblp],%%ecx), %%ecx"
+        "\n	sub    $0xFFFF    , %[tmp]"
+        "\n	neg    %%ecx"
+        "\n	add    $7         , %%ecx"
+        "\n	shl    %%cl       , %[tmp]"
+        "\n	add    %[tmp]     , %[low]"
+        "\n 2:  mov    %[low]     , %c[LOW](%[ctx])"   /* c->low */
+        "\n	mov    %[range]   , %c[RANGE](%[ctx])" /* c->range */
+        : /* register operand names are lowercase: */
+	  [ret]"=&r"(ret),
+	  [ctx]"=&r"(ctx),
+	  [low]"=&r"(low),
+	  [range]"=&r"(range),
+	  [tblp]"=&r"(tblp),
+	  [tmp]"=&q"(tmp)
+        : "[tblp]"(state), /* this reg gets clobbered/reused for i386 PIC */
+          "[ret]"(c),
+	  /* constant [and memory] operand names are uppercase: */
+          [BSTREAM]"i"(offsetof(CABACContext, bytestream)),
+          [BSEND]"i"(offsetof(CABACContext, bytestream_end)),
+          [LOW]"i"(offsetof(CABACContext, low)),
+          [RANGE]"i"(offsetof(CABACContext, range)),
+	  [NORM]"i"(H264_NORM_SHIFT_OFFSET),
+	  [MLPS]"i"(H264_MLPS_STATE_OFFSET),
+          [LPS]"i"(H264_LPS_RANGE_OFFSET)
+        : "%ecx", "memory"
+    );
+    return ret & 1;
+}
+#endif /* !I386PIC / I386PIC */
 #endif /* HAVE_7REGS && !BROKEN_COMPILER */
 
 #if !BROKEN_COMPILER
