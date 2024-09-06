@@ -323,8 +323,8 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
     register int ret, low, range, tmp;
 #define GET_CABAC_INLINE_X86_STATE_RD(statep, ret) ""
 #define GET_CABAC_INLINE_X86_STATE_WR(tmpbyte, statep)\
-        "pop    %%ecx                         \n\t"  /* pop state ptr */ \
-        "movb   "tmpbyte"   , (%%ecx)         \n\t"  /* *state = tmp */
+        "pop    %%"FF_REG_c"                  \n\t"  /* pop state ptr */ \
+        "movb   "tmpbyte"   , (%%"FF_REG_c")  \n\t"  /* *state = tmp */
     __asm__ volatile (
         "mov %"FF_Q("q","")"[ret], %[ctx]     \n\t" /* c ptr passed in ret/eax */
         "mov    %c[LOW](%[ctx]) , %[low]      \n\t" /* read c->low */
