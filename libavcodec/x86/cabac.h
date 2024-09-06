@@ -175,7 +175,6 @@
 
 #endif /* BROKEN_RELOCATIONS / !BROKEN_RELOCATIONS */
 
-#ifdef I386PIC
 #if ARCH_X86_64
 #define FF_Q(regq, reg) regq
 #define FF_MOVSLQ(ret, retq) \
@@ -185,6 +184,7 @@
 #define FF_MOVSLQ(reg, regq)
 #endif
 
+#ifdef I386PIC
 #if HAVE_FAST_CMOV
 #define BRANCHLESS_GET_CABAC_UPDATE_I386PIC(ret, retq, low, range, tmp) \
         "cmp    "low"       , "tmp"                        \n\t"\
@@ -246,8 +246,10 @@
         "shl    %%cl        , "tmp"                                     \n\t"\
         "add    "tmp"       , "low"                                     \n\t"\
         "2:                                                             \n\t"
-
-#endif /* defined(I386PIC) */
+#else /* !defined(I386PIC) */
+#define BRANCHLESS_GET_CABAC_I386PIC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables) \
+        BRANCHLESS_GET_CABAC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables)
+#endif /* defined(I386PIC) / !defined(I386PIC) */
 
 #if HAVE_7REGS && !BROKEN_COMPILER
 #define get_cabac_inline get_cabac_inline_x86
@@ -328,7 +330,7 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
         "call   0f                            \n\t"
         "0:                                   \n\t"
         "pop    %[tblp]                       \n\t" /* init tblp as PIC base */
-	BRANCHLESS_GET_CABAC_I386PIC("%[ret]", "%q[ret]", "statep_is_not_used",
+        BRANCHLESS_GET_CABAC_I386PIC("%[ret]", "%q[ret]", "statep_is_not_used",
                              "%[low]", "%w[low]", "%[range]", "%q[range]",
                              "%[tmp]", "%b[tmp]",
                              "%c[BSTREAM](%[ctx])", "%c[BSEND](%[ctx])",
