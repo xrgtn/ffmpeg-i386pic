@@ -212,8 +212,9 @@
         "movzbl "statep"    , "ret"                                     \n\t"
 #define BRANCHLESS_GET_CABAC_STATEP_WRITE(tmpbyte, statep) \
         "mov    "tmpbyte"   , "statep"                                  \n\t"
-#define BRANCHLESS_GET_CABAC_I386PIC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables) \
-        BRANCHLESS_GET_CABAC_STATEP_READ(statep, ret)\
+
+#define BRANCHLESS_GET_CABAC_I386PIC_X(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, state_rd, state_wr) \
+        state_rd(statep, ret)\
         "mov    "range"     , "tmp"                                     \n\t"\
         "and    $0xC0       , "range"                                   \n\t"\
         "lea    ("ret", "range", 2), %%ecx                              \n\t"\
@@ -226,7 +227,7 @@
         "shl    %%cl        , "range"                                   \n\t"\
         "movzbl "mlps_off"+128("tables", "FF_Q(retq, ret)"), "tmp"      \n\t"\
         "shl    %%cl        , "low"                                     \n\t"\
-        BRANCHLESS_GET_CABAC_STATEP_WRITE(tmpbyte, statep)\
+        state_wr(tmpbyte, statep)\
         "test   "lowword"   , "lowword"                                 \n\t"\
         "jnz    2f                                                      \n\t"\
         "mov    "byte"      , %%"FF_REG_c"                              \n\t"\
@@ -246,7 +247,12 @@
         "shl    %%cl        , "tmp"                                     \n\t"\
         "add    "tmp"       , "low"                                     \n\t"\
         "2:                                                             \n\t"
+
+#define BRANCHLESS_GET_CABAC_I386PIC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables) \
+        BRANCHLESS_GET_CABAC_I386PIC_X(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, BRANCHLESS_GET_CABAC_STATEP_READ, BRANCHLESS_GET_CABAC_STATEP_WRITE)
 #else /* !defined(I386PIC) */
+#define BRANCHLESS_GET_CABAC_I386PIC_X(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, unused_rd, unused_wr) \
+        BRANCHLESS_GET_CABAC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables)
 #define BRANCHLESS_GET_CABAC_I386PIC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables) \
         BRANCHLESS_GET_CABAC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables)
 #endif /* defined(I386PIC) / !defined(I386PIC) */
@@ -315,10 +321,8 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
     /* on entry: eax==c, edx==state */
     register void *ctx, *tblp;
     register int ret, low, range, tmp;
-#undef  BRANCHLESS_GET_CABAC_STATEP_READ
-#undef  BRANCHLESS_GET_CABAC_STATEP_WRITE
-#define BRANCHLESS_GET_CABAC_STATEP_READ(statep, ret) ""
-#define BRANCHLESS_GET_CABAC_STATEP_WRITE(tmpbyte, statep)\
+#define GET_CABAC_INLINE_X86_STATE_RD(statep, ret) ""
+#define GET_CABAC_INLINE_X86_STATE_WR(tmpbyte, statep)\
         "pop    %%ecx                         \n\t"  /* pop state ptr */ \
         "movb   "tmpbyte"   , (%%ecx)         \n\t"  /* *state = tmp */
     __asm__ volatile (
@@ -330,7 +334,8 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
         "call   0f                            \n\t"
         "0:                                   \n\t"
         "pop    %[tblp]                       \n\t" /* init tblp as PIC base */
-        BRANCHLESS_GET_CABAC_I386PIC("%[ret]", "%q[ret]", "statep_is_not_used",
+        BRANCHLESS_GET_CABAC_I386PIC_X(
+                             "%[ret]", "%q[ret]", "statep_is_not_used",
                              "%[low]", "%w[low]", "%[range]", "%q[range]",
                              "%[tmp]", "%b[tmp]",
                              "%c[BSTREAM](%[ctx])", "%c[BSEND](%[ctx])",
@@ -340,7 +345,9 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
                              "ff_h264_cabac_tables-0b+"
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%[tblp]")
+                             "%[tblp]",
+                             GET_CABAC_INLINE_X86_STATE_RD,
+                             GET_CABAC_INLINE_X86_STATE_WR)
         "mov    %[low]      , %c[LOW](%[ctx]) \n\t"   /* write to c->low */
         "mov    %[range]    , %c[RANGE](%[ctx])\n"    /* write to c->range */
         : /* register operand names are lowercase: */
