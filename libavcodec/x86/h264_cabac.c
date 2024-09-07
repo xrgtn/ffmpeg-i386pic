@@ -73,7 +73,7 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
 #endif
         "3:                                     \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]","(%1)"),
+        BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%[STATEP0]",
                              "%3", "%w3", "%5", "%q5", "%k0", "%b0",
                              "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
@@ -91,7 +91,7 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
         " jz 4f                                 \n\t"
         "add  %[LASTOFF], %1                    \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]", "(%1)"),
+        BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%[STATEP0]",
                              "%3", "%w3", "%5", "%q5", "%k0", "%b0",
                              "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
@@ -186,7 +186,7 @@ static int decode_significance_8x8_x86(CABACContext *c,
         "movzb (%0, %6), %6                     \n\t"
         "add %[SIGCCB], %6                      \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]", "(%6)"),
+        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%[STATEP0]",
                              "%3", "%w3", "%5", "%q5", "%k0", "%b0",
                              "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
@@ -211,7 +211,7 @@ static int decode_significance_8x8_x86(CABACContext *c,
 #endif
         "add %[LASTCCB], %6                     \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]", "(%6)"),
+        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%[STATEP0]",
                              "%3", "%w3", "%5", "%q5", "%k0", "%b0",
                              "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)

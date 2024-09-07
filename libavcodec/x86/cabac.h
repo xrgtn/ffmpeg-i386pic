@@ -102,19 +102,20 @@
 #endif /* HAVE_FAST_CMOV */
 
 /* In I386PIC mode, state ptr and tables share a register, therefore:
- * - statep parameter carries memory location to save statep,
- * - tables parameter carries tables base/PIC register,
+ * - statep parameter carries state ptr dereference,
+ * - statep0 parameter carries memory location to save state ptr,
+ * - tables parameter carries tables base/PIC register == state ptr register,
  * - tables0 contains memory/save location for tables base */
-#define CABAC_STATEP_ABS_RD(statep, ret, tables, tables0) \
+#define CABAC_STATEP_ABS_RD(statep, ret, tables, statep0, tables0) \
         "movzbl "statep"  , "ret"\n\t"
-#define CABAC_STATEP_ABS_WR(tmpbyte, statep, tables, tables0) \
+#define CABAC_STATEP_ABS_WR(tmpbyte, statep, tables, statep0, tables0) \
         "mov    "tmpbyte" , "statep"\n\t"
-#define CABAC_STATEP_I386PIC_RD(statep, ret, tables, tables0) \
-        "movzbl ("tables"), "ret"\n\t"    /* tables == state ptr, ATM */ \
-        "mov    "tables"  , "statep"\n\t" /* store state ptr in mem */ \
-        "mov    "tables0" , "tables"\n\t" /* load PIC base into tables reg */
-#define CABAC_STATEP_I386PIC_WR(tmpbyte, statep, tables, tables0) \
-        "mov    "statep"  , %%"FF_REG_c"\n\t" /* e/rcx is used as tmp */ \
+#define CABAC_STATEP_I386PIC_RD(statep, ret, tables, statep0, tables0) \
+        "movzbl "statep"  , "ret"\n\t" \
+        "mov    "tables"  , "statep0"\n\t" /* store state ptr in mem */ \
+        "mov    "tables0" , "tables"\n\t"  /* load PIC base into tables reg */
+#define CABAC_STATEP_I386PIC_WR(tmpbyte, statep, tables, statep0, tables0) \
+        "mov    "statep0" , %%"FF_REG_c"\n\t" /* e/rcx is used as tmp reg */ \
         "movb   "tmpbyte" , (%%"FF_REG_c")\n\t"
 /* o,b,i,d: offset/symexpr, base_reg, index_reg, tmp_reg, dst_reg */
 #define CABAC_TABLES_ABS_RD1(o, b, i, d) \
@@ -128,27 +129,27 @@
         "lea    ("i","i2","s2"), "t"\n\t"\
         "movzbl "o"("b","t")   , "d"\n\t"
 #ifdef I386PIC
-#define CABAC_STATEP_RD(s, r, t, t0) CABAC_STATEP_I386PIC_RD(s, r, t, t0)
-#define CABAC_STATEP_WR(b, s, t, t0) CABAC_STATEP_I386PIC_WR(b, s, t, t0)
-#define CABAC_TABLES_RD1(o, b, i, d) CABAC_TABLES_PIC_RD1(o, b, i, d)
+#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_I386PIC_RD(s, r, t, s0, t0)
+#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_I386PIC_WR(b, s, t, s0, t0)
+#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES_PIC_RD1(o, b, i, d)
 #define CABAC_TABLES_RD2(o, b, i, i2, s2, t, d) \
         CABAC_TABLES_PIC_RD2(o, b, i, i2, s2, t, d)
 #elif defined(BROKEN_RELOCATIONS)
-#define CABAC_STATEP_RD(s, r, t, t0) CABAC_STATEP_ABS_RD(s, r, t, t0)
-#define CABAC_STATEP_WR(b, s, t, t0) CABAC_STATEP_ABS_WR(b, s, t, t0)
-#define CABAC_TABLES_RD1(o, b, i, d) CABAC_TABLES_PIC_RD1(o, b, i, d)
+#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_ABS_RD(s, r, t, s0, t0)
+#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_ABS_WR(b, s, t, s0, t0)
+#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES_PIC_RD1(o, b, i, d)
 #define CABAC_TABLES_RD2(o, b, i, i2, s2, t, d) \
         CABAC_TABLES_PIC_RD2(o, b, i, i2, s2, t, d)
 #else
-#define CABAC_STATEP_RD(s, r, t, t0) CABAC_STATEP_ABS_RD(s, r, t, t0)
-#define CABAC_STATEP_WR(b, s, t, t0) CABAC_STATEP_ABS_WR(b, s, t, t0)
-#define CABAC_TABLES_RD1(o, b, i, d) CABAC_TABLES_ABS_RD1(o, b, i, d)
+#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_ABS_RD(s, r, t, s0, t0)
+#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_ABS_WR(b, s, t, s0, t0)
+#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES_ABS_RD1(o, b, i, d)
 #define CABAC_TABLES_RD2(o, b, i, i2, s2, t, d) \
         CABAC_TABLES_ABS_RD2(o, b, i, i2, s2, t, d)
 #endif
 
-#define BRANCHLESS_GET_CABACX(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0, tables_rd1, tables_rd2, statep_rd, statep_wr) \
-        statep_rd(statep, ret, tables, tables0)\
+#define BRANCHLESS_GET_CABACX(ret, retq, statep, statep0, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0, tables_rd1, tables_rd2, statep_rd, statep_wr) \
+        statep_rd(statep, ret, tables, statep0, tables0)\
         "mov    "range"     , "tmp"                                     \n\t"\
         "and    $0xC0       , "range"                                   \n\t"\
         tables_rd2(lps_off, tables, FF_Q(retq, ret), FF_Q(rangeq, range),\
@@ -161,7 +162,7 @@
         "shl    %%cl        , "range"                                   \n\t"\
         tables_rd1(mlps_off"+128", tables, FF_Q(retq, ret), tmp)\
         "shl    %%cl        , "low"                                     \n\t"\
-        statep_wr(tmpbyte, statep, tables, tables0)\
+        statep_wr(tmpbyte, statep, tables, statep0, tables0)\
         "test   "lowword"   , "lowword"                                 \n\t"\
         "jnz    2f                                                      \n\t"\
         "mov    "byte"      , %%"FF_REG_c"                              \n\t"\
@@ -181,8 +182,8 @@
         "shl    %%cl        , "tmp"                                     \n\t"\
         "add    "tmp"       , "low"                                     \n\t"\
         "2:                                                             \n\t"
-#define BRANCHLESS_GET_CABAC(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0) \
-        BRANCHLESS_GET_CABACX(ret, retq, statep, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0, CABAC_TABLES_RD1, CABAC_TABLES_RD2, CABAC_STATEP_RD, CABAC_STATEP_WR)
+#define BRANCHLESS_GET_CABAC(ret, retq, statep, statep0, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0) \
+        BRANCHLESS_GET_CABACX(ret, retq, statep, statep0, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0, CABAC_TABLES_RD1, CABAC_TABLES_RD2, CABAC_STATEP_RD, CABAC_STATEP_WR)
 
 #if HAVE_7REGS && !BROKEN_COMPILER
 #define get_cabac_inline get_cabac_inline_x86
@@ -211,13 +212,13 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
     register int low, range;
 #undef  STATEP_RD
 #undef  STATEP_WR
-#define STATEP_RD(statep, ret, tables, tables0)
-#define STATEP_WR(tmpbyte, statep, tables, tables0) \
+#define STATEP_RD(statep, ret, tables, statep0, tables0)
+#define STATEP_WR(tmpbyte, statep, tables, statep0, tables0) \
         "pop    %%"FF_REG_c"                  \n\t" /* pop state ptr */ \
         "movb   "tmpbyte"   , (%%"FF_REG_c")  \n\t" /* *(state ptr) = tmp */
 #else
-#define STATEP_RD(s, r, t, t0) CABAC_STATEP_RD(s, r, t, t0)
-#define STATEP_WR(b, s, t, t0) CABAC_STATEP_WR(b, s, t, t0)
+#define STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_RD(s, r, t, s0, t0)
+#define STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_WR(b, s, t, s0, t0)
 #endif
 
     __asm__ volatile (
@@ -236,8 +237,7 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
         "pop    %[tables]                     \n\t" /* tables = PIC base */
 #endif
         BRANCHLESS_GET_CABACX(
-                             "%k[bit]", "%q[bit]",
-                             IF_I386PIC(, "(%[statep])"),
+                             "%k[bit]", "%q[bit]", "(%[statep])", "%[statep0]",
                              "%[low]", "%w[low]", "%[range]", "%q[range]",
                              "%[tmp]", "%b[tmp]",
                              "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
