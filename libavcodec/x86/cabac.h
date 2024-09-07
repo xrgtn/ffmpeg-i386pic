@@ -76,6 +76,7 @@
 #define IF_I386PIC_BRK_ABS(i, b, a) a /* select abs/non-pic arg */
 #endif
 #endif
+#define COMA ,
 
 #if HAVE_FAST_CMOV
 #define BRANCHLESS_GET_CABAC_UPDATE(ret, retq, low, range, tmp) \
@@ -218,7 +219,6 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
 #define STATEP_RD(s, r, t, t0) CABAC_STATEP_RD(s, r, t, t0)
 #define STATEP_WR(b, s, t, t0) CABAC_STATEP_WR(b, s, t, t0)
 #endif
-#define COMA ,
 
     __asm__ volatile (
 #ifdef I386PIC
