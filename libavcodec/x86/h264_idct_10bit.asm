@@ -33,14 +33,18 @@ cextern pd_32
 ;-----------------------------------------------------------------------------
 ; void ff_h264_idct_add_10(pixel *dst, int16_t *block, int stride)
 ;-----------------------------------------------------------------------------
-%macro STORE_DIFFx2 6
+%macro STORE_DIFFx2 6 ; PIC
     psrad       %1, 6
     psrad       %2, 6
     packssdw    %1, %2
     movq        %3, [%5]
     movhps      %3, [%5+%6]
     paddsw      %1, %3
-    CLIPW       %1, %4, [pw_pixel_max]
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%1,,,%4
+    CLIPW       %1, %4, [pic(pw_pixel_max)]
+    PIC_END
     movq      [%5], %1
     movhps [%5+%6], %1
 %endmacro
@@ -55,29 +59,35 @@ cextern pd_32
 %endmacro
 
 ;dst, in, stride
-%macro IDCT4_ADD_10 3
+%macro IDCT4_ADD_10 3 ; PIC
     mova  m0, [%2+ 0]
     mova  m1, [%2+16]
     mova  m2, [%2+32]
     mova  m3, [%2+48]
     IDCT4_1D d,0,1,2,3,4,5
     TRANSPOSE4x4D 0,1,2,3,4
-    paddd m0, [pd_32]
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    PIC_BEGIN r4
+    paddd m0, [pic(pd_32)]
+    PIC_END
     IDCT4_1D d,0,1,2,3,4,5
     pxor  m5, m5
     mova [%2+ 0], m5
     mova [%2+16], m5
     mova [%2+32], m5
     mova [%2+48], m5
-    STORE_DIFFx2 m0, m1, m4, m5, %1, %3
+    STORE_DIFFx2 m0, m1, m4, m5, %1, %3 ; PIC
     lea   %1, [%1+%3*2]
-    STORE_DIFFx2 m2, m3, m4, m5, %1, %3
+    STORE_DIFFx2 m2, m3, m4, m5, %1, %3 ; PIC
 %endmacro
 
 %macro IDCT_ADD_10 0
 cglobal h264_idct_add_10, 3,3
     movsxdifnidn r2, r2d
-    IDCT4_ADD_10 r0, r1, r2
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    IDCT4_ADD_10 r0, r1, r2 ; PIC
+    PIC_END
     RET
 %endmacro
 
@@ -95,7 +105,8 @@ IDCT_ADD_10
 ;-----------------------------------------------------------------------------
 ;;;;;;; NO FATE SAMPLES TRIGGER THIS
 %macro ADD4x4IDCT 0
-add4x4_idct %+ SUFFIX:
+LBL add4x4_idct %+ SUFFIX:     ; r0,2,3,5; PIC:r6==$$
+    DESIGNATE_RPIC r6, $$      ; expect r6==$$ on entry to this function
     add   r5, r0
     mova  m0, [r2+ 0]
     mova  m1, [r2+16]
@@ -103,16 +114,19 @@ add4x4_idct %+ SUFFIX:
     mova  m3, [r2+48]
     IDCT4_1D d,0,1,2,3,4,5
     TRANSPOSE4x4D 0,1,2,3,4
-    paddd m0, [pd_32]
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0","r2","r3","r5"
+    paddd m0, [pic(pd_32)]
+    PIC_END
     IDCT4_1D d,0,1,2,3,4,5
     pxor  m5, m5
     mova  [r2+ 0], m5
     mova  [r2+16], m5
     mova  [r2+32], m5
     mova  [r2+48], m5
-    STORE_DIFFx2 m0, m1, m4, m5, r5, r3
+    STORE_DIFFx2 m0, m1, m4, m5, r5, r3 ; PIC
     lea   r5, [r5+r3*2]
-    STORE_DIFFx2 m2, m3, m4, m5, r5, r3
+    STORE_DIFFx2 m2, m3, m4, m5, r5, r3 ; PIC
     ret
 %endmacro
 
@@ -125,12 +139,13 @@ ALIGN 16
 ADD4x4IDCT
 %endif
 
-%macro ADD16_OP 2
+%macro ADD16_OP 2              ; r0..5; PIC:r6==$$
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4","r5"
     cmp          byte [r4+%2], 0
     jz .skipblock%1
     mov         r5d, [r1+%1*4]
-    call add4x4_idct %+ SUFFIX
-.skipblock%1:
+    call add4x4_idct %+ SUFFIX ; r0,2,3,5; PIC:r6==$$
+LBL .skipblock%1:
 %if %1<15
     add          r2, 64
 %endif
@@ -138,9 +153,11 @@ ADD4x4IDCT
 
 %macro IDCT_ADD16_10 0
 cglobal h264_idct_add16_10, 5,6
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1, $$
     movsxdifnidn r3, r3d
-    ADD16_OP 0, 4+1*8
-    ADD16_OP 1, 5+1*8
+    ADD16_OP 0, 4+1*8          ; r0..5; PIC:r6==$$
+    ADD16_OP 1, 5+1*8          ; ...
     ADD16_OP 2, 4+2*8
     ADD16_OP 3, 5+2*8
     ADD16_OP 4, 6+1*8
@@ -154,7 +171,8 @@ cglobal h264_idct_add16_10, 5,6
     ADD16_OP 12, 6+3*8
     ADD16_OP 13, 7+3*8
     ADD16_OP 14, 6+4*8
-    ADD16_OP 15, 7+4*8
+    ADD16_OP 15, 7+4*8         ; r0..5; PIC:r6==$$
+    PIC_END ; r6, push/pop
     RET
 %endmacro
 
@@ -196,15 +214,21 @@ IDCT_ADD16_10
 %endmacro
 
 INIT_MMX mmxext
-cglobal h264_idct_dc_add_10,3,3
+cglobal h264_idct_dc_add_10,0,3
+    movifnidn r1, r1mp
+    movifnidn r2, r2mp
     movsxdifnidn r2, r2d
     movd      m0, [r1]
     mov dword [r1], 0
-    paddd     m0, [pd_32]
+    PIC_BEGIN r0, 0    ; r0 loading delayed
+    CHECK_REG_COLLISION "rpic","r0mp"
+    paddd     m0, [pic(pd_32)]
     psrad     m0, 6
     lea       r1, [r2*3]
     pshufw    m0, m0, 0
-    mova      m6, [pw_pixel_max]
+    mova      m6, [pic(pw_pixel_max)]
+    PIC_END            ; r0, no-save
+    movifnidn r0, r0mp ; r0 loaded from arg[0]
     IDCT_DC_ADD_OP_10 r0, r2, r1
     RET
 
@@ -212,15 +236,21 @@ cglobal h264_idct_dc_add_10,3,3
 ; void ff_h264_idct8_dc_add_10(pixel *dst, int16_t *block, int stride)
 ;-----------------------------------------------------------------------------
 %macro IDCT8_DC_ADD 0
-cglobal h264_idct8_dc_add_10,3,4,7
+cglobal h264_idct8_dc_add_10,0,4,7
+    movifnidn r1, r1mp
+    movifnidn r2, r2mp
     movsxdifnidn r2, r2d
     movd      m0, [r1]
     mov dword[r1], 0
-    paddd     m0, [pd_32]
+    PIC_BEGIN r0, 0    ; r0 loading delayed
+    CHECK_REG_COLLISION "rpic","r0mp"
+    paddd     m0, [pic(pd_32)]
     psrad     m0, 6
     lea       r1, [r2*3]
     SPLATW    m0, m0, 0
-    mova      m6, [pw_pixel_max]
+    mova      m6, [pic(pw_pixel_max)]
+    PIC_END            ; r0, no-save
+    movifnidn r0, r0mp ; r0 loaded from arg[0]
     IDCT_DC_ADD_OP_10 r0, r2, r1
     lea       r0, [r0+r2*4]
     IDCT_DC_ADD_OP_10 r0, r2, r1
@@ -239,68 +269,97 @@ IDCT8_DC_ADD
 ;                                 int16_t *block, int stride,
 ;                                 const uint8_t nnzc[6*8])
 ;-----------------------------------------------------------------------------
-%macro AC 1
-.ac%1:
+%macro AC 1                    ; r0..3,5; PIC:r6==$$; call add4x4_idct(), jmp ADD16_OP_INTRA.skipadd%1
+LBL .ac%1:
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4","r5"
     mov  r5d, [r1+(%1+0)*4]
-    call add4x4_idct %+ SUFFIX
+    call add4x4_idct %+ SUFFIX ; r0,2,3,5; PIC:r6==$$
     mov  r5d, [r1+(%1+1)*4]
     add  r2, 64
-    call add4x4_idct %+ SUFFIX
+    call add4x4_idct %+ SUFFIX ; r0,2,3,5; PIC:r6==$$
     add  r2, 64
-    jmp .skipadd%1
+    jmp .skipadd%1             ; ADD16_OP_INTRA: r0..5; ...
 %endmacro
 
 %assign last_block 16
-%macro ADD16_OP_INTRA 2
+%macro ADD16_OP_INTRA 2        ; r0..5; PIC:r6==[rsp]==$$; call idct_dc_add(), jnz AC.ac%1
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4","r5"
     cmp      word [r4+%2], 0
-    jnz .ac%1
+    jnz .ac%1                  ; AC: r0..3,5; ...
     mov      r5d, [r2+ 0]
     or       r5d, [r2+64]
     jz .skipblock%1
     mov      r5d, [r1+(%1+0)*4]
-    call idct_dc_add %+ SUFFIX
-.skipblock%1:
+    call idct_dc_add %+ SUFFIX ; r0,2,3,5; PIC:r6==[rsp]==$$
+LBL .skipblock%1:
 %if %1<last_block-2
     add       r2, 128
 %endif
-.skipadd%1:
+LBL .skipadd%1:
 %endmacro
 
 %macro IDCT_ADD16INTRA_10 0
-idct_dc_add %+ SUFFIX:
+LBL idct_dc_add %+ SUFFIX:         ; r0,2,3,5; PIC:r6==[rsp+gprsize]==$$
+    ; On entry idct_dc_add() expects $$ in r6 and in [rsp+gprsize] ([rsp]
+    ; contains return addres).
+    ; The r6/$$ copy on stack is an optimization for idct_dc_add() to avoid
+    ; doing push r6 / pop r6 an every call: instead its caller pushes $$ to
+    ; stack once and calls idct_dc_add() several times without touching it
+    ; between calls (caller removes $$ from stack when it doesn't need to call
+    ; idct_dc_add() anymore).
+    DESIGNATE_RPIC r6, $$
     add       r5, r0
     movq      m0, [r2+ 0]
     movhps    m0, [r2+64]
     mov dword [r2+ 0], 0
     mov dword [r2+64], 0
-    paddd     m0, [pd_32]
+    PIC_BEGIN
+    paddd     m0, [pic(pd_32)]
     psrad     m0, 6
     pshufhw   m0, m0, 0
     pshuflw   m0, m0, 0
-    lea       r6, [r3*3]
-    mova      m6, [pw_pixel_max]
-    IDCT_DC_ADD_OP_10 r5, r3, r6
+    mova      m6, [pic(pw_pixel_max)]
+    PIC_END
+    DESIGNATE_RPIC             ; clear r6 designation
+    lea       r6, [r3*3]       ; r6 gets clobbered here
+    IDCT_DC_ADD_OP_10 r5, r3, r6 ; clobbered r6 is used here
+%if i386pic
+    ; reload $$ into r6 from stack:
+    mov       r6, [rsp+gprsize]
+%endif
     ret
 
 cglobal h264_idct_add16intra_10,5,7,8
     movsxdifnidn r3, r3d
-    ADD16_OP_INTRA 0, 4+1*8
-    ADD16_OP_INTRA 2, 4+2*8
+    PIC_CONTEXT_PUSH ; "no PIC" context
+    PIC_BEGIN r6, 0, $$ ; r6 is saved in PROLOGUE, don't save again
+%if i386pic
+    PUSH r6 ; push r6==$$ to stack
+%endif
+    ADD16_OP_INTRA 0, 4+1*8    ; r0..5; PIC:r6==[rsp]==$$; call idct_dc_add(), jnz AC 0
+    ADD16_OP_INTRA 2, 4+2*8    ;     ...PIC... jnz AC 2
     ADD16_OP_INTRA 4, 6+1*8
     ADD16_OP_INTRA 6, 6+2*8
     ADD16_OP_INTRA 8, 4+3*8
     ADD16_OP_INTRA 10, 4+4*8
     ADD16_OP_INTRA 12, 6+3*8
-    ADD16_OP_INTRA 14, 6+4*8
+    ADD16_OP_INTRA 14, 6+4*8   ;     ...PIC... jnz AC 14
+    PIC_CONTEXT_PUSH
+%if i386pic
+    ADD rsp, gprsize ; remove $$/r6 from stack
+%endif
+    PIC_END
     RET
-    AC 8
-    AC 10
-    AC 12
-    AC 14
-    AC 0
+    PIC_CONTEXT_POP
+    AC 8                       ; r0..3,5; PIC:r6==[rsp]==$$; call add4x4_idct(), jmp ADD16_OP_INTRA 10
+    AC 10                      ;       ...PIC... jmp ADD16_OP_INTRA 12
+    AC 12                      ;       ...PIC... jmp ADD16_OP_INTRA 14
+    AC 14                      ;       ...PIC... jmp after ADD16_OP_INTRA 14
+    AC 0                       ;       ...PIC... jmp ADD16_OP_INTRA 2
     AC 2
     AC 4
-    AC 6
+    AC 6                       ;       ...PIC... jmp ADD16_OP_INTRA 8
+    PIC_CONTEXT_POP  ; restore "no PIC" context
 %endmacro
 
 INIT_XMM sse2
@@ -319,13 +378,19 @@ IDCT_ADD16INTRA_10
 %macro IDCT_ADD8 0
 cglobal h264_idct_add8_10,5,8,7
     movsxdifnidn r3, r3d
+    PIC_CONTEXT_PUSH ; "no PIC" context
+    PIC_BEGIN r6, 0, $$ ; r6 is saved in PROLOGUE, don't save again
+%if i386pic
+    PUSH r6 ; push r6==$$ to stack
+%endif
+    CHECK_REG_COLLISION "rpic","r0m"
 %if ARCH_X86_64
     mov      r7, r0
 %endif
     add      r2, 1024
     mov      r0, [r0]
-    ADD16_OP_INTRA 16, 4+ 6*8
-    ADD16_OP_INTRA 18, 4+ 7*8
+    ADD16_OP_INTRA 16, 4+ 6*8  ; r0..6; PIC:r6==$$; call idct_dc_add(), jnz AC 16
+    ADD16_OP_INTRA 18, 4+ 7*8  ;     ...PIC... jnz AC 18
     add      r2, 1024-128*2
 %if ARCH_X86_64
     mov      r0, [r7+gprsize]
@@ -333,13 +398,20 @@ cglobal h264_idct_add8_10,5,8,7
     mov      r0, r0m
     mov      r0, [r0+gprsize]
 %endif
-    ADD16_OP_INTRA 32, 4+11*8
-    ADD16_OP_INTRA 34, 4+12*8
+    ADD16_OP_INTRA 32, 4+11*8  ;     ...PIC... jnz AC 32
+    ADD16_OP_INTRA 34, 4+12*8  ;     ...PIC... jnz AC 34
+    PIC_CONTEXT_PUSH
+%if i386pic
+    ADD rsp, gprsize ; remove $$/r6 from stack
+%endif
+    PIC_END
     RET
-    AC 16
-    AC 18
-    AC 32
-    AC 34
+    PIC_CONTEXT_POP
+    AC 16                      ; r0..3,5; PIC:r6==[rsp]==$$; call add4x4_idct(), jmp ADD16_OP_INTRA 18
+    AC 18                      ;       ...PIC... jmp after ADD_OP_INTRA 18
+    AC 32                      ;       ...PIC... jmp ADD_OP_INTRA 34
+    AC 34                      ;       ...PIC... jmp after ADD16_OP_INTRA 34
+    PIC_CONTEXT_POP  ; restore "no PIC" context
 
 %endmacro ; IDCT_ADD8
 
@@ -361,16 +433,22 @@ IDCT_ADD8
 
 cglobal h264_idct_add8_422_10, 5, 8, 7
     movsxdifnidn r3, r3d
+    PIC_CONTEXT_PUSH ; "no PIC" context
+    PIC_BEGIN r6, 0, $$ ; r6 is saved in PROLOGUE, don't save again
+%if i386pic
+    PUSH r6 ; push r6==$$ to stack
+%endif
+    CHECK_REG_COLLISION "rpic","r0m"
 %if ARCH_X86_64
     mov      r7, r0
 %endif
 
     add      r2, 1024
     mov      r0, [r0]
-    ADD16_OP_INTRA 16, 4+ 6*8
+    ADD16_OP_INTRA 16, 4+ 6*8  ; r0..6; PIC:r6==$$; call idct_dc_add(), jnz AC 16
     ADD16_OP_INTRA 18, 4+ 7*8
-    ADD16_OP_INTRA 24, 4+ 8*8 ; i+4
-    ADD16_OP_INTRA 26, 4+ 9*8 ; i+4
+    ADD16_OP_INTRA 24, 4+ 8*8  ; i+4
+    ADD16_OP_INTRA 26, 4+ 9*8  ; i+4 ...PIC... jnz AC 26
     add      r2, 1024-128*4
 
 %if ARCH_X86_64
@@ -380,19 +458,26 @@ cglobal h264_idct_add8_422_10, 5, 8, 7
     mov      r0, [r0+gprsize]
 %endif
 
-    ADD16_OP_INTRA 32, 4+11*8
+    ADD16_OP_INTRA 32, 4+11*8  ;     ...PIC... jnz AC 32
     ADD16_OP_INTRA 34, 4+12*8
-    ADD16_OP_INTRA 40, 4+13*8 ; i+4
-    ADD16_OP_INTRA 42, 4+14*8 ; i+4
+    ADD16_OP_INTRA 40, 4+13*8  ; i+4
+    ADD16_OP_INTRA 42, 4+14*8  ; i+4 ...PIC... jnz AC 42
+    PIC_CONTEXT_PUSH
+%if i386pic
+    ADD rsp, gprsize ; remove $$/r6 from stack
+%endif
+    PIC_END
 RET
-    AC 16
+    PIC_CONTEXT_POP
+    AC 16                      ; r0..3,5; PIC:r6==[rsp]==$$; call add4x4_idct(), jmp ADD16_OP_INTRA 18
     AC 18
     AC 24 ; i+4
-    AC 26 ; i+4
+    AC 26 ; i+4                ;       ...PIC... jmp after ADD16_OP_INTRA 26
     AC 32
     AC 34
     AC 40 ; i+4
-    AC 42 ; i+4
+    AC 42 ; i+4                ;       ...PIC... jmp after ADD16_OP_INTRA 42
+    PIC_CONTEXT_POP  ; restore "no PIC" context
 
 %endmacro
 
@@ -489,21 +574,24 @@ IDCT_ADD8_422
 %endmacro
 
 ; %1=uint8_t *dst, %2=int16_t *block, %3=int stride
-%macro IDCT8_ADD_SSE_END 3
+%macro IDCT8_ADD_SSE_END 3 ; PIC
     IDCT8_1D_FULL %2
     mova  [%2     ], m6
     mova  [%2+16*2], m7
 
     pxor         m7, m7
-    STORE_DIFFx2 m0, m1, m6, m7, %1, %3
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    STORE_DIFFx2 m0, m1, m6, m7, %1, %3 ; PIC
     lea          %1, [%1+%3*2]
-    STORE_DIFFx2 m2, m3, m6, m7, %1, %3
+    STORE_DIFFx2 m2, m3, m6, m7, %1, %3 ; PIC
     mova         m0, [%2     ]
     mova         m1, [%2+16*2]
     lea          %1, [%1+%3*2]
-    STORE_DIFFx2 m4, m5, m6, m7, %1, %3
+    STORE_DIFFx2 m4, m5, m6, m7, %1, %3 ; PIC
     lea          %1, [%1+%3*2]
-    STORE_DIFFx2 m0, m1, m6, m7, %1, %3
+    STORE_DIFFx2 m0, m1, m6, m7, %1, %3 ; PIC
+    PIC_END
 %endmacro
 
 %macro IDCT8_ADD 0
@@ -519,11 +607,14 @@ cglobal h264_idct8_add_10, 3,4,16
 
 ALIGN 16
 ; TODO: does not need to use stack
-h264_idct8_add1_10 %+ SUFFIX:
+LBL h264_idct8_add1_10 %+ SUFFIX:
 %assign pad 256+16-gprsize
+%define rpicsave [rsp+256]
     sub          rsp, pad
     add   dword [r1], 32
 
+    PIC_BEGIN r4 ; save old r4 in [rsp+256]
+    CHECK_REG_COLLISION "rpic","[rsp]"
 %if ARCH_X86_64
     IDCT8_ADD_SSE_START r1, rsp
     SWAP 1,  9
@@ -582,8 +673,8 @@ h264_idct8_add1_10 %+ SUFFIX:
     IDCT8_ADD_SSE_START r1,    rsp
     IDCT8_ADD_SSE_START r1+16, rsp+128
     lea           r3, [r0+8]
-    IDCT8_ADD_SSE_END r0, rsp,    r2
-    IDCT8_ADD_SSE_END r3, rsp+16, r2
+    IDCT8_ADD_SSE_END r0, rsp,    r2 ; r0,2; rsp; PIC
+    IDCT8_ADD_SSE_END r3, rsp+16, r2 ; r2,3; rsp; PIC
     mova    [r1+  0], m7
     mova    [r1+ 16], m7
     mova    [r1+ 32], m7
@@ -601,7 +692,7 @@ h264_idct8_add1_10 %+ SUFFIX:
     mova    [r1+224], m7
     mova    [r1+240], m7
 %endif ; ARCH_X86_64
-
+    PIC_END ; r4, restore from [rsp+256]
     add          rsp, pad
     ret
 %endmacro
@@ -625,7 +716,7 @@ IDCT8_ADD
     mov      r0d, [r6+%1*4]
     add       r0, r5
     call h264_idct8_add1_10 %+ SUFFIX
-.skipblock%1:
+LBL .skipblock%1:
 %if %1<12
     add       r1, 256
 %endif
