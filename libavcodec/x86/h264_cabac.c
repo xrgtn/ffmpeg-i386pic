@@ -60,34 +60,54 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
         : "=&r"(tables)
         : NAMED_CONSTRAINTS_ARRAY(ff_h264_cabac_tables)
     );
+#elif defined(I386PIC)
+    void *statep0, *tables0;
 #endif
 
     __asm__ volatile(
+#ifdef I386PIC
+        "call 0f                                \n\t"
+        "0:                                     \n\t" /* "PIC base" label */
+        "pop %%"FF_REG_c"                       \n\t" /* load "PIC base" addr */
+        "mov %%"FF_REG_c", %[TABLES0]           \n\t" /* store PIC to tables0 */
+#endif
         "3:                                     \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%3", "%w3",
-                             "%5", "%q5", "%k0", "%b0",
-                             "%c11(%6)", "%c12(%6)",
+        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]","(%1)"),
+                             "%3", "%w3", "%5", "%q5", "%k0", "%b0",
+                             "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%13")
+                             IF_I386PIC("%1","%[tables]"), "%[TABLES0]")
 
+#ifdef I386PIC
+        "mov %[STATEP0], %1                     \n\t" /* load statep to %1 */
+#endif
         "test $1, %4                            \n\t"
         " jz 4f                                 \n\t"
-        "add  %10, %1                           \n\t"
+        "add  %[LASTOFF], %1                    \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", "(%1)", "%3", "%w3",
-                             "%5", "%q5", "%k0", "%b0",
-                             "%c11(%6)", "%c12(%6)",
+        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]", "(%1)"),
+                             "%3", "%w3", "%5", "%q5", "%k0", "%b0",
+                             "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%13")
+                             IF_I386PIC("%1","%[tables]"), "%[TABLES0]")
 
-        "sub  %10, %1                           \n\t"
+#ifdef I386PIC
+        "mov %[STATEP0], %1                     \n\t" /* load statep to %1 */
+#endif
+        "sub  %[LASTOFF], %1                    \n\t"
         "mov  %2, %0                            \n\t"
-        "movl %7, %%ecx                         \n\t"
+        "movl %[MSTART], %%ecx                  \n\t"
         "add  %1, %%"FF_REG_c"                  \n\t"
         "movl %%ecx, (%0)                       \n\t"
 
@@ -98,21 +118,33 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
 
         "4:                                     \n\t"
         "add  $1, %1                            \n\t"
-        "cmp  %8, %1                            \n\t"
+        "cmp  %[END], %1                        \n\t"
         " jb 3b                                 \n\t"
         "mov  %2, %0                            \n\t"
-        "movl %7, %%ecx                         \n\t"
+        "movl %[MSTART], %%ecx                  \n\t"
         "add  %1, %%"FF_REG_c"                  \n\t"
         "movl %%ecx, (%0)                       \n\t"
         "5:                                     \n\t"
-        "add  %9, %k0                           \n\t"
+        "add  %[MINDEX], %k0                    \n\t"
         "shr $2, %k0                            \n\t"
-        : "=&q"(coeff_count), "+r"(significant_coeff_ctx_base), "+m"(index),
-          "+&r"(c->low), "=&r"(bit), "+&r"(c->range)
-        : "r"(c), "m"(minusstart), "m"(end), "m"(minusindex), "m"(last_off),
-          "i"(offsetof(CABACContext, bytestream)),
-          "i"(offsetof(CABACContext, bytestream_end))
-          TABLES_ARG
+        : [coefcnt]"=&q"(coeff_count),              /* %0 */
+          [sigccb]"+r"(significant_coeff_ctx_base), /* %1 */
+          [INDEX]"+m"(index),                       /* %2 */
+          [low]"+&r"(c->low),                       /* %3 */
+          [bit]"=&r"(bit),                          /* %4 */
+          [range]"+&r"(c->range)                    /* %5 */
+#ifdef I386PIC
+          ,[TABLES0]"=m"(tables0), [STATEP0]"=m"(statep0)
+#endif
+        : [c]"r"(c),
+          [MSTART]"m"(minusstart),
+          [END]"m"(end),
+          [MINDEX]"m"(minusindex),
+          [LASTOFF]"m"(last_off),
+          [BSTREAM]"i"(offsetof(CABACContext, bytestream)),
+          [BSEND]"i"(offsetof(CABACContext, bytestream_end))
+          IF_I386PIC(,IF_BRK(COMA [tables]"r"(tables)
+          ,   NAMED_CONSTRAINTS_ARRAY_ADD(ff_h264_cabac_tables)))
         : "%"FF_REG_c, "memory"
     );
     return coeff_count;
@@ -136,45 +168,62 @@ static int decode_significance_8x8_x86(CABACContext *c,
         : "=&r"(tables)
         : NAMED_CONSTRAINTS_ARRAY(ff_h264_cabac_tables)
     );
+#elif defined(I386PIC)
+    void *statep0, *tables0;
 #endif
 
     __asm__ volatile(
+#ifdef I386PIC
+        "call 0f                                \n\t"
+        "0:                                     \n\t" /* "PIC base" label */
+        "pop %%"FF_REG_c"                       \n\t" /* load "PIC base" addr */
+        "mov %%"FF_REG_c", %[TABLES0]           \n\t" /* store PIC to tables0 */
+#endif
         "mov %1, %6                             \n\t"
         "3:                                     \n\t"
 
-        "mov %10, %0                            \n\t"
+        "mov %[SIGOFF], %0                      \n\t"
         "movzb (%0, %6), %6                     \n\t"
-        "add %9, %6                             \n\t"
+        "add %[SIGCCB], %6                      \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
-                             "%5", "%q5", "%k0", "%b0",
-                             "%c12(%7)", "%c13(%7)",
+        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]", "(%6)"),
+                             "%3", "%w3", "%5", "%q5", "%k0", "%b0",
+                             "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%15")
+                             IF_I386PIC("%6", "%[tables]"), "%[TABLES0]")
 
-        "mov %1, %6                             \n\t"
+        "mov %1, %6                             \n\t" /* %6 re-init*/
         "test $1, %4                            \n\t"
         " jz 4f                                 \n\t"
 
-#ifdef BROKEN_RELOCATIONS
-        "movzb %c14(%15, %q6), %6\n\t"
+#ifdef I386PIC
+        "add %[TABLES0], %[state]               \n\t"
+        "movzb ff_h264_cabac_tables-0b+%c[LASTCFO](%[state]), %[state]\n\t"
+#elif defined(BROKEN_RELOCATIONS)
+        "movzb %c[LASTCFO](%[tables], %q6), %6\n\t"
 #else
-        "movzb "MANGLE(ff_h264_cabac_tables)"+%c14(%6), %6\n\t"
+        "movzb "MANGLE(ff_h264_cabac_tables)"+%c[LASTCFO](%6), %6\n\t"
 #endif
-        "add %11, %6                            \n\t"
+        "add %[LASTCCB], %6                     \n\t"
 
-        BRANCHLESS_GET_CABAC("%4", "%q4", "(%6)", "%3", "%w3",
-                             "%5", "%q5", "%k0", "%b0",
-                             "%c12(%7)", "%c13(%7)",
+        BRANCHLESS_GET_CABAC("%4", "%q4", IF_I386PIC("%[STATEP0]", "(%6)"),
+                             "%3", "%w3", "%5", "%q5", "%k0", "%b0",
+                             "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_NORM_SHIFT_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_LPS_RANGE_OFFSET),
+                             IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
-                             "%15")
+                             IF_I386PIC("%6", "%[tables]"), "%[TABLES0]")
 
         "mov %2, %0                             \n\t"
-        "mov %1, %6                             \n\t"
+        "mov %1, %6                             \n\t" /*6 re-init */
         "mov %k6, (%0)                          \n\t"
 
         "test $1, %4                            \n\t"
@@ -190,15 +239,28 @@ static int decode_significance_8x8_x86(CABACContext *c,
         "mov %2, %0                             \n\t"
         "mov %k6, (%0)                          \n\t"
         "5:                                     \n\t"
-        "addl %8, %k0                           \n\t"
+        "addl %[MINDEX], %k0                    \n\t"
         "shr $2, %k0                            \n\t"
-        : "=&q"(coeff_count), "+"REG64(last), "+"REG64(index), "+&r"(c->low),
-          "=&r"(bit), "+&r"(c->range), "=&r"(state)
-        : "r"(c), "m"(minusindex), "m"(significant_coeff_ctx_base),
-          REG64(sig_off), REG64(last_coeff_ctx_base),
-          "i"(offsetof(CABACContext, bytestream)),
-          "i"(offsetof(CABACContext, bytestream_end)),
-          "i"(H264_LAST_COEFF_FLAG_OFFSET_8x8_OFFSET) TABLES_ARG
+        : [coefcnt]"=&q"(coeff_count), /* %0 */
+          [LAST]"+"REG64(last),        /* %1 */
+          [INDEX]"+"REG64(index),      /* %2 */
+          [low]"+&r"(c->low),          /* %3 */
+          [bit]"=&r"(bit),             /* %4 */
+          [range]"+&r"(c->range),      /* %5 */
+          [state]"=&r"(state)          /* %6 */
+#ifdef I386PIC
+          ,[TABLES0]"=m"(tables0), [STATEP0]"=m"(statep0)
+#endif
+        : [c]"r"(c),
+          [MINDEX]"m"(minusindex),
+          [SIGCCB]"m"(significant_coeff_ctx_base),
+          [SIGOFF]REG64(sig_off),
+          [LASTCCB]REG64(last_coeff_ctx_base),
+          [BSTREAM]"i"(offsetof(CABACContext, bytestream)),
+          [BSEND]"i"(offsetof(CABACContext, bytestream_end)),
+          [LASTCFO]"i"(H264_LAST_COEFF_FLAG_OFFSET_8x8_OFFSET)
+          IF_I386PIC(,IF_BRK(COMA [tables]"r"(tables)
+          ,   NAMED_CONSTRAINTS_ARRAY_ADD(ff_h264_cabac_tables)))
         : "%"FF_REG_c, "memory"
     );
     return coeff_count;
