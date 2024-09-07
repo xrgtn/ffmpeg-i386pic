@@ -27,7 +27,7 @@ cextern pw_1023
 %define max_pixels_10 pw_1023
 
 ; the add_res macros and functions were largely inspired by h264_idct.asm from the x264 project
-%macro ADD_RES_MMX_4_8 0
+%macro ADD_RES_MMX_4_8 0 ; r0..2
     mova              m0, [r1]
     mova              m2, [r1+8]
 
@@ -56,7 +56,7 @@ cglobal hevc_add_residual_4_8, 3, 3, 6
     ADD_RES_MMX_4_8
     RET
 
-%macro ADD_RES_SSE_8_8 0
+%macro ADD_RES_SSE_8_8 0 ; r0..3
     movq              m0, [r0]
     movq              m1, [r0+r2]
     punpcklbw         m0, m4
@@ -83,7 +83,7 @@ cglobal hevc_add_residual_4_8, 3, 3, 6
     movhps       [r0+r3], m2
 %endmacro
 
-%macro ADD_RES_SSE_16_32_8 3
+%macro ADD_RES_SSE_16_32_8 3 ; r1
     mova              m1, [%2]
     mova              m2, m1
     punpcklbw         m1, m0
@@ -291,9 +291,13 @@ cglobal hevc_add_residual_32_8, 3, 5, 7
 
 ; void ff_hevc_add_residual_<4|8|16|32>_10(pixel *dst, const int16_t *block, ptrdiff_t stride)
 INIT_MMX mmxext
-cglobal hevc_add_residual_4_10, 3, 3, 6
+cglobal hevc_add_residual_4_10, 2, 3, 6
+    PIC_BEGIN r2, 0               ; r2 loading delayed
+    CHECK_REG_COLLISION "rpic","r2mp"
+    mova              m3, [pic(max_pixels_10)]
+    PIC_END                       ; r2, no-save
     pxor              m2, m2
-    mova              m3, [max_pixels_10]
+    movifnidn         r2, r2mp    ; r2 loaded from arg[2]
     ADD_RES_MMX_4_10  r0, r2, r1
     add               r1, 16
     lea               r0, [r0+2*r2]
@@ -302,9 +306,11 @@ cglobal hevc_add_residual_4_10, 3, 3, 6
 
 INIT_XMM sse2
 cglobal hevc_add_residual_8_10, 3, 4, 6
+    PIC_BEGIN r3, 0               ; r3 not yet initialized
+    mova              m5, [pic(max_pixels_10)]
+    PIC_END                       ; r3, no-save
     pxor              m4, m4
-    mova              m5, [max_pixels_10]
-    lea               r3, [r2*3]
+    lea               r3, [r2*3]  ; r3 init
 
     ADD_RES_SSE_8_10  r0, r2, r3, r1
     lea               r0, [r0+r2*4]
@@ -313,8 +319,10 @@ cglobal hevc_add_residual_8_10, 3, 4, 6
     RET
 
 cglobal hevc_add_residual_16_10, 3, 5, 6
+    PIC_BEGIN r3, 0               ; r3 not used
+    mova              m5, [pic(max_pixels_10)]
+    PIC_END                       ; r3, no-save
     pxor              m4, m4
-    mova              m5, [max_pixels_10]
 
     mov              r4d, 8
 .loop:
@@ -326,8 +334,10 @@ cglobal hevc_add_residual_16_10, 3, 5, 6
     RET
 
 cglobal hevc_add_residual_32_10, 3, 5, 6
+    PIC_BEGIN r3, 0               ; r3 not used
+    mova              m5, [pic(max_pixels_10)]
+    PIC_END                       ; r3, no-save
     pxor              m4, m4
-    mova              m5, [max_pixels_10]
 
     mov              r4d, 32
 .loop:
@@ -341,9 +351,11 @@ cglobal hevc_add_residual_32_10, 3, 5, 6
 %if HAVE_AVX2_EXTERNAL
 INIT_YMM avx2
 cglobal hevc_add_residual_16_10, 3, 5, 6
+    PIC_BEGIN r3, 0               ; r3 not yet initialized
+    mova               m5, [pic(max_pixels_10)]
+    PIC_END                       ; r3, no-save
     pxor               m4, m4
-    mova               m5, [max_pixels_10]
-    lea                r3, [r2*3]
+    lea                r3, [r2*3] ; r3 init
 
     mov               r4d, 4
 .loop:
@@ -355,8 +367,10 @@ cglobal hevc_add_residual_16_10, 3, 5, 6
     RET
 
 cglobal hevc_add_residual_32_10, 3, 5, 6
+    PIC_BEGIN r3, 0               ; r3 not used
+    mova               m5, [pic(max_pixels_10)]
+    PIC_END                       ; r3, no-save
     pxor               m4, m4
-    mova               m5, [max_pixels_10]
 
     mov               r4d, 16
 .loop:
