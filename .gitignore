@@ -17,6 +17,7 @@
 *.so*
 *.ver
 *.version
+*.x
 *~
 .*.swp
 .config
