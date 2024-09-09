@@ -53,7 +53,7 @@ av_cold int ff_init_hscaler_mmxext(int dstW, int xInc, uint8_t *filterCode,
 
     // code fragment
 
-#if ARCH_X86_32 && defined(PIC)
+#ifdef I386PIC
     __asm__ volatile (
         "jmp		9f		\n\t"
         // Begin
