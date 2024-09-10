@@ -109,7 +109,8 @@ SECTION .text
 
 INIT_XMM sse2
 cglobal cavs_idct8, 2, 2, 8 + ARCH_X86_64, 0 - 8 * 16, out, in
-    CAVS_IDCT8_1D  inq, [pw_4]
+    PIC_BEGIN r2, 0 ; r2 not used and is a scratch reg
+    CAVS_IDCT8_1D  inq, [pic(pw_4)]
     psraw           m7, 3
     psraw           m6, 3
     psraw           m5, 3
@@ -128,7 +129,7 @@ cglobal cavs_idct8, 2, 2, 8 + ARCH_X86_64, 0 - 8 * 16, out, in
     mova    [rsp+0*16], m7
     mova    [rsp+2*16], m3
     mova    [rsp+6*16], m4
-    CAVS_IDCT8_1D  rsp, [pw_64], 0
+    CAVS_IDCT8_1D  rsp, [pic(pw_64)], 0
     psraw           m7, 7
     psraw           m6, 7
     psraw           m5, 7
@@ -146,4 +147,5 @@ cglobal cavs_idct8, 2, 2, 8 + ARCH_X86_64, 0 - 8 * 16, out, in
     mova   [outq+5*16], m2
     mova   [outq+6*16], m4
     mova   [outq+7*16], m6
+    PIC_END ; r2, no-save
     RET
