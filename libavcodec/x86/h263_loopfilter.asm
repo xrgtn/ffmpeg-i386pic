@@ -28,7 +28,7 @@ cextern h263_loop_filter_strength
 
 SECTION .text
 
-%macro H263_LOOP_FILTER 5
+%macro H263_LOOP_FILTER 5 ; PIC
     pxor         m7, m7
     mova         m0, [%1]
     mova         m1, [%1]
@@ -90,7 +90,10 @@ SECTION .text
     mova         m1, m0
     psubusb      m0, m2
     psubb        m1, m0
-    pand         m1, [pb_FC]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    pand         m1, [pic(pb_FC)]
+    PIC_END
     psrlw        m1, 2
     pxor         m1, m7
     psubb        m1, m7
@@ -106,7 +109,9 @@ cglobal h263_v_loop_filter, 3,5
     movsxdifnidn r1, r1d
     movsxdifnidn r2, r2d
 
-    lea          r4, [h263_loop_filter_strength]
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
+    lea          r4, [pic(h263_loop_filter_strength)]
     movzx       r3d, BYTE [r4+r2]
     movsx        r2, r3b
     shl          r2, 1
@@ -115,12 +120,13 @@ cglobal h263_v_loop_filter, 3,5
     sub          r3, r1
     mov          r4, r3
     sub          r4, r1
-    H263_LOOP_FILTER r4, r3, r0, r0+r1, r2d
+    H263_LOOP_FILTER r4, r3, r0, r0+r1, r2d ; r0..4; PIC
 
     mova       [r3], m3
     mova       [r0], m4
     mova       [r4], m5
     mova    [r0+r1], m6
+    PIC_END ; r5, push/pop
     RET
 
 %macro TRANSPOSE4X4 2
@@ -145,10 +151,13 @@ cglobal h263_v_loop_filter, 3,5
 ; void ff_h263_h_loop_filter_mmx(uint8_t *src, int stride, int qscale)
 INIT_MMX mmx
 cglobal h263_h_loop_filter, 3,5,0,32
+    PIC_ALLOC "rpicsave"
     movsxdifnidn r1, r1d
     movsxdifnidn r2, r2d
 
-    lea          r4, [h263_loop_filter_strength]
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","[rsp]"
+    lea          r4, [pic(h263_loop_filter_strength)]
     movzx       r3d, BYTE [r4+r2]
     movsx        r2, r3b
     shl          r2, 1
@@ -160,7 +169,7 @@ cglobal h263_h_loop_filter, 3,5,0,32
     lea          r4, [r0+r1*4]
     TRANSPOSE4X4 r4, rsp+4
 
-    H263_LOOP_FILTER rsp, rsp+8, rsp+16, rsp+24, r2d
+    H263_LOOP_FILTER rsp, rsp+8, rsp+16, rsp+24, r2d ; r2,rsp; PIC
 
     mova         m1, m5
     mova         m0, m4
@@ -186,4 +195,6 @@ cglobal h263_h_loop_filter, 3,5,0,32
     movd  [r4+r1*2], m6
     punpckhdq    m6, m6
     movd    [r4+r3], m6
+    PIC_END ; r5, save/restore
+    PIC_FREE
     RET
