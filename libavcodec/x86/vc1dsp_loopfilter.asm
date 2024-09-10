@@ -36,12 +36,15 @@ SECTION .text
 
 %macro STORE_4_WORDS 6
 %if cpuflag(sse4)
+    CHECK_REG_COLLISION "dpic",%{1:-1}
     pextrw %1, %5, %6+0
     pextrw %2, %5, %6+1
     pextrw %3, %5, %6+2
     pextrw %4, %5, %6+3
 %else
-    movd  %6d, %5
+    CHECK_REG_COLLISION "dpic",%{1:-2}
+    movd  %6d, %5 ; %6 re-init
+    %undef dpiclf ; should be IF_REGC "dpic",%6, %undef dpiclf
 %if mmsize==16
     psrldq %5, 4
 %else
@@ -59,13 +62,16 @@ SECTION .text
 
 ; in:  p1 p0 q0 q1, clobbers p0
 ; out: p1 = (2*(p1 - q1) - 5*(p0 - q0) + 4) >> 3
-%macro VC1_LOOP_FILTER_A0 4
+%macro VC1_LOOP_FILTER_A0 4 ; PIC
+    CHECK_REG_COLLISION "rpic",%{1:-1}
     psubw  %1, %4
     psubw  %2, %3
     paddw  %1, %1
-    pmullw %2, [pw_5]
+    PIC_BEGIN r4
+    pmullw %2, [pic(pw_5)]
     psubw  %1, %2
-    paddw  %1, [pw_4]
+    paddw  %1, [pic(pw_4)]
+    PIC_END
     psraw  %1, 3
 %endmacro
 
@@ -73,7 +79,7 @@ SECTION .text
 ;     m0 m1 m7 m6 m5
 ; %1: size
 ; out: m0=p0' m1=q0'
-%macro VC1_FILTER 1
+%macro VC1_FILTER 1 ; r2, PIC
     PABSW   m4, m7
     PABSW   m3, m6
     PABSW   m2, m5
@@ -81,12 +87,15 @@ SECTION .text
     pminsw  m3, m2
     pcmpgtw m6, m3  ; if (a2 < a0 || a1 < a0)
     psubw   m3, m4
-    pmullw  m3, [pw_5]   ; 5*(a3 - a0)
+    PIC_BEGIN r4
+    pmullw  m3, [pic(pw_5)]   ; 5*(a3 - a0)
+    PIC_END
     PABSW   m2, m3
     psraw   m2, 3   ; abs(d/8)
     pxor    m7, m3  ; d_sign ^= a0_sign
 
     pxor    m5, m5
+    CHECK_REG_COLLISION "rpic","r2"
     movd    m3, r2d
 %if %1 > 4
     punpcklbw m3, m3
@@ -129,7 +138,8 @@ SECTION .text
 
 ; 1st param: size of filter
 ; 2nd param: mov suffix equivalent to the filter size
-%macro VC1_V_LOOP_FILTER 2
+%macro VC1_V_LOOP_FILTER 2 ; r0..4, PIC
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3","r4"
     pxor      m5, m5
     mov%2     m6, [r4]
     mov%2     m4, [r4+r1]
@@ -140,21 +150,26 @@ SECTION .text
     punpcklbw m7, m5
     punpcklbw m0, m5
 
-    VC1_LOOP_FILTER_A0 m6, m4, m7, m0
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5, 1
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3"
+    VC1_LOOP_FILTER_A0 m6, m4, m7, m0 ; PIC
     mov%2     m1, [r0]
     mov%2     m2, [r0+r1]
     punpcklbw m1, m5
     punpcklbw m2, m5
     mova      m4, m0
-    VC1_LOOP_FILTER_A0 m7, m4, m1, m2
+    VC1_LOOP_FILTER_A0 m7, m4, m1, m2 ; PIC
     mov%2     m3, [r0+2*r1]
     mov%2     m4, [r0+r3]
     punpcklbw m3, m5
     punpcklbw m4, m5
     mova      m5, m1
-    VC1_LOOP_FILTER_A0 m5, m2, m3, m4
+    VC1_LOOP_FILTER_A0 m5, m2, m3, m4 ; PIC
 
-    VC1_FILTER %1
+    VC1_FILTER %1 ; r2, PIC
+    PIC_END ; r5, push/pop
+    %undef rpicsave ; no more PIC
     mov%2 [r4+r3], m0
     mov%2 [r0],    m1
 %endmacro
@@ -162,14 +177,16 @@ SECTION .text
 ; 1st param: size of filter
 ;     NOTE: UNPACK_8TO16 this number of 8 bit numbers are in half a register
 ; 2nd (optional) param: temp register to use for storing words
-%macro VC1_H_LOOP_FILTER 1-2
+%macro VC1_H_LOOP_FILTER 1-2 ; r0..4*(%1>4||%5==r4||%0<=1), PIC
 %if %1 == 4
+    CHECK_REG_COLLISION "rpic",,,"r0","r1",,"r3"
     movq      m0, [r0     -4]
     movq      m1, [r0+  r1-4]
     movq      m2, [r0+2*r1-4]
     movq      m3, [r0+  r3-4]
     TRANSPOSE4x4B 0, 1, 2, 3, 4
 %else
+    CHECK_REG_COLLISION "rpic",,,"r0","r1",,"r3","r4"
     movq      m0, [r0     -4]
     movq      m4, [r0+  r1-4]
     movq      m1, [r0+2*r1-4]
@@ -186,33 +203,46 @@ SECTION .text
 %endif
     pxor      m5, m5
 
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r6, 1
+    CHECK_REG_COLLISION "rpic",%1,"r2"
     UNPACK_8TO16 bw, 6, 0, 5
     UNPACK_8TO16 bw, 7, 1, 5
-    VC1_LOOP_FILTER_A0 m6, m0, m7, m1
+    VC1_LOOP_FILTER_A0 m6, m0, m7, m1   ; PIC
     UNPACK_8TO16 bw, 4, 2, 5
     mova    m0, m1                      ; m0 = p0
-    VC1_LOOP_FILTER_A0 m7, m1, m4, m2
+    VC1_LOOP_FILTER_A0 m7, m1, m4, m2   ; PIC
     UNPACK_8TO16 bw, 1, 3, 5
     mova    m5, m4
-    VC1_LOOP_FILTER_A0 m5, m2, m1, m3
+    VC1_LOOP_FILTER_A0 m5, m2, m1, m3   ; PIC
     SWAP 1, 4                           ; m1 = q0
 
-    VC1_FILTER %1
+    VC1_FILTER %1 ; r2, PIC
+    PIC_END
+    %undef rpicsave ; no more PIC
+    ; BTW, r4 may become not-used-anymore if %0>1 && %1<=4 && %2!=r4, but
+    ; this doesn't happen (CHECK_REG_COLLISION 4 goes with 2nd param r4).
     punpcklbw m0, m1
 %if %0 > 1
+    CHECK_REG_COLLISION "dpic",,%cond(cpuflag(sse4),%2,),"r0","r1",,"r3"
+    CHECK_REG_COLLISION "rpic",,%2,"r0","r1",,"r3"
     STORE_4_WORDS [r0-1], [r0+r1-1], [r0+2*r1-1], [r0+r3-1], m0, %2
 %if %1 > 4
+    CHECK_REG_COLLISION "dpic",,%cond(cpuflag(sse4),%2,),,"r1",,"r3","r4"
+    CHECK_REG_COLLISION "rpic",,%2,,"r1",,"r3","r4"
     psrldq m0, 4
     STORE_4_WORDS [r4-1], [r4+r1-1], [r4+2*r1-1], [r4+r3-1], m0, %2
 %endif
 %else
+    CHECK_REG_COLLISION "dpic",,,"r0","r1",,"r3","r4"
+    CHECK_REG_COLLISION "rpic",,,"r0","r1",,"r3","r4"
     STORE_4_WORDS [r0-1], [r0+r1-1], [r0+2*r1-1], [r0+r3-1], m0, 0
     STORE_4_WORDS [r4-1], [r4+r1-1], [r4+2*r1-1], [r4+r3-1], m0, 4
 %endif
 %endmacro
 
 
-%macro START_V_FILTER 0
+%macro START_V_FILTER 0 ; r0..4
     mov  r4, r0
     lea  r3, [4*r1]
     sub  r4, r3
@@ -220,7 +250,7 @@ SECTION .text
     imul r2, 0x01010101
 %endmacro
 
-%macro START_H_FILTER 1
+%macro START_H_FILTER 1 ; r0..4*(%1>4)
     lea  r3, [r1+2*r1]
 %if %1 > 4
     lea  r4, [r0+4*r1]
@@ -231,59 +261,63 @@ SECTION .text
 ; void ff_vc1_v_loop_filter4_mmxext(uint8_t *src, ptrdiff_t stride, int pq)
 INIT_MMX mmxext
 cglobal vc1_v_loop_filter4, 3,5,0
-    START_V_FILTER
-    VC1_V_LOOP_FILTER 4, d
+    START_V_FILTER ; r0..4
+    VC1_V_LOOP_FILTER 4, d ; r0..4, PIC
     RET
 
 ; void ff_vc1_h_loop_filter4_mmxext(uint8_t *src, ptrdiff_t stride, int pq)
 INIT_MMX mmxext
 cglobal vc1_h_loop_filter4, 3,5,0
-    START_H_FILTER 4
-    VC1_H_LOOP_FILTER 4, r4
+    START_H_FILTER 4 ; r1..3
+    DESIGNATE_RPIC r4
+    VC1_H_LOOP_FILTER 4, r4 ; r0..4, PIC
     RET
 
 INIT_XMM sse2
 ; void ff_vc1_v_loop_filter8_sse2(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_v_loop_filter8, 3,5,8
     START_V_FILTER
-    VC1_V_LOOP_FILTER 8, q
+    VC1_V_LOOP_FILTER 8, q ; r0..4, PIC
     RET
 
 ; void ff_vc1_h_loop_filter8_sse2(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_h_loop_filter8, 3,6,8
-    START_H_FILTER 8
-    VC1_H_LOOP_FILTER 8, r5
+    START_H_FILTER 8 ; r0..4
+    DESIGNATE_RPIC r5
+    VC1_H_LOOP_FILTER 8, r5 ; r0..5, PIC
     RET
 
 INIT_MMX ssse3
 ; void ff_vc1_v_loop_filter4_ssse3(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_v_loop_filter4, 3,5,0
     START_V_FILTER
-    VC1_V_LOOP_FILTER 4, d
+    VC1_V_LOOP_FILTER 4, d ; r0..4, PIC
     RET
 
 ; void ff_vc1_h_loop_filter4_ssse3(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_h_loop_filter4, 3,5,0
-    START_H_FILTER 4
-    VC1_H_LOOP_FILTER 4, r4
+    START_H_FILTER 4 ; r1..3
+    DESIGNATE_RPIC r4
+    VC1_H_LOOP_FILTER 4, r4 ; r0..4, PIC
     RET
 
 INIT_XMM ssse3
 ; void ff_vc1_v_loop_filter8_ssse3(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_v_loop_filter8, 3,5,8
     START_V_FILTER
-    VC1_V_LOOP_FILTER 8, q
+    VC1_V_LOOP_FILTER 8, q ; r0..4, PIC
     RET
 
 ; void ff_vc1_h_loop_filter8_ssse3(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_h_loop_filter8, 3,6,8
-    START_H_FILTER 8
-    VC1_H_LOOP_FILTER 8, r5
+    START_H_FILTER 8 ; r0..4
+    DESIGNATE_RPIC r5
+    VC1_H_LOOP_FILTER 8, r5 ; r0..5, PIC
     RET
 
 INIT_XMM sse4
 ; void ff_vc1_h_loop_filter8_sse4(uint8_t *src, ptrdiff_t stride, int pq)
 cglobal vc1_h_loop_filter8, 3,5,8
-    START_H_FILTER 8
-    VC1_H_LOOP_FILTER 8
+    START_H_FILTER 8 ; r0..4
+    VC1_H_LOOP_FILTER 8 ; r0..4, PIC
     RET
