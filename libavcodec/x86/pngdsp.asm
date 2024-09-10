@@ -92,6 +92,8 @@ cglobal add_png_paeth_prediction, 5, 7, %1, dst, src, top, w, bpp, end, cntr
     PUSH              dstq
     lea              cntrq, [bppq-1]
     shr              cntrq, 2 + mmsize/16
+    PIC_BEGIN wq, 0 ; wq not used anymore
+    CHECK_REG_COLLISION "rpic","[rsp]"
 .bpp_loop:
     lea               dstq, [dstq+cntrq*(mmsize/2)]
     movh                m0, [dstq]
@@ -99,7 +101,7 @@ cglobal add_png_paeth_prediction, 5, 7, %1, dst, src, top, w, bpp, end, cntr
     punpcklbw           m0, m7
     punpcklbw           m1, m7
     add               dstq, bppq
-.loop:
+.loop:                             ; topq,dstq,srcq,bppq,endq,cntrq
     mova                m2, m1
     movh                m1, [topq+dstq]
     mova                m3, m2
@@ -139,7 +141,7 @@ cglobal add_png_paeth_prediction, 5, 7, %1, dst, src, top, w, bpp, end, cntr
     paddw               m0, m6
     paddw               m3, m2
     paddw               m0, m3
-    pand                m0, [pw_255]
+    pand                m0, [pic(pw_255)]
     mova                m3, m0
     packuswb            m3, m3
     movh            [dstq], m3
@@ -150,6 +152,7 @@ cglobal add_png_paeth_prediction, 5, 7, %1, dst, src, top, w, bpp, end, cntr
     mov               dstq, [rsp]
     dec              cntrq
     jge .bpp_loop
+    PIC_END ; wq, no-save
     POP               dstq
     RET
 %endmacro
