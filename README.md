@@ -23,33 +23,23 @@ At the moment the next files still have R\_386\_32 (absolute address)
 relocations in .text:
 ```
 user@localhost ~/ffmpeg $ find . -name \*.o | while read O; do n=`objdump -dr "$O" | grep R_386_32 | wc -l`; case "$n" in 0);; *) printf '%i\t%s\n' "$n" "$O";; esac; done | sort -n
-1	./libavcodec/x86/idctdsp.o
-1	./libavcodec/x86/lossless_videoencdsp.o
 2	./libavcodec/x86/pngdsp.o
-2	./libavcodec/x86/vp6dsp.o
 3	./libavfilter/x86/vf_maskedmerge.o
 4	./libavcodec/x86/cavsidct.o
-4	./libavcodec/x86/h263_loopfilter.o
 4	./libavfilter/x86/vf_gradfun.o
 4	./libavfilter/x86/vf_hflip.o
 4	./libavfilter/x86/vf_interlace.o
 4	./libavfilter/x86/vf_removegrain.o
 4	./libavfilter/x86/vf_ssim.o
 4	./libavfilter/x86/vf_v360.o
-5	./libavcodec/x86/vc1dsp_mc.o
-6	./libavcodec/x86/exrdsp.o
-6	./libavcodec/x86/me_cmp.o
 7	./libavfilter/x86/af_volume.o
 10	./libavfilter/x86/vf_overlay.o
-16	./libavcodec/x86/vp9mc.o
 19	./libavfilter/x86/vf_stereo3d.o
 20	./libavfilter/x86/yadif-10.o
-24	./libavcodec/x86/h264_chromamc_10bit.o
 25	./libavfilter/x86/vf_blend.o
 28	./libavfilter/x86/vf_yadif.o
 41	./libavfilter/x86/vf_fspp.o
 56	./libavfilter/x86/vf_bwdif.o
-63	./libavcodec/x86/vc1dsp_loopfilter.o
 user@localhost ~/ffmpeg $ 
 ```
 
