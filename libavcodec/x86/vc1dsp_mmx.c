@@ -43,6 +43,14 @@ void ff_vc1_put_hor_16b_shift2_mmx(uint8_t *dst, x86_reg stride,
 void ff_vc1_avg_hor_16b_shift2_mmxext(uint8_t *dst, x86_reg stride,
                                       const int16_t *src, int rnd);
 
+#ifdef I386PIC
+/* redefine MANGLE and NAMED_CONSTRAINTS_ARRAY_ADD to #2 (I386PIC) versions: */
+#undef  MANGLE
+#define MANGLE(a) MANGLE2(a)
+#undef  NAMED_CONSTRAINTS_ADD
+#define NAMED_CONSTRAINTS_ADD(...) NAMED_CONSTRAINTS_ADD2(__VA_ARGS__)
+#endif
+
 #define OP_PUT(S,D)
 #define OP_AVG(S,D) "pavgb " #S ", " #D " \n\t"
 

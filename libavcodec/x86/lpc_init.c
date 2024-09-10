@@ -33,6 +33,14 @@ DECLARE_ASM_CONST(16, double, pd_1)[2] = { 1.0, 1.0 };
 
 #if HAVE_SSE2_INLINE
 
+#ifdef I386PIC
+/* redefine MANGLE and NAMED_CONSTRAINTS_ARRAY_ADD to #2 (I386PIC) versions: */
+#undef  MANGLE
+#define MANGLE(a) MANGLE2(a)
+#undef  NAMED_CONSTRAINTS_ARRAY_ADD
+#define NAMED_CONSTRAINTS_ARRAY_ADD(...) NAMED_CONSTRAINTS_ARRAY_ADD2(__VA_ARGS__)
+#endif
+
 static void lpc_compute_autocorr_sse2(const double *data, ptrdiff_t len, int lag,
                                       double *autoc)
 {
@@ -45,9 +53,9 @@ static void lpc_compute_autocorr_sse2(const double *data, ptrdiff_t len, int lag
         x86_reg i = -len*sizeof(double);
         if(j == lag-2) {
             __asm__ volatile(
-                "movsd    %[pd_1], %%xmm0           \n\t"
-                "movsd    %[pd_1], %%xmm1           \n\t"
-                "movsd    %[pd_1], %%xmm2           \n\t"
+                "movsd    "MANGLE(pd_1)", %%xmm0    \n\t"
+                "movsd    "MANGLE(pd_1)", %%xmm1    \n\t"
+                "movsd    "MANGLE(pd_1)", %%xmm2    \n\t"
                 "1:                                 \n\t"
                 "movapd   (%2,%0), %%xmm3           \n\t"
                 "movupd -8(%3,%0), %%xmm4           \n\t"
@@ -70,14 +78,14 @@ static void lpc_compute_autocorr_sse2(const double *data, ptrdiff_t len, int lag
                 "movsd     %%xmm1,  8(%1)           \n\t"
                 "movsd     %%xmm2, 16(%1)           \n\t"
                 :"+&r"(i)
-                :"r"(autoc+j), "r"(data+len), "r"(data+len-j),
-                 [pd_1]"m"(pd_1)
+                :"r"(autoc+j), "r"(data+len), "r"(data+len-j)
+                 NAMED_CONSTRAINTS_ARRAY_ADD(pd_1)
                 :"memory"
             );
         } else {
             __asm__ volatile(
-                "movsd    %[pd_1], %%xmm0           \n\t"
-                "movsd    %[pd_1], %%xmm1           \n\t"
+                "movsd    "MANGLE(pd_1)", %%xmm0    \n\t"
+                "movsd    "MANGLE(pd_1)", %%xmm1    \n\t"
                 "1:                                 \n\t"
                 "movapd   (%3,%0), %%xmm3           \n\t"
                 "movupd -8(%4,%0), %%xmm4           \n\t"
@@ -94,8 +102,8 @@ static void lpc_compute_autocorr_sse2(const double *data, ptrdiff_t len, int lag
                 "movsd     %%xmm0, %1               \n\t"
                 "movsd     %%xmm1, %2               \n\t"
                 :"+&r"(i), "=m"(autoc[j]), "=m"(autoc[j+1])
-                :"r"(data+len), "r"(data+len-j),
-                 [pd_1]"m"(pd_1)
+                :"r"(data+len), "r"(data+len-j)
+                 NAMED_CONSTRAINTS_ARRAY_ADD(pd_1)
             );
         }
     }

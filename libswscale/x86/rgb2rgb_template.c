@@ -94,14 +94,14 @@ static inline void RENAME(rgb24tobgr32)(const uint8_t *src, uint8_t *dst, int sr
             "psrlq         $8, %%mm3    \n\t" \
             "psrlq         $8, %%mm6    \n\t" \
             "psrlq         $8, %%mm7    \n\t" \
-            "pand          %2, %%mm0    \n\t" \
-            "pand          %2, %%mm1    \n\t" \
-            "pand          %2, %%mm4    \n\t" \
-            "pand          %2, %%mm5    \n\t" \
-            "pand          %3, %%mm2    \n\t" \
-            "pand          %3, %%mm3    \n\t" \
-            "pand          %3, %%mm6    \n\t" \
-            "pand          %3, %%mm7    \n\t" \
+            "pand "MANGLE(mask24l)", %%mm0\n\t" \
+            "pand "MANGLE(mask24l)", %%mm1\n\t" \
+            "pand "MANGLE(mask24l)", %%mm4\n\t" \
+            "pand "MANGLE(mask24l)", %%mm5\n\t" \
+            "pand "MANGLE(mask24h)", %%mm2\n\t" \
+            "pand "MANGLE(mask24h)", %%mm3\n\t" \
+            "pand "MANGLE(mask24h)", %%mm6\n\t" \
+            "pand "MANGLE(mask24h)", %%mm7\n\t" \
             "por        %%mm2, %%mm0    \n\t" \
             "por        %%mm3, %%mm1    \n\t" \
             "por        %%mm6, %%mm4    \n\t" \
@@ -121,6 +121,14 @@ static inline void RENAME(rgb24tobgr32)(const uint8_t *src, uint8_t *dst, int sr
             MOVNTQ"     %%mm0,   (%0)    \n\t" \
             MOVNTQ"     %%mm1,  8(%0)    \n\t" \
             MOVNTQ"     %%mm4, 16(%0)"
+
+#ifdef I386PIC
+/* Redefine MANGLE and NAMED_CONSTRAINTS_ADD to #1 (named operand) versions: */
+#undef  MANGLE
+#define MANGLE(a) MANGLE1(a)
+#undef  NAMED_CONSTRAINTS_ADD
+#define NAMED_CONSTRAINTS_ADD(...) NAMED_CONSTRAINTS_ADD1(__VA_ARGS__)
+#endif
 
 static inline void RENAME(rgb32tobgr24)(const uint8_t *src, uint8_t *dst, int src_size)
 {
@@ -143,7 +151,8 @@ static inline void RENAME(rgb32tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "movq       %%mm4, %%mm6    \n\t"
             "movq       %%mm5, %%mm7    \n\t"
             STORE_BGR24_MMX
-            :: "r"(dest), "r"(s), "m"(mask24l), "m"(mask24h)
+            :: "r"(dest), "r"(s)
+              NAMED_CONSTRAINTS_ADD(mask24l,mask24h)
             :"memory");
         dest += 24;
         s += 32;
@@ -712,9 +721,9 @@ static inline void RENAME(rgb15tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "pand          %3, %%mm1    \n\t"
             "pand          %4, %%mm2    \n\t"
             "psllq         $5, %%mm0    \n\t"
-            "pmulhw        %6, %%mm0    \n\t"
-            "pmulhw        %6, %%mm1    \n\t"
-            "pmulhw        %7, %%mm2    \n\t"
+            "pmulhw        "MANGLE(mul15_mid)", %%mm0    \n\t"
+            "pmulhw        "MANGLE(mul15_mid)", %%mm1    \n\t"
+            "pmulhw        "MANGLE(mul15_hi)", %%mm2    \n\t"
             "movq       %%mm0, %%mm3    \n\t"
             "movq       %%mm1, %%mm4    \n\t"
             "movq       %%mm2, %%mm5    \n\t"
@@ -743,9 +752,9 @@ static inline void RENAME(rgb15tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "pand          %3, %%mm1    \n\t"
             "pand          %4, %%mm2    \n\t"
             "psllq         $5, %%mm0    \n\t"
-            "pmulhw        %6, %%mm0    \n\t"
-            "pmulhw        %6, %%mm1    \n\t"
-            "pmulhw        %7, %%mm2    \n\t"
+            "pmulhw        "MANGLE(mul15_mid)", %%mm0    \n\t"
+            "pmulhw        "MANGLE(mul15_mid)", %%mm1    \n\t"
+            "pmulhw        "MANGLE(mul15_hi)", %%mm2    \n\t"
             "movq       %%mm0, %%mm3    \n\t"
             "movq       %%mm1, %%mm4    \n\t"
             "movq       %%mm2, %%mm5    \n\t"
@@ -765,8 +774,8 @@ static inline void RENAME(rgb15tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "por        %%mm5, %%mm3    \n\t"
 
             :"=m"(*d)
-            :"r"(s),"m"(mask15b),"m"(mask15g),"m"(mask15r), "m"(mmx_null),
-	     "m"(mul15_mid), "m"(mul15_hi)
+            :"r"(s),"m"(mask15b),"m"(mask15g),"m"(mask15r), "m"(mmx_null)
+             NAMED_CONSTRAINTS_ADD(mul15_mid,mul15_hi)
             :"memory");
         /* borrowed 32 to 24 */
         __asm__ volatile(
@@ -782,7 +791,8 @@ static inline void RENAME(rgb15tobgr24)(const uint8_t *src, uint8_t *dst, int sr
 
             STORE_BGR24_MMX
 
-            :: "r"(d), "m"(*s), "m"(mask24l), "m"(mask24h)
+            :: "r"(d), "m"(*s)
+              NAMED_CONSTRAINTS_ADD(mask24l,mask24h)
             :"memory");
         d += 24;
         s += 8;
@@ -818,9 +828,9 @@ static inline void RENAME(rgb16tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "pand          %4, %%mm2    \n\t"
             "psllq         $5, %%mm0    \n\t"
             "psrlq         $1, %%mm2    \n\t"
-            "pmulhw        %6, %%mm0    \n\t"
-            "pmulhw        %7, %%mm1    \n\t"
-            "pmulhw        %8, %%mm2    \n\t"
+            "pmulhw        "MANGLE(mul15_mid)", %%mm0    \n\t"
+            "pmulhw        "MANGLE(mul16_mid)", %%mm1    \n\t"
+            "pmulhw        "MANGLE(mul15_hi)", %%mm2    \n\t"
             "movq       %%mm0, %%mm3    \n\t"
             "movq       %%mm1, %%mm4    \n\t"
             "movq       %%mm2, %%mm5    \n\t"
@@ -850,9 +860,9 @@ static inline void RENAME(rgb16tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "pand          %4, %%mm2    \n\t"
             "psllq         $5, %%mm0    \n\t"
             "psrlq         $1, %%mm2    \n\t"
-            "pmulhw        %6, %%mm0    \n\t"
-            "pmulhw        %7, %%mm1    \n\t"
-            "pmulhw        %8, %%mm2    \n\t"
+            "pmulhw        "MANGLE(mul15_mid)", %%mm0    \n\t"
+            "pmulhw        "MANGLE(mul16_mid)", %%mm1    \n\t"
+            "pmulhw        "MANGLE(mul15_hi)", %%mm2    \n\t"
             "movq       %%mm0, %%mm3    \n\t"
             "movq       %%mm1, %%mm4    \n\t"
             "movq       %%mm2, %%mm5    \n\t"
@@ -871,8 +881,8 @@ static inline void RENAME(rgb16tobgr24)(const uint8_t *src, uint8_t *dst, int sr
             "por        %%mm4, %%mm3    \n\t"
             "por        %%mm5, %%mm3    \n\t"
             :"=m"(*d)
-            :"r"(s),"m"(mask16b),"m"(mask16g),"m"(mask16r),"m"(mmx_null),
-	     "m"(mul15_mid),"m"(mul16_mid),"m"(mul15_hi)
+            :"r"(s),"m"(mask16b),"m"(mask16g),"m"(mask16r),"m"(mmx_null)
+             NAMED_CONSTRAINTS_ADD(mul15_mid,mul16_mid,mul15_hi)
             :"memory");
         /* borrowed 32 to 24 */
         __asm__ volatile(
@@ -888,7 +898,8 @@ static inline void RENAME(rgb16tobgr24)(const uint8_t *src, uint8_t *dst, int sr
 
             STORE_BGR24_MMX
 
-            :: "r"(d), "m"(*s), "m"(mask24l), "m"(mask24h)
+            :: "r"(d), "m"(*s)
+              NAMED_CONSTRAINTS_ADD(mask24l,mask24h)
             :"memory");
         d += 24;
         s += 8;
@@ -946,10 +957,10 @@ static inline void RENAME(rgb15to32)(const uint8_t *src, uint8_t *dst, int src_s
             "psllq         $5, %%mm0    \n\t"
             "pmulhw        %5, %%mm0    \n\t"
             "pmulhw        %5, %%mm1    \n\t"
-            "pmulhw        %6, %%mm2    \n\t"
+            "pmulhw        "MANGLE(mul15_hi)", %%mm2    \n\t"
             PACK_RGB32
-            ::"r"(d),"r"(s),"m"(mask15b),"m"(mask15g),"m"(mask15r) ,"m"(mul15_mid),
-              "m"(mul15_hi)
+            ::"r"(d),"r"(s),"m"(mask15b),"m"(mask15g),"m"(mask15r) ,"m"(mul15_mid)
+              NAMED_CONSTRAINTS_ADD(mul15_hi)
             :"memory");
         d += 16;
         s += 4;
@@ -989,11 +1000,11 @@ static inline void RENAME(rgb16to32)(const uint8_t *src, uint8_t *dst, int src_s
             "psllq         $5, %%mm0    \n\t"
             "psrlq         $1, %%mm2    \n\t"
             "pmulhw        %5, %%mm0    \n\t"
-            "pmulhw        %6, %%mm1    \n\t"
-            "pmulhw        %7, %%mm2    \n\t"
+            "pmulhw        "MANGLE(mul16_mid)", %%mm1    \n\t"
+            "pmulhw        "MANGLE(mul15_hi)", %%mm2    \n\t"
             PACK_RGB32
-            ::"r"(d),"r"(s),"m"(mask16b),"m"(mask16g),"m"(mask16r),"m"(mul15_mid),
-              "m"(mul16_mid),"m"(mul15_hi)
+            ::"r"(d),"r"(s),"m"(mask16b),"m"(mask16g),"m"(mask16r),"m"(mul15_mid)
+              NAMED_CONSTRAINTS_ADD(mul16_mid,mul15_hi)
             :"memory");
         d += 16;
         s += 4;
@@ -1017,9 +1028,9 @@ static inline void RENAME(rgb24tobgr24)(const uint8_t *src, uint8_t *dst, int sr
     __asm__ volatile (
         "test             %%"FF_REG_a", %%"FF_REG_a"    \n\t"
         "jns                     2f                     \n\t"
-        "movq                    %3, %%mm5              \n\t"
-        "movq                    %4, %%mm6              \n\t"
-        "movq                    %5, %%mm7              \n\t"
+        "movq     "MANGLE(mask24r)", %%mm5              \n\t"
+        "movq     "MANGLE(mask24g)", %%mm6              \n\t"
+        "movq     "MANGLE(mask24b)", %%mm7              \n\t"
         ".p2align                 4                     \n\t"
         "1:                                             \n\t"
         PREFETCH" 32(%1, %%"FF_REG_a")                  \n\t"
@@ -1055,8 +1066,8 @@ static inline void RENAME(rgb24tobgr24)(const uint8_t *src, uint8_t *dst, int sr
         " js                     1b                     \n\t"
         "2:                                             \n\t"
         : "+a" (mmx_size)
-        : "r" (src-mmx_size), "r"(dst-mmx_size),
-          "m" (mask24r), "m" (mask24g), "m" (mask24b)
+        : "r" (src-mmx_size), "r"(dst-mmx_size)
+          NAMED_CONSTRAINTS_ADD(mask24r,mask24g,mask24b)
     );
 
     __asm__ volatile(SFENCE:::"memory");
@@ -1351,7 +1362,7 @@ static inline void RENAME(planar2x)(const uint8_t *src, uint8_t *dst, int srcWid
         if (mmxSize) {
         __asm__ volatile(
             "mov                       %4, %%"FF_REG_a" \n\t"
-            "movq                      %5, %%mm0    \n\t"
+            "movq        "MANGLE(mmx_ff)", %%mm0    \n\t"
             "movq      (%0, %%"FF_REG_a"), %%mm4    \n\t"
             "movq                   %%mm4, %%mm2    \n\t"
             "psllq                     $8, %%mm4    \n\t"
@@ -1391,8 +1402,8 @@ static inline void RENAME(planar2x)(const uint8_t *src, uint8_t *dst, int srcWid
             " js                       1b           \n\t"
             :: "r" (src + mmxSize  ), "r" (src + srcStride + mmxSize  ),
                "r" (dst + mmxSize*2), "r" (dst + dstStride + mmxSize*2),
-               "g" (-mmxSize),
-               "m" (mmx_ff)
+               "g" (-mmxSize)
+               NAMED_CONSTRAINTS_ADD(mmx_ff)
             : "%"FF_REG_a
         );
         } else {
@@ -1550,16 +1561,12 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
 #define BGR2V_IDX "16*4+16*34"
     int y;
     const x86_reg chromWidth= width>>1;
-#if ARCH_X86_32 && defined(PIC)
-    /* Make stack copies of static (.rodata) constants ff_w1111 and
-     * ff_bgr2UVOffset to work around register shortage in inline asm: */
-    const uint64_t ff_w1111m = ff_w1111;
-    const uint64_t ff_bgr2UVOffset_m = ff_bgr2UVOffset;
-    const uint64_t ff_bgr2YOffset_m = ff_bgr2YOffset;
-#else
-    #define ff_w1111m         ff_w1111
-    #define ff_bgr2UVOffset_m ff_bgr2UVOffset
-    #define ff_bgr2YOffset_m  ff_bgr2YOffset
+#ifdef I386PIC
+    /* Making copies on stack is the easiest and fastest way to work around the
+     * fact that the 2nd __asm__ statement uses 7 registers and GOT ptr must
+     * share a reg with one of operands there (I used edx for 1st @GOTOFF and
+     * %5 for 2nd, but code looked ugly). */
+    const uint64_t w1111 = ff_w1111, bgr2UVOffset = ff_bgr2UVOffset;
 #endif
 
     if (height > 2) {
@@ -1577,7 +1584,7 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
             __asm__ volatile(
                 "mov                        %2, %%"FF_REG_a"\n\t"
                 "movq          "BGR2Y_IDX"(%3), %%mm6       \n\t"
-                "movq                       %4, %%mm5       \n\t"
+                "movq       "MANGLE(ff_w1111)", %%mm5       \n\t"
                 "pxor                    %%mm7, %%mm7       \n\t"
                 "lea (%%"FF_REG_a", %%"FF_REG_a", 2), %%"FF_REG_d" \n\t"
                 ".p2align                    4              \n\t"
@@ -1631,14 +1638,13 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
                 "psraw                      $7, %%mm4       \n\t"
 
                 "packuswb                %%mm4, %%mm0       \n\t"
-                "paddusb                    %5, %%mm0    \n\t"
+                "paddusb "MANGLE(ff_bgr2YOffset)", %%mm0    \n\t"
 
                 MOVNTQ"                  %%mm0, (%1, %%"FF_REG_a") \n\t"
                 "add                        $8,      %%"FF_REG_a"  \n\t"
                 " js                        1b                     \n\t"
-                : : "r" (src+width*3), "r" (ydst+width),
-		    "g" ((x86_reg)-width), "r" (rgb2yuv),
-                    "m" (ff_w1111m), "m" (ff_bgr2YOffset_m)
+                : : "r" (src+width*3), "r" (ydst+width), "g" ((x86_reg)-width), "r"(rgb2yuv)
+                  NAMED_CONSTRAINTS_ADD(ff_w1111,ff_bgr2YOffset)
                 : "%"FF_REG_a, "%"FF_REG_d
             );
             ydst += lumStride;
@@ -1647,7 +1653,11 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
         src -= srcStride*2;
         __asm__ volatile(
             "mov                        %4, %%"FF_REG_a"\n\t"
-            "movq                       %6, %%mm5       \n\t"
+#ifdef I386PIC
+            "movq                 %[w1111], %%mm5       \n\t"
+#else
+            "movq       "MANGLE(ff_w1111)", %%mm5       \n\t"
+#endif
             "movq          "BGR2U_IDX"(%5), %%mm6       \n\t"
             "pxor                    %%mm7, %%mm7       \n\t"
             "lea (%%"FF_REG_a", %%"FF_REG_a", 2), %%"FF_REG_d" \n\t"
@@ -1725,20 +1735,22 @@ static inline void RENAME(rgb24toyv12)(const uint8_t *src, uint8_t *ydst, uint8_
             "punpckldq               %%mm4, %%mm0           \n\t"
             "punpckhdq               %%mm4, %%mm1           \n\t"
             "packsswb                %%mm1, %%mm0           \n\t"
-            "paddb                      %7, %%mm0         \n\t"
+#ifdef I386PIC
+            "paddb         %[bgr2UVOffset], %%mm0           \n\t"
+#else
+            "paddb "MANGLE(ff_bgr2UVOffset)", %%mm0         \n\t"
+#endif
             "movd                    %%mm0, (%2, %%"FF_REG_a") \n\t"
             "punpckhdq               %%mm0, %%mm0              \n\t"
             "movd                    %%mm0, (%3, %%"FF_REG_a") \n\t"
             "add                        $4, %%"FF_REG_a"       \n\t"
             " js                        1b              \n\t"
-            : : "r" (src+chromWidth*6), "r" (src+srcStride+chromWidth*6),
-	        "r" (udst+chromWidth), "r" (vdst+chromWidth),
-		"g" (-chromWidth), "r" (rgb2yuv),
-		/* Here "m"(ff_w1111)/"m"(ff_bgr2UVOffset) won't do as there's
-		 * no free register to use as base reg in PIC memory addressing
-		 * (R_386_GOT32X). Their copies in stack are addressed via
-		 * [esp/rsp+offs], so they are OK: */
-		"m" (ff_w1111m), "m" (ff_bgr2UVOffset_m)
+            : : "r" (src+chromWidth*6), "r" (src+srcStride+chromWidth*6), "r" (udst+chromWidth), "r" (vdst+chromWidth), "g" (-chromWidth), "r"(rgb2yuv)
+#ifdef I386PIC
+              ,[w1111]"m"(w1111), [bgr2UVOffset]"m"(bgr2UVOffset)
+#else
+              NAMED_CONSTRAINTS_ADD(ff_w1111,ff_bgr2UVOffset)
+#endif
             : "%"FF_REG_a, "%"FF_REG_d
         );
 
