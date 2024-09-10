@@ -34,7 +34,7 @@ cextern pw_64
 SECTION .text
 
 
-%macro MV0_PIXELS_MC8 0
+%macro MV0_PIXELS_MC8 0 ; r0..5
     lea           r4, [r2*3   ]
     lea           r5, [r2*4   ]
 .next4rows:
@@ -66,22 +66,24 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
     or           r6d, r4d
     jne .at_least_one_non_zero
     ; mx == 0 AND my == 0 - no filter needed
-    MV0_PIXELS_MC8
+    MV0_PIXELS_MC8 ; r0..5
     RET
 
-.at_least_one_non_zero:
+LBL .at_least_one_non_zero:
     mov          r6d, 2
     test         r5d, r5d
     je .x_interpolation
     mov           r6, r2        ; dxy = x ? 1 : stride
     test         r4d, r4d
     jne .xy_interpolation
-.x_interpolation:
+LBL .x_interpolation:
     ; mx == 0 XOR my == 0 - 1 dimensional filter only
     or           r4d, r5d       ; x + y
     movd          m5, r4d
-    mova          m4, [pw_8]
-    mova          m6, [pw_4]    ; mm6 = rnd >> 3
+    PIC_BEGIN r5, 0 ; r5 (r4 too) not used anymore in .x_interpolation branch
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d",,,"r6"
+    mova          m4, [pic(pw_8)]
+    mova          m6, [pic(pw_4)] ; mm6 = rnd >> 3
     SPLATW        m5, m5        ; mm5 = B = x
     psubw         m4, m5        ; mm4 = A = 8-x
 
@@ -102,9 +104,10 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
     add           r1, r2
     dec           r3d
     jne .next1drow
+    PIC_END ; r5, no-save
     RET
 
-.xy_interpolation: ; general case, bilinear
+LBL .xy_interpolation: ; general case, bilinear
     movd          m4, r4m         ; x
     movd          m6, r5m         ; y
 
@@ -113,11 +116,13 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
     psllw         m5, m4, 3       ; mm5 = 8x
     pmullw        m4, m6          ; mm4 = x * y
     psllw         m6, 3           ; mm6 = 8y
+    PIC_BEGIN r6, 0 ; r6 (r4 & r5 too) not used anymore in .xy_interpolation
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d"
     paddw         m1, m5, m6      ; mm7 = 8x+8y
     mova          m7, m4          ; DD = x * y
     psubw         m5, m4          ; mm5 = B = 8x - xy
     psubw         m6, m4          ; mm6 = C = 8y - xy
-    paddw         m4, [pw_64]
+    paddw         m4, [pic(pw_64)]
     psubw         m4, m1          ; mm4 = A = xy - (8x+8y) + 64
 
     movu          m0, [r1  ]      ; mm0 = src[0..7]
@@ -136,7 +141,7 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
     pmullw        m3, m1, m7
     paddw         m2, m3          ; mm2 += D * src[1..8+strde]
 
-    paddw         m2, [pw_32]
+    paddw         m2, [pic(pw_32)]
     psrlw         m2, 6
     CHROMAMC_AVG  m2, [r0]
     mova        [r0], m2          ; dst[0..7] = (mm2 + 32) >> 6
@@ -144,6 +149,7 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
     add           r0, r2
     dec          r3d
     jne .next2drow
+    PIC_END ; r6, no-save
     RET
 %endmacro
 
@@ -152,7 +158,8 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
 ;                                 int h, int mx, int my)
 ;-----------------------------------------------------------------------------
 ;TODO: xmm mc4
-%macro MC4_OP 2
+%macro MC4_OP 2 ; r0..2; PIC
+    CHECK_REG_COLLISION "rpic",%{1:-1},"r0","r1","r2"
     movq          %1, [r1  ]
     movq          m1, [r1+2]
     add           r1, r2
@@ -163,7 +170,10 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
 
     pmullw        %2, m5
     pmullw        m1, m3
-    paddw         %2, [pw_32]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%2
+    paddw         %2, [pic(pw_32)]
+    PIC_END
     paddw         m1, %2
     psrlw         m1, 6
     CHROMAMC_AVG  m1, %2, [r0]
@@ -175,7 +185,9 @@ cglobal %1_h264_chroma_mc8_10, 6,7,8
 cglobal %1_h264_chroma_mc4_10, 6,6,7
     movd          m2, r4m         ; x
     movd          m3, r5m         ; y
-    mova          m4, [pw_8]
+    PIC_BEGIN r4, 0 ; r4 (and r5 too) not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d"
+    mova          m4, [pic(pw_8)]
     mova          m5, m4
     SPLATW        m2, m2
     SPLATW        m3, m3
@@ -190,10 +202,11 @@ cglobal %1_h264_chroma_mc4_10, 6,6,7
     paddw         m6, m0
 
 .next2rows:
-    MC4_OP m0, m6
-    MC4_OP m6, m0
+    MC4_OP m0, m6 ; r0..2; PIC
+    MC4_OP m6, m0 ; r0..2; PIC
     sub   r3d, 2
     jnz .next2rows
+    PIC_END ; r4, no-save
     RET
 %endmacro
 
@@ -215,6 +228,8 @@ cglobal %1_h264_chroma_mc2_10, 6,7
     movd          m6, r5d
     punpckldq     m5, m5          ; mm5 = {A,B,A,B}
     punpckldq     m6, m6          ; mm6 = {C,D,C,D}
+    PIC_BEGIN r4, 0 ; r4 (r5 & r6 too) not used anymore
+    CHECK_REG_COLLISION "rpic","r0","r1","r2","r3d"
     pxor          m7, m7
     pshufw        m2, [r1], 0x94    ; mm0 = src[0,1,1,2]
 
@@ -225,7 +240,7 @@ cglobal %1_h264_chroma_mc2_10, 6,7
     pshufw        m0, [r1], 0x94    ; mm0 = src[0,1,1,2]
     movq          m2, m0
     pmaddwd       m0, m6
-    paddw         m1, [pw_32]
+    paddw         m1, [pic(pw_32)]
     paddw         m1, m0          ; mm1 += C * src[0,1] + D * src[1,2]
     psrlw         m1, 6
     packssdw      m1, m7
@@ -234,6 +249,7 @@ cglobal %1_h264_chroma_mc2_10, 6,7
     add           r0, r2
     dec          r3d
     jnz .nextrow
+    PIC_END ; r4, no-save
     RET
 %endmacro
 
