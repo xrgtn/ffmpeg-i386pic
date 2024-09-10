@@ -79,6 +79,35 @@ typedef int x86_reg;
 #    define BROKEN_RELOCATIONS 1
 #endif
 
+#if !ARCH_X86_64 && defined(PIC)
+#    define I386PIC 1
+#endif
+
+#if ARCH_X86_64
+#    define FF_Q(q, r) q /* select q/64bit variant of reg */
+#else
+#    define FF_Q(q, r) r /* select regular variant of reg */
+#endif
+
+#ifdef I386PIC
+#    define IF_I386PIC(i, n)            i /* select i386pic arg */
+#    define IF_PIC(p, n)                p /* select pic arg */
+#    define IF_BRK(b, n)                n /* select non-broken/amd64 arg */
+#    define IF_I386PIC_BRK_ABS(i, b, a) i /* select i386pic arg */
+#else
+#    define IF_I386PIC(i, n)            n /* select non-i386pic arg */
+#ifdef BROKEN_RELOCATIONS
+#    define IF_PIC(p, n)                p /* select pic arg */
+#    define IF_BRK(b, n)                b /* select broken/amd64 arg */
+#    define IF_I386PIC_BRK_ABS(i, b, a) b /* select broken/amd64pic arg */
+#else
+#    define IF_PIC(p, n)                n /* select non-pic arg */
+#    define IF_BRK(b, n)                n /* select non-broken/amd64 arg */
+#    define IF_I386PIC_BRK_ABS(i, b, a) a /* select abs/non-pic arg */
+#endif
+#endif
+#define COMA ,
+
 /*
  * If gcc is not set to support sse (-msse) it will not accept xmm registers
  * in the clobber list for inline asm. XMM_CLOBBERS takes a list of xmm
@@ -110,12 +139,13 @@ typedef int x86_reg;
 #endif
 
 #if HAVE_INLINE_ASM_DIRECT_SYMBOL_REFS
-#   define MANGLE(a) EXTERN_PREFIX LOCAL_MANGLE(a)
-#   define NAMED_CONSTRAINTS_ADD(...)
-#   define NAMED_CONSTRAINTS(...)
-#   define NAMED_CONSTRAINTS_ARRAY_ADD(...)
-#   define NAMED_CONSTRAINTS_ARRAY(...)
-#else
+#   define MANGLE0(a) EXTERN_PREFIX LOCAL_MANGLE(a)
+#   define NAMED_CONSTRAINTS_ADD0(...)
+#   define NAMED_CONSTRAINTS0(...)
+#   define NAMED_CONSTRAINTS_ARRAY_ADD0(...)
+#   define NAMED_CONSTRAINTS_ARRAY0(...)
+#endif
+#ifdef PIC
     /* When direct symbol references are used in code passed to a compiler that does not support them
      *  then these references need to be converted to named asm constraints instead.
      * Instead of returning a direct symbol MANGLE now returns a named constraint for that specific symbol.
@@ -124,7 +154,7 @@ typedef int x86_reg;
      *  corresponding block of code. (e.g. NAMED_CONSTRAINTS(var1,var2,var3) where var1 is the first symbol etc. ).
      * If there are already existing constraints then use NAMED_CONSTRAINTS_ADD to add to the existing constraint list.
      */
-#   define MANGLE(a) "%["#a"]"
+#   define MANGLE1(a) "%["#a"]"
     // Intel/MSVC does not correctly expand va-args so we need a rather ugly hack in order to get it to work
 #   define FE_0(P,X) P(X)
 #   define FE_1(P,X,X1) P(X), FE_0(P,X1)
@@ -142,44 +172,36 @@ typedef int x86_reg;
 #   define FOR_EACH_VA(P,...) GET_FE_GLUE(GET_FE((__VA_ARGS__,FE_9,FE_8,FE_7,FE_6,FE_5,FE_4,FE_3,FE_2,FE_1,FE_0)), (P,__VA_ARGS__))
 #   define NAME_CONSTRAINT(x) [x] "m"(x)
     // Parameters are a list of each symbol reference required
-#   define NAMED_CONSTRAINTS_ADD(...) , FOR_EACH_VA(NAME_CONSTRAINT,__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ADD1(...) , FOR_EACH_VA(NAME_CONSTRAINT,__VA_ARGS__)
     // Same but without comma for when there are no previously defined constraints
-#   define NAMED_CONSTRAINTS(...) FOR_EACH_VA(NAME_CONSTRAINT,__VA_ARGS__)
+#   define NAMED_CONSTRAINTS1(...) FOR_EACH_VA(NAME_CONSTRAINT,__VA_ARGS__)
     // Same as above NAMED_CONSTRAINTS except used for passing arrays/pointers instead of normal variables
 #   define NAME_CONSTRAINT_ARRAY(x) [x] "m"(*x)
-#   define NAMED_CONSTRAINTS_ARRAY_ADD(...) , FOR_EACH_VA(NAME_CONSTRAINT_ARRAY,__VA_ARGS__)
-#   define NAMED_CONSTRAINTS_ARRAY(...) FOR_EACH_VA(NAME_CONSTRAINT_ARRAY,__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ARRAY_ADD1(...) , FOR_EACH_VA(NAME_CONSTRAINT_ARRAY,__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ARRAY1(...) FOR_EACH_VA(NAME_CONSTRAINT_ARRAY,__VA_ARGS__)
 #endif
 
-#if (defined(PIC) && !ARCH_X86_64) || !HAVE_INLINE_ASM_DIRECT_SYMBOL_REFS
-#   define I386PIC 1
-#   define MANGLE_I386PIC(a) "%["#a"]"
-#   define FE_0_I386PIC(P,X) P(X)
-#   define FE_1_I386PIC(P,X,X1) P(X), FE_0_I386PIC(P,X1)
-#   define FE_2_I386PIC(P,X,X1,X2) P(X), FE_1_I386PIC(P,X1,X2)
-#   define FE_3_I386PIC(P,X,X1,X2,X3) P(X), FE_2_I386PIC(P,X1,X2,X3)
-#   define FE_4_I386PIC(P,X,X1,X2,X3,X4) P(X), FE_3_I386PIC(P,X1,X2,X3,X4)
-#   define FE_5_I386PIC(P,X,X1,X2,X3,X4,X5) P(X), FE_4_I386PIC(P,X1,X2,X3,X4,X5)
-#   define FE_6_I386PIC(P,X,X1,X2,X3,X4,X5,X6) P(X), FE_5_I386PIC(P,X1,X2,X3,X4,X5,X6)
-#   define FE_7_I386PIC(P,X,X1,X2,X3,X4,X5,X6,X7) P(X), FE_6_I386PIC(P,X1,X2,X3,X4,X5,X6,X7)
-#   define FE_8_I386PIC(P,X,X1,X2,X3,X4,X5,X6,X7,X8) P(X), FE_7_I386PIC(P,X1,X2,X3,X4,X5,X6,X7,X8)
-#   define FE_9_I386PIC(P,X,X1,X2,X3,X4,X5,X6,X7,X8,X9) P(X), FE_8_I386PIC(P,X1,X2,X3,X4,X5,X6,X7,X8,X9)
-#   define GET_FE_IMPL_I386PIC(_0,_1,_2,_3,_4,_5,_6,_7,_8,_9,NAME,...) NAME
-#   define GET_FE_I386PIC(A) GET_FE_IMPL_I386PIC A
-#   define GET_FE_GLUE_I386PIC(x, y) x y
-#   define FOR_EACH_VA_I386PIC(P,...) GET_FE_GLUE_I386PIC(GET_FE_I386PIC((__VA_ARGS__,FE_9_I386PIC,FE_8_I386PIC,FE_7_I386PIC,FE_6_I386PIC,FE_5_I386PIC,FE_4_I386PIC,FE_3_I386PIC,FE_2_I386PIC,FE_1_I386PIC,FE_0_I386PIC)), (P,__VA_ARGS__))
-#   define NAME_CONSTRAINT_I386PIC(x) [x] "m"(x)
-#   define NAMED_CONSTRAINTS_ADD_I386PIC(...) , FOR_EACH_VA_I386PIC(NAME_CONSTRAINT_I386PIC,__VA_ARGS__)
-#   define NAMED_CONSTRAINTS_I386PIC(...) FOR_EACH_VA_I386PIC(NAME_CONSTRAINT_I386PIC,__VA_ARGS__)
-#   define NAME_CONSTRAINT_ARRAY_I386PIC(x) [x] "m"(*x)
-#   define NAMED_CONSTRAINTS_ARRAY_ADD_I386PIC(...) , FOR_EACH_VA_I386PIC(NAME_CONSTRAINT_ARRAY_I386PIC,__VA_ARGS__)
-#   define NAMED_CONSTRAINTS_ARRAY_I386PIC(...) FOR_EACH_VA_I386PIC(NAME_CONSTRAINT_ARRAY_I386PIC,__VA_ARGS__)
+#if HAVE_INLINE_ASM_DIRECT_SYMBOL_REFS
+#   define MANGLE(a) MANGLE0(a)
+#   define NAMED_CONSTRAINTS(...) NAMED_CONSTRAINTS0(__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ADD(...) NAMED_CONSTRAINTS_ADD0(__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ARRAY(...) NAMED_CONSTRAINTS_ARRAY0(__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ARRAY_ADD(...) NAMED_CONSTRAINTS_ARRAY_ADD0(__VA_ARGS__)
 #else
-#   define MANGLE_I386PIC(a) EXTERN_PREFIX LOCAL_MANGLE(a)
-#   define NAMED_CONSTRAINTS_ADD_I386PIC(...)
-#   define NAMED_CONSTRAINTS_I386PIC(...)
-#   define NAMED_CONSTRAINTS_ARRAY_ADD_I386PIC(...)
-#   define NAMED_CONSTRAINTS_ARRAY_I386PIC(...)
+#   define MANGLE(a) MANGLE1(a)
+#   define NAMED_CONSTRAINTS(...) NAMED_CONSTRAINTS1(__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ADD(...) NAMED_CONSTRAINTS_ADD1(__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ARRAY(...) NAMED_CONSTRAINTS_ARRAY1(__VA_ARGS__)
+#   define NAMED_CONSTRAINTS_ARRAY_ADD(...) NAMED_CONSTRAINTS_ARRAY_ADD1(__VA_ARGS__)
+#endif
+
+#ifdef I386PIC
+extern void * _GLOBAL_OFFSET_TABLE_[];
+#   define MANGLE2(a) EXTERN_PREFIX LOCAL_MANGLE(a) "@GOTOFF(%[got])"
+#   define NAMED_CONSTRAINTS2(...) [got]"r"(_GLOBAL_OFFSET_TABLE_)
+#   define NAMED_CONSTRAINTS_ADD2(...) ,[got]"r"(_GLOBAL_OFFSET_TABLE_)
+#   define NAMED_CONSTRAINTS_ARRAY2(...) [got]"r"(_GLOBAL_OFFSET_TABLE_)
+#   define NAMED_CONSTRAINTS_ARRAY_ADD2(...) ,[got]"r"(_GLOBAL_OFFSET_TABLE_)
 #endif
 
 #endif /* AVUTIL_X86_ASM_H */
