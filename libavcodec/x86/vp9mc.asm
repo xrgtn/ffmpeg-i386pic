@@ -117,9 +117,15 @@ SECTION .text
 
 %macro filter_sse2_h_fn 1
 %assign %%px mmsize/2
-cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _8, 6, 6, 15, dst, dstride, src, sstride, h, filtery
+cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _8, (6-i386pic), 6, 15, dst, dstride, src, sstride, h, filtery
     pxor        m5, m5
-    mova        m6, [pw_64]
+    PIC_BEGIN filteryq, 0 ; filteryq loading delayed in i386pic mode
+    CHECK_REG_COLLISION "rpic","filterymp"
+    mova        m6, [pic(pw_64)]
+    PIC_END ; filteryq, no-save
+%if i386pic
+    movifnidn filteryq, filterymp
+%endif
     mova        m7, [filteryq+  0]
 %if ARCH_X86_64 && mmsize > 8
     mova        m8, [filteryq+ 16]
@@ -202,8 +208,14 @@ filter_sse2_h_fn avg
 
 %macro filter_h_fn 1
 %assign %%px mmsize/2
-cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _8, 6, 6, 11, dst, dstride, src, sstride, h, filtery
-    mova        m6, [pw_256]
+cglobal vp9_%1_8tap_1d_h_ %+ %%px %+ _8, (6-i386pic), 6, 11, dst, dstride, src, sstride, h, filtery
+    PIC_BEGIN filteryq, 0 ; filteryq loading delayed in i386pic mode
+    CHECK_REG_COLLISION "rpic","filterymp"
+    mova        m6, [pic(pw_256)]
+    PIC_END ; filteryq, no-save
+%if i386pic
+    movifnidn filteryq, filterymp
+%endif
     mova        m7, [filteryq+ 0]
 %if ARCH_X86_64 && mmsize > 8
     mova        m8, [filteryq+32]
@@ -332,7 +344,10 @@ cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _8, 4, 7, 15, dst, dstride, src, sstride, f
 %define hd r4mp
 %endif
     pxor        m5, m5
-    mova        m6, [pw_64]
+    PIC_BEGIN src4q, 0 ; src4q not initialized yet
+    CHECK_REG_COLLISION "rpic","srcq","sstrideq","sstride3q"
+    mova        m6, [pic(pw_64)]
+    PIC_END ; src4q, no-save
     lea  sstride3q, [sstrideq*3]
     lea      src4q, [srcq+sstrideq]
     sub       srcq, sstride3q
@@ -429,7 +444,10 @@ cglobal vp9_%1_8tap_1d_v_ %+ %%px %+ _8, 4, 7, 11, dst, dstride, src, sstride, f
     mov   filteryq, r5mp
 %define hd r4mp
 %endif
-    mova        m6, [pw_256]
+    PIC_BEGIN src4q, 0 ; src4q not initialized yet
+    CHECK_REG_COLLISION "rpic","srcq","sstrideq","sstride3q"
+    mova        m6, [pic(pw_256)]
+    PIC_END ; src4q, no-save
     lea  sstride3q, [sstrideq*3]
     lea      src4q, [srcq+sstrideq]
     sub       srcq, sstride3q
