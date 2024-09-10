@@ -26,7 +26,7 @@ cextern pw_64
 
 SECTION .text
 
-%macro DIAG4 6
+%macro DIAG4 6 ; %1..6,rsp*(mmsize8); PIC*(mmsize!8)
 %if mmsize == 8
     movq          m0, [%1+%2]
     movq          m1, [%1+%3]
@@ -80,14 +80,17 @@ SECTION .text
     pmullw        m2, m3         ; src[x+16] * biweight [3]
     paddw         m1, m2
     paddsw        m0, m1
-    paddsw        m0, [pw_64]    ; Add 64
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1}
+    paddsw        m0, [pic(pw_64)]    ; Add 64
+    PIC_END
     psraw         m0, 7
     packuswb      m0, m0
     movq        [%6], m0
 %endif ; mmsize == 8/16
 %endmacro
 
-%macro SPLAT4REGS 0
+%macro SPLAT4REGS 0 ; rsp*(mmsize8)
 %if mmsize == 8
     movq         m5, m3
     punpcklwd    m3, m3
@@ -119,35 +122,47 @@ SECTION .text
 INIT_XMM sse2
 cglobal vp6_filter_diag4, 5, 7, 8
     mov          r5, rsp         ; backup stack pointer
+%if i386pic && mmsize != 8
+    sub         rsp, gprsize     ; alloc rpicsave area
+    %xdefine rpicsave [rsp+8*11]
+%endif
     and         rsp, ~(mmsize-1) ; align stack
     sub         rsp, 8*11
-
+%if i386pic && mmsize != 8
+    PIC_BEGIN r5 ; store r5 (old stack ptr) in [rsp+8*11]
+%endif
     sub          r1, r2
 
     pxor         m7, m7
     movq         m3, [r3]
-    SPLAT4REGS
+    SPLAT4REGS ; rsp*(mmsize8)
 
     mov          r3, rsp
     mov          r6, 11
 .nextrow:
-    DIAG4        r1, -1, 0, 1, 2, r3
+    DIAG4        r1, -1, 0, 1, 2, r3 ; r1,3(==rsp); PIC*(mmsize!8)
     add          r3, 8
     add          r1, r2
     dec          r6
     jnz .nextrow
 
     movq         m3, [r4]
-    SPLAT4REGS
+    SPLAT4REGS ; rsp*(mmsize8)
 
     lea          r3, [rsp+8]
     mov          r6, 8
 .nextcol:
-    DIAG4        r3, -8, 0, 8, 16, r0
+    DIAG4        r3, -8, 0, 8, 16, r0 ; r0,3(==rsp); PIC*(mmsize!8)
     add          r3, 8
     add          r0, r2
     dec          r6
     jnz .nextcol
 
+%if i386pic && mmsize != 8
+    ; optimize rsp<==r5<==[rsp+8*11] sequence into rsp<==[rsp+8*11]:
+    %xdefine rpic rsp
+    PIC_END ; rsp, restore from [rsp+8*11]
+%else
     mov         rsp, r5          ; restore stack pointer
+%endif
     RET
