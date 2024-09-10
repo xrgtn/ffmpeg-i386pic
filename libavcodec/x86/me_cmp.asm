@@ -672,8 +672,12 @@ SAD_Y2 16
 ;-------------------------------------------------------------------------------------------
 ;%1 = 8/16
 %macro SAD_APPROX_XY2 1
-cglobal sad%1_approx_xy2, 5, 5, 7, v, pix1, pix2, stride, h
-    mova      m4, [pb_1]
+cglobal sad%1_approx_xy2, 4, 5, 7, v, pix1, pix2, stride, h
+    PIC_BEGIN hq, 0 ; hq loading delayed
+    CHECK_REG_COLLISION "rpic","hmp"
+    mova      m4, [pic(pb_1)]
+    PIC_END
+    movifnidn hq, hmp
     movu      m1, [pix2q]
     movu      m0, [pix2q+strideq]
     movu      m3, [pix2q+2*strideq]
@@ -836,7 +840,11 @@ VSAD_INTRA 16
 ; %1 = 8/16
 %macro VSAD_APPROX 1
 cglobal vsad%1_approx, 5, 5, 5, v, pix1, pix2, lsize, h
-    mova   m1, [pb_80]
+    PIC_BEGIN hq, 0 ; hq loading delayed
+    CHECK_REG_COLLISION "rpic","hmp"
+    mova   m1, [pic(pb_80)]
+    PIC_END
+    movifnidn hq, hmp
     mova   m0, [pix1q]
 %if %1 == mmsize ; vsad8_mmxext, vsad16_sse2
     mova   m4, [pix1q+lsizeq]
