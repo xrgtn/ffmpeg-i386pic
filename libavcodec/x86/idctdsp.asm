@@ -49,8 +49,10 @@ SECTION .text
 
 INIT_XMM sse2
 cglobal put_signed_pixels_clamped, 3, 4, 3, block, pixels, lsize, lsize3
-    mova     m0, [pb_80]
-    lea      lsize3q, [lsizeq*3]
+    PIC_BEGIN lsize3q, 0 ; lsize3q not initialized yet
+    mova     m0, [pic(pb_80)]
+    PIC_END
+    lea      lsize3q, [lsizeq*3] ; lsize3q init
     PUT_SIGNED_PIXELS_CLAMPED_HALF 0
     lea      pixelsq, [pixelsq+lsizeq*4]
     PUT_SIGNED_PIXELS_CLAMPED_HALF 64
