@@ -83,10 +83,10 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              IF_I386PIC("%1","%[tables]"), "%[TABLES0]")
-
-#ifdef I386PIC
+#ifdef I386PIC /* %1==%[TABLES0] on exit from BRANCHLESS_GET_CABAC() */
         "mov %[STATEP0], %1                     \n\t" /* load statep to %1 */
 #endif
+
         "test $1, %4                            \n\t"
         " jz 4f                                 \n\t"
         "add  %[LASTOFF], %1                    \n\t"
@@ -101,10 +101,10 @@ static int decode_significance_x86(CABACContext *c, int max_coeff,
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              IF_I386PIC("%1","%[tables]"), "%[TABLES0]")
-
-#ifdef I386PIC
+#ifdef I386PIC /* %1==%[TABLES0] on exit from BRANCHLESS_GET_CABAC() */
         "mov %[STATEP0], %1                     \n\t" /* load statep to %1 */
 #endif
+
         "sub  %[LASTOFF], %1                    \n\t"
         "mov  %2, %0                            \n\t"
         "movl %[MSTART], %%ecx                  \n\t"
@@ -196,7 +196,8 @@ static int decode_significance_8x8_x86(CABACContext *c,
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              IF_I386PIC("%6", "%[tables]"), "%[TABLES0]")
-
+        /* In I386PIC mode %6==%[TABLES0] on exit from BRANCHLESS_GET_CABAC(),
+         * but %6 is re-initialized by op below, no need to restore: */
         "mov %1, %6                             \n\t" /* %6 re-init*/
         "test $1, %4                            \n\t"
         " jz 4f                                 \n\t"
@@ -221,7 +222,8 @@ static int decode_significance_8x8_x86(CABACContext *c,
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              IF_I386PIC("%6", "%[tables]"), "%[TABLES0]")
-
+        /* In I386PIC mode %6==%[TABLES0] on exit from BRANCHLESS_GET_CABAC(),
+         * but %6 is re-initialized by 2nd op below, no need to restore: */
         "mov %2, %0                             \n\t"
         "mov %1, %6                             \n\t" /*6 re-init */
         "mov %k6, (%0)                          \n\t"
