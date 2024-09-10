@@ -150,10 +150,12 @@ DIFF_BYTES_PROLOGUE
 
 INIT_XMM avx
 cglobal sub_left_predict, 5,6,5, dst, src, stride, width, height, x
-    mova             m1, [pb_80] ; prev initial
+    PIC_BEGIN xq, 0 ; xq not initialized yet
+    mova             m1, [pic(pb_80)] ; prev initial
+    PIC_END
     add            dstq, widthq
     add            srcq, widthq
-    lea              xd, [widthq-1]
+    lea              xd, [widthq-1] ; xq init
     neg          widthq
     and              xd, 15
     pinsrb           m4, m1, xd, 15
