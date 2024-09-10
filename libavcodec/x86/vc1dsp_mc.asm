@@ -117,10 +117,12 @@ cglobal vc1_put_ver_16b_shift2, 4,7,0, dst, src, stride
     neg       stride_neg2
     add       stride_neg2, stride_neg2
     lea    stride_9minus4, [strideq * 9 - 4]
-    mov                 i, 3
     LOAD_ROUNDER_MMX  rnd
-    mova               m6, [pw_9]
+    PIC_BEGIN i, 0 ; i not initialized yet
+    mova               m6, [pic(pw_9)]
+    PIC_END
     pxor               m0, m0
+    mov                 i, 3
 .loop:
     movh               m2, [srcq]
     add              srcq, strideq
@@ -152,13 +154,15 @@ cglobal vc1_put_ver_16b_shift2, 4,7,0, dst, src, stride
 ; memory.
 %macro HOR_16B_SHIFT2 2 ; op, opname
 cglobal vc1_%2_hor_16b_shift2, 4, 5, 0, dst, stride, src, rnd, h
-    mov                hq, 8
     sub              srcq, 2
     sub              rndd, (-1+9+9-1) * 1024 ; add -1024 bias
     LOAD_ROUNDER_MMX rndd
-    mova               m5, [pw_9]
-    mova               m6, [pw_128]
+    PIC_BEGIN hq, 0 ; hq not initialized yet
+    mova               m5, [pic(pw_9)]
+    mova               m6, [pic(pw_128)]
+    PIC_END
     pxor               m0, m0
+    mov                hq, 8
 
 .loop:
     mova               m1, [srcq + 2 * 0]
