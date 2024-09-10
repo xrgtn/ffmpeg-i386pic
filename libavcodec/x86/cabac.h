@@ -52,31 +52,10 @@
 #endif
 
 #if ARCH_X86_64
-#define FF_Q(q, r) q /* select q/64bit variant of reg */
-#define FF_MOVSLQ(r, q) "movslq "r", "q"\n\t"
+#define CABAC_MOVSLQ(r, q) "movslq "r", "q"\n\t"
 #else
-#define FF_Q(q, r) r /* select regular variant of reg */
-#define FF_MOVSLQ(r, q)
+#define CABAC_MOVSLQ(r, q)
 #endif
-
-#ifdef I386PIC
-#define IF_I386PIC(i, n)            i /* select i386pic arg */
-#define IF_PIC(p, n)                p /* select pic arg */
-#define IF_BRK(b, n)                n /* select non-broken/amd64 arg */
-#define IF_I386PIC_BRK_ABS(i, b, a) i /* select i386pic arg */
-#else
-#define IF_I386PIC(i, n)            n /* select non-i386pic arg */
-#ifdef BROKEN_RELOCATIONS
-#define IF_PIC(p, n)                p /* select pic arg */
-#define IF_BRK(b, n)                b /* select broken/amd64 arg */
-#define IF_I386PIC_BRK_ABS(i, b, a) b /* select broken/amd64pic arg */
-#else
-#define IF_PIC(p, n)                n /* select non-pic arg */
-#define IF_BRK(b, n)                n /* select non-broken/amd64 arg */
-#define IF_I386PIC_BRK_ABS(i, b, a) a /* select abs/non-pic arg */
-#endif
-#endif
-#define COMA ,
 
 #if HAVE_FAST_CMOV
 #define BRANCHLESS_GET_CABAC_UPDATE(ret, retq, low, range, tmp) \
@@ -98,54 +77,56 @@
         "and    "tmp"       , %%ecx                        \n\t"\
         "sub    %%ecx       , "low"                        \n\t"\
         "xor    "tmp"       , "ret"                        \n\t"\
-        FF_MOVSLQ(ret, retq)
+        CABAC_MOVSLQ(ret, retq)
 #endif /* HAVE_FAST_CMOV */
 
+/* state reader/writer for abs/amd64pic modes: */
+#define CABAC_STATEP01_RD(statep, ret, tables, statep0, tables0) \
+        "movzbl "statep"  , "ret"\n\t"
+#define CABAC_STATEP01_WR(tmpbyte, statep, tables, statep0, tables0) \
+        "mov    "tmpbyte" , "statep"\n\t"
 /* In I386PIC mode, state ptr and tables share a register, therefore:
  * - statep parameter carries state ptr dereference,
  * - statep0 parameter carries memory location to save state ptr,
  * - tables parameter carries tables base/PIC register == state ptr register,
  * - tables0 contains memory/save location for tables base */
-#define CABAC_STATEP_ABS_RD(statep, ret, tables, statep0, tables0) \
-        "movzbl "statep"  , "ret"\n\t"
-#define CABAC_STATEP_ABS_WR(tmpbyte, statep, tables, statep0, tables0) \
-        "mov    "tmpbyte" , "statep"\n\t"
-#define CABAC_STATEP_I386PIC_RD(statep, ret, tables, statep0, tables0) \
+#define CABAC_STATEP2_RD(statep, ret, tables, statep0, tables0) \
         "movzbl "statep"  , "ret"\n\t" \
         "mov    "tables"  , "statep0"\n\t" /* store state ptr in mem */ \
         "mov    "tables0" , "tables"\n\t"  /* load PIC base into tables reg */
-#define CABAC_STATEP_I386PIC_WR(tmpbyte, statep, tables, statep0, tables0) \
+#define CABAC_STATEP2_WR(tmpbyte, statep, tables, statep0, tables0) \
         "mov    "statep0" , %%"FF_REG_c"\n\t" /* e/rcx is used as tmp reg */ \
         "movb   "tmpbyte" , (%%"FF_REG_c")\n\t"
 /* o,b,i,d: offset/symexpr, base_reg, index_reg, tmp_reg, dst_reg */
-#define CABAC_TABLES_ABS_RD1(o, b, i, d) \
+#define CABAC_TABLES0_RD1(o, b, i, d) \
         "movzbl "MANGLE(ff_h264_cabac_tables)"+"o"("i"), "d"\n\t"
 /* o,b,i,i2,s2,t,d: offset, breg, ireg, ireg2, scale2, tmpreg, dst */
-#define CABAC_TABLES_ABS_RD2(o, b, i, i2, s2, t, d) \
+#define CABAC_TABLES0_RD2(o, b, i, i2, s2, t, d) \
         "movzbl "MANGLE(ff_h264_cabac_tables)"+"o"("i","i2","s2"), "d"\n\t"
-#define CABAC_TABLES_PIC_RD1(o, b, i, d) \
+/* ff_h264_cabac_tables reader1/reader2 for amd64/i386pic modes: */
+#define CABAC_TABLES12_RD1(o, b, i, d) \
         "movzbl "o"("b","i")   , "d"\n\t"
-#define CABAC_TABLES_PIC_RD2(o, b, i, i2, s2, t, d) \
+#define CABAC_TABLES12_RD2(o, b, i, i2, s2, t, d) \
         "lea    ("i","i2","s2"), "t"\n\t"\
         "movzbl "o"("b","t")   , "d"\n\t"
 #ifdef I386PIC
-#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_I386PIC_RD(s, r, t, s0, t0)
-#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_I386PIC_WR(b, s, t, s0, t0)
-#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES_PIC_RD1(o, b, i, d)
+#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP2_RD(s, r, t, s0, t0)
+#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP2_WR(b, s, t, s0, t0)
+#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES12_RD1(o, b, i, d)
 #define CABAC_TABLES_RD2(o, b, i, i2, s2, t, d) \
-        CABAC_TABLES_PIC_RD2(o, b, i, i2, s2, t, d)
-#elif defined(BROKEN_RELOCATIONS)
-#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_ABS_RD(s, r, t, s0, t0)
-#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_ABS_WR(b, s, t, s0, t0)
-#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES_PIC_RD1(o, b, i, d)
+        CABAC_TABLES12_RD2(o, b, i, i2, s2, t, d)
+#elif defined(BROKEN_RELOCATIONS) /* amd64pic */
+#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP01_RD(s, r, t, s0, t0)
+#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP01_WR(b, s, t, s0, t0)
+#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES12_RD1(o, b, i, d)
 #define CABAC_TABLES_RD2(o, b, i, i2, s2, t, d) \
-        CABAC_TABLES_PIC_RD2(o, b, i, i2, s2, t, d)
-#else
-#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_ABS_RD(s, r, t, s0, t0)
-#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_ABS_WR(b, s, t, s0, t0)
-#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES_ABS_RD1(o, b, i, d)
+        CABAC_TABLES12_RD2(o, b, i, i2, s2, t, d)
+#else /* abs/direct refs mode */
+#define CABAC_STATEP_RD(s, r, t, s0, t0) CABAC_STATEP01_RD(s, r, t, s0, t0)
+#define CABAC_STATEP_WR(b, s, t, s0, t0) CABAC_STATEP01_WR(b, s, t, s0, t0)
+#define CABAC_TABLES_RD1(o, b, i, d)     CABAC_TABLES0_RD1(o, b, i, d)
 #define CABAC_TABLES_RD2(o, b, i, i2, s2, t, d) \
-        CABAC_TABLES_ABS_RD2(o, b, i, i2, s2, t, d)
+        CABAC_TABLES0_RD2(o, b, i, i2, s2, t, d)
 #endif
 
 #define BRANCHLESS_GET_CABACX(ret, retq, statep, statep0, low, lowword, range, rangeq, tmp, tmpbyte, byte, end, norm_off, lps_off, mlps_off, tables, tables0, tables_rd1, tables_rd2, statep_rd, statep_wr) \
@@ -207,18 +188,15 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
         : NAMED_CONSTRAINTS_ARRAY(ff_h264_cabac_tables)
     );
 #endif
+#undef  STATEP_RD
 #ifdef I386PIC
     register void *ctx, *tables;
     register int low, range;
-#undef  STATEP_RD
-#undef  STATEP_WR
+    /* use empty statep reader for i386pic: */
 #define STATEP_RD(statep, ret, tables, statep0, tables0)
-#define STATEP_WR(tmpbyte, statep, tables, statep0, tables0) \
-        "pop    %%"FF_REG_c"                  \n\t" /* pop state ptr */ \
-        "movb   "tmpbyte"   , (%%"FF_REG_c")  \n\t" /* *(state ptr) = tmp */
 #else
+    /* use default statep reader for non-i386pic: */
 #define STATEP_RD(s, r, t, s0, t0) CABAC_STATEP_RD(s, r, t, s0, t0)
-#define STATEP_WR(b, s, t, s0, t0) CABAC_STATEP_WR(b, s, t, s0, t0)
 #endif
 
     __asm__ volatile (
@@ -230,14 +208,18 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
          * of stack. */
         "mov    %c[LOW](%[c]), %[low]         \n\t" /* read c->low */
         "mov    %c[RANGE](%[c]), %[range]     \n\t" /* read c->range */
+        /* Read state here instead of doing it in STATEP_RD (state ptr is
+         * passed in %[tables] operand in i386pic mode): */
         "movzbl (%[tables]) ,  %k[bit]        \n\t" /* bit = *(state ptr) */
         "push   %[tables]                     \n\t" /* push state ptr */
+        /* i386 PIC initialization sequence (call+pop): */
         "call   0f                            \n\t"
         "0:                                   \n\t"
         "pop    %[tables]                     \n\t" /* tables = PIC base */
 #endif
         BRANCHLESS_GET_CABACX(
-                             "%k[bit]", "%q[bit]", "(%[statep])", "%[statep0]",
+                             "%k[bit]", "%q[bit]",
+                             "(%[statep])", "(%%"FF_REG_sp")",
                              "%[low]", "%w[low]", "%[range]", "%q[range]",
                              "%[tmp]", "%b[tmp]",
                              "%c[BSTREAM](%[c])", "%c[BSEND](%[c])",
@@ -248,10 +230,15 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
                              IF_I386PIC("ff_h264_cabac_tables-0b+",)
                              AV_STRINGIFY(H264_MLPS_STATE_OFFSET),
                              "%[tables]",,
-                             IF_PIC(CABAC_TABLES_PIC_RD1, CABAC_TABLES_ABS_RD1),
-                             IF_PIC(CABAC_TABLES_PIC_RD2, CABAC_TABLES_ABS_RD2),
-                             STATEP_RD, STATEP_WR)
+                             IF_PIC(CABAC_TABLES12_RD1, CABAC_TABLES0_RD1),
+                             IF_PIC(CABAC_TABLES12_RD2, CABAC_TABLES0_RD2),
+                             STATEP_RD, CABAC_STATEP_WR)
 #ifdef I386PIC
+        /* In I386PIC mode %[statep]/%[tables] contains PIC base on exit from
+         * BRANCHLESS_GET_CABACX(), restore it: */
+        "pop    %[tables]                     \n\t" /* pop state ptr */ \
+        /* Finally, manually write %[low] and %[range] registers back to
+         * c->low/c->range instead of entrusting this job to gcc: */
         "mov    %[low]      , %c[LOW](%[c])   \n\t" /* write to c->low */
         "mov    %[range]    , %c[RANGE](%[c]) \n\t" /* write to c->range */
 #endif
@@ -262,10 +249,8 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
           [tmp]"=&q"(tmp)
           IF_I386PIC(COMA [c]"=&r"(ctx) COMA [tables]"=&r"(tables),)
         : /* constant [and memory] operand names are uppercase: */
-          IF_I386PIC("[tables]"(state) /* gets clobbered/reused for i386 PIC */
-          ,   [statep]"r"(state)),
-          IF_I386PIC("[bit]"(c)        /* 1st arg shares eax with retval */
-          ,   [c]"r"(c)),
+          IF_I386PIC(  "[tables]"(state),  [statep]"r"(state)),
+          IF_I386PIC(     "[bit]"(c)    ,       [c]"r"(c)),
           [BSTREAM]"i"(offsetof(CABACContext, bytestream)),
           [BSEND]"i"(offsetof(CABACContext, bytestream_end)),
           [NORM]"i"(H264_NORM_SHIFT_OFFSET),
@@ -275,7 +260,7 @@ int get_cabac_inline_x86(CABACContext *c, uint8_t *const state)
               COMA [LOW]"i"(offsetof(CABACContext, low))
               COMA [RANGE]"i"(offsetof(CABACContext, range))
           ,   COMA "[low]"(c->low) COMA "[range]"(c->range)
-              IF_BRK(,NAMED_CONSTRAINTS_ARRAY_ADD(ff_h264_cabac_tables))
+              NAMED_CONSTRAINTS_ARRAY_ADD(ff_h264_cabac_tables)
           )
         : "%"FF_REG_c, "memory"
     );
