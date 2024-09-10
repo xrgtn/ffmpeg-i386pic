@@ -73,8 +73,10 @@ REORDER_PIXELS
 
 %macro PREDICTOR 0
 cglobal predictor, 2,2,5, src, size
-    mova             m0, [pb_80]
-    mova            xm1, [pb_15]
+    PIC_BEGIN r2, 0 ; scratch reg
+    mova             m0, [pic(pb_80)]
+    mova            xm1, [pic(pb_15)]
+    PIC_END
     mova            xm2, xm0
     add            srcq, sizeq
     neg           sizeq
