@@ -1307,10 +1307,6 @@ DECLARE_REG_ID ah, ch, dh, bh
     %endif
 %endmacro
 
-%define required_stack_alignment ((mmsize + 15) & ~15)
-%define vzeroupper_required (mmsize > 16 && (ARCH_X86_64 == 0 || xmm_regs_used > 16 || notcpuflag(avx512)))
-%define high_mm_regs (16*cpuflag(avx512))
-
 %macro STK_CONTEXT_STORE_UNDEF 0-1 10
     ; 1. gprsize
     %ifdef gprsize
@@ -1504,6 +1500,11 @@ DECLARE_REG_ID ah, ch, dh, bh
     %endif
     %1
 %endmacro
+; end of PIC macros
+
+%define required_stack_alignment ((mmsize + 15) & ~15)
+%define vzeroupper_required (mmsize > 16 && (ARCH_X86_64 == 0 || xmm_regs_used > 16 || notcpuflag(avx512)))
+%define high_mm_regs (16*cpuflag(avx512))
 
 %macro ALLOC_STACK 1-2 0 ; stack_size, n_xmm_regs (for win64 only)
     %ifnum %1
