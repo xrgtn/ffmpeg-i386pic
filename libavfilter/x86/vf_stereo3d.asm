@@ -62,6 +62,9 @@ cglobal anaglyph, 3, 6, 8, 2*9*mmsize, dst, lsrc, rsrc, dst_linesize, o, cnt
 %define m13 [rsp+mmsize*17]
 %endif ; ARCH
 
+    PIC_ALLOC
+    PIC_BEGIN cntq, 0 ; cntq (r6 or r5/ana_matrix_bq) not initialized yet
+    PIC_END ; lpiccache initialized
     mov        ana_matrix_rq, r8m
     mov        ana_matrix_gq, r9m
     mov        ana_matrix_bq, r10m
@@ -130,16 +133,19 @@ cglobal anaglyph, 3, 6, 8, 2*9*mmsize, dst, lsrc, rsrc, dst_linesize, o, cnt
 .nextrow:
     mov                   od, widthd
     xor                 cntd, cntd
+    PIC_BEGIN dst_linesizeq
+    CHECK_REG_COLLISION "rpic","lsrcq","rsrcq","cntq","cntd","dstq","od",\
+        "[rsp]","m8","m9","m10","m11","m12","m13"
 
-    .loop:
+    .loop:                     ; lsrcq,rsrcq,cntq,dstq,od,rsp
         movu                 m3, [lsrcq+cntq]
-        pshufb               m1, m3, [ex_r]
-        pshufb               m2, m3, [ex_g]
-        pshufb               m3, [ex_b]
+        pshufb               m1, m3, [pic(ex_r)]
+        pshufb               m2, m3, [pic(ex_g)]
+        pshufb               m3, [pic(ex_b)]
         movu                 m0, [rsrcq+cntq]
-        pshufb               m4, m0, [ex_r]
-        pshufb               m5, m0, [ex_g]
-        pshufb               m0, [ex_b]
+        pshufb               m4, m0, [pic(ex_r)]
+        pshufb               m5, m0, [pic(ex_g)]
+        pshufb               m0, [pic(ex_b)]
         pmulld               m1, [rsp+mmsize*0]
         pmulld               m2, [rsp+mmsize*1]
         pmulld               m3, [rsp+mmsize*2]
@@ -153,13 +159,13 @@ cglobal anaglyph, 3, 6, 8, 2*9*mmsize, dst, lsrc, rsrc, dst_linesize, o, cnt
         paddd                m1, m5
 
         movu                 m3, [lsrcq+cntq]
-        pshufb               m7, m3, [ex_r]
-        pshufb               m2, m3, [ex_g]
-        pshufb               m3, [ex_b]
+        pshufb               m7, m3, [pic(ex_r)]
+        pshufb               m2, m3, [pic(ex_g)]
+        pshufb               m3, [pic(ex_b)]
         movu                 m0, [rsrcq+cntq]
-        pshufb               m4, m0, [ex_r]
-        pshufb               m5, m0, [ex_g]
-        pshufb               m0, [ex_b]
+        pshufb               m4, m0, [pic(ex_r)]
+        pshufb               m5, m0, [pic(ex_g)]
+        pshufb               m0, [pic(ex_b)]
         pmulld               m7, [rsp+mmsize*6]
         pmulld               m2, [rsp+mmsize*7]
         pmulld               m3, [rsp+mmsize*8]
@@ -173,13 +179,13 @@ cglobal anaglyph, 3, 6, 8, 2*9*mmsize, dst, lsrc, rsrc, dst_linesize, o, cnt
         paddd                m7, m5
 
         movu                 m4, [lsrcq+cntq]
-        pshufb               m2, m4, [ex_r]
-        pshufb               m3, m4, [ex_g]
-        pshufb               m4, [ex_b]
+        pshufb               m2, m4, [pic(ex_r)]
+        pshufb               m3, m4, [pic(ex_g)]
+        pshufb               m4, [pic(ex_b)]
         movu                 m0, [rsrcq+cntq]
-        pshufb               m5, m0, [ex_r]
-        pshufb               m6, m0, [ex_g]
-        pshufb               m0, [ex_b]
+        pshufb               m5, m0, [pic(ex_r)]
+        pshufb               m6, m0, [pic(ex_g)]
+        pshufb               m0, [pic(ex_b)]
         pmulld               m2, m8
         pmulld               m3, m9
         pmulld               m4, m10
@@ -199,18 +205,20 @@ cglobal anaglyph, 3, 6, 8, 2*9*mmsize, dst, lsrc, rsrc, dst_linesize, o, cnt
         packusdw             m1, m7
         packusdw             m2, m2
         packuswb             m1, m2
-        pshufb               m1, [shuf]
+        pshufb               m1, [pic(shuf)]
 
         movq      [dstq+cntq+0], m1
         psrldq               m1, 8
         movd      [dstq+cntq+8], m1
         add                cntd, 12
         sub                  od, 4
-    jg .loop
+    jg .loop                   ; lsrcq,rsrcq,cntq,dstq,od,rsp
+    PIC_END ; dst_linesizeq, save/restore
 
     add          dstq, dst_linesizeq
     add         lsrcq, l_linesizeq
     add         rsrcq, r_linesizeq
     sub       heightd, 1
     jg .nextrow
+    PIC_FREE
 RET
