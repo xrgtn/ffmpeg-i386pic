@@ -73,7 +73,9 @@ cglobal store_slice, 2, 7, 0, dst, src, width, dither_height, dither, tmp, tmp2
     sub       tmp2q, widthq
     movd      m2, ditherd ; log2_scale
     add       tmp2q, tmp2q
-    lea       ditherq, [pb_dither]
+    PIC_BEGIN ditherq, 0 ; use ditherq to init ditherq
+    lea       ditherq, [pic(pb_dither)]
+    PIC_END
     mov       src_strideq, tmp2q
     shl       tmpq, 4
     lea       dither_heightq, [ditherq+dither_heightq*8]
@@ -139,7 +141,9 @@ cglobal store_slice2, 0, 7, 0, dst, src, width, dither_height, dither, tmp, tmp2
     sub       tmp2q, widthq
     movd      m2, ditherd ; log2_scale
     add       tmp2q, tmp2q
-    lea       ditherq, [pb_dither]
+    PIC_BEGIN ditherq, 0 ; use ditherq to init ditherq
+    lea       ditherq, [pic(pb_dither)]
+    PIC_END
     mov       src_strideq, tmp2q
     shl       tmpq, 5
     lea       dither_heightq, [ditherq+dither_heightq*8]
@@ -235,7 +239,7 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     movq      [thrq+14*8+8], m1
     RET
 
-%macro COLUMN_FDCT 1-3 0, 0
+%macro COLUMN_FDCT 1-3 0, 0 ; thrq,srcq,outq,tmpq,rsp; PICx2; jz %1
     movq      m1, [srcq+DCTSIZE*0*2]
     movq      m7, [srcq+DCTSIZE*3*2]
     movq      m0, m1
@@ -263,12 +267,14 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     psubw     m2, m6
     paddusw   m5, [thrq+%2]
     paddusw   m2, m6
-    pmulhw    m7, [pw_2D41]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1},"thrq","srcq","[rsp]"
+    pmulhw    m7, [pic(pw_2D41)]
     paddw     m5, [thrq+%2]
     paddw     m2, m6
     psubusw   m5, [thrq+%2]
     psubusw   m2, m6
-    paddw     m5, [pw_2]
+    paddw     m5, [pic(pw_2)]
     movq      m6, m2
     paddw     m2, m5
     psubw     m5, m6
@@ -294,7 +300,7 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     paddw     m6, m7
     psraw     m6, 2
     movq      m7, m2
-    pmulhw    m1, [pw_5A82]
+    pmulhw    m1, [pic(pw_5A82)]
     paddw     m2, m6
     movq      [rsp], m2
     psubw     m7, m6
@@ -310,13 +316,14 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     psubw     m3, m4
     psllw     m3, 2
     psllw     m7, 2
-    pmulhw    m3, [pw_187E]
+    pmulhw    m3, [pic(pw_187E)]
     psllw     m4, 2
-    pmulhw    m7, [pw_22A3]
+    pmulhw    m7, [pic(pw_22A3)]
     psllw     m2, 2
-    pmulhw    m4, [pw_539F]
+    pmulhw    m4, [pic(pw_539F)]
     paddw     m5, m1
-    pmulhw    m2, [pw_2D41]
+    pmulhw    m2, [pic(pw_2D41)]
+    PIC_END
     psubw     m6, m1
     paddw     m7, m3
     movq      [rsp+8], m5
@@ -360,15 +367,18 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     jnz %1
     movq      m4, [rsp]
     movq      m1, m0
-    pmulhw    m0, [pw_3642]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1},"outq","[rsp]"
+    pmulhw    m0, [pic(pw_3642)]
     movq      m2, m1
     movq      m5, [outq+DCTSIZE*0*2]
     movq      m3, m2
-    pmulhw    m1, [pw_2441]
+    pmulhw    m1, [pic(pw_2441)]
     paddw     m5, m4
     movq      m6, [rsp+8]
     psraw     m3, 2
-    pmulhw    m2, [pw_0CBB]
+    pmulhw    m2, [pic(pw_0CBB)]
+    PIC_END
     psubw     m4, m3
     movq      m7, [outq+DCTSIZE*1*2]
     paddw     m5, m3
@@ -401,7 +411,7 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     add       outq, 8+%3
 %endmacro
 
-%macro COLUMN_IDCT 0-1 0
+%macro COLUMN_IDCT 0-1 0 ; outq,rsp; PIC
     movq      m3, m5
     psubw     m5, m1
     psllw     m5, 1
@@ -410,17 +420,20 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
     psubw     m0, m6
     movq      m1, m5
     psllw     m0, 1
-    pmulhw    m1, [pw_AC62]
+    PIC_BEGIN r4
+    CHECK_REG_COLLISION "rpic",%{1:-1},"outq"
+    pmulhw    m1, [pic(pw_AC62)]
     paddw     m5, m0
-    pmulhw    m5, [pw_3B21]
+    pmulhw    m5, [pic(pw_3B21)]
     paddw     m2, m6
-    pmulhw    m0, [pw_22A3]
+    pmulhw    m0, [pic(pw_22A3)]
     movq      m7, m2
     movq      m4, [rsp]
     psubw     m2, m3
     psllw     m2, 1
     paddw     m7, m3
-    pmulhw    m2, [pw_2D41]
+    pmulhw    m2, [pic(pw_2D41)]
+    PIC_END
     movq      m6, m4
     psraw     m7, 2
     paddw     m4, [outq]
@@ -462,27 +475,38 @@ cglobal mul_thrmat, 3, 3, 0, thrn, thr, q
 
 ;void ff_column_fidct_mmx(int16_t *thr_adr, int16_t *data, int16_t *output, int cnt);
 cglobal column_fidct, 4, 5, 0, 32, thr, src, out, cnt, tmp
-.fdct1:
-    COLUMN_FDCT .idct1
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r5
+LBL .fdct1:
+    COLUMN_FDCT .idct1 ; thrq,srcq,outq,tmpq,rsp; PICx2; jz .idct1
     jmp .fdct2
 
-.idct1:
-    COLUMN_IDCT
+LBL .idct1:
+    COLUMN_IDCT ; outq,rsp; PIC
 
-.fdct2:
-    COLUMN_FDCT .idct2, 8, 16
+LBL .fdct2:
+    COLUMN_FDCT .idct2, 8, 16 ; thrq,srcq,outq,tmpq,rsp; PICx2; jz .idct2
     sub    cntd, 2
     jg .fdct1
+    PIC_CONTEXT_PUSH
+    PIC_END
+    PIC_FREE
     RET
+    PIC_CONTEXT_POP
 
-.idct2:
-    COLUMN_IDCT 16
+LBL .idct2:
+    COLUMN_IDCT 16 ; outq,rsp; PIC
     sub    cntd, 2
     jg .fdct1
+    PIC_END
+    PIC_FREE
     RET
 
 ;void ff_row_idct_mmx(int16_t *workspace, int16_t *output_adr, ptrdiff_t output_stride, int cnt);
 cglobal row_idct, 4, 5, 0, 16, src, dst, stride, cnt, stride3
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","srcq","dstq","strideq","r3d","stride3q","[rsp]"
     add       strideq, strideq
     lea       stride3q, [strideq+strideq*2]
 .loop:
@@ -501,7 +525,7 @@ cglobal row_idct, 4, 5, 0, 16, src, dst, stride, cnt, stride3
     movq      m5, m0
     punpckhwd m7, m3
     psubw     m0, m6
-    pmulhw    m0, [pw_5A82]
+    pmulhw    m0, [pic(pw_5A82)]
     movq      m2, m4
     punpckldq m4, m7
     paddw     m5, m6
@@ -541,15 +565,15 @@ cglobal row_idct, 4, 5, 0, 16, src, dst, stride, cnt, stride3
     movq      m2, m4
     movq      m0, m3
     psubw     m4, m5
-    pmulhw    m0, [pw_AC62]
+    pmulhw    m0, [pic(pw_AC62)]
     paddw     m3, m4
-    pmulhw    m3, [pw_3B21]
+    pmulhw    m3, [pic(pw_3B21)]
     paddw     m2, m5
-    pmulhw    m4, [pw_22A3]
+    pmulhw    m4, [pic(pw_22A3)]
     movq      m5, m2
     psubw     m2, m6
     paddw     m5, m6
-    pmulhw    m2, [pw_2D41]
+    pmulhw    m2, [pic(pw_2D41)]
     paddw     m0, m3
     psllw     m0, 3
     psubw     m4, m3
@@ -565,7 +589,7 @@ cglobal row_idct, 4, 5, 0, 16, src, dst, stride, cnt, stride3
     movq      m0, m7
     paddw     m7, m2
     psubw     m0, m2
-    movq      m2, [pw_4]
+    movq      m2, [pic(pw_4)]
     psubw     m6, m5
     paddw     m5, [rsp]
     paddw     m1, m2
@@ -609,10 +633,16 @@ cglobal row_idct, 4, 5, 0, 16, src, dst, stride, cnt, stride3
     add       dstq, 8
     dec       r3d
     jnz .loop
+    PIC_END
+    PIC_FREE
     RET
 
 ;void ff_row_fdct_mmx(int16_t *data, const uint8_t *pixels, ptrdiff_t line_size, int cnt);
 cglobal row_fdct, 4, 5, 0, 16, src, pix, stride, cnt, stride3
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r5
+    CHECK_REG_COLLISION "rpic","srcq","dstq","strideq","cntd","stride3q",\
+        "[rsp]"
     lea       stride3q, [strideq+strideq*2]
 .loop:
     movd      m0, [pixq]
@@ -656,7 +686,7 @@ cglobal row_fdct, 4, 5, 0, 16, src, pix, stride, cnt, stride3
     movq      m2, m7
     psllw     m1, 2
     paddw     m6, m5
-    pmulhw    m1, [pw_2D41]
+    pmulhw    m1, [pic(pw_2D41)]
     paddw     m7, m6
     psubw     m6, m2
     movq      m5, m0
@@ -684,15 +714,15 @@ cglobal row_fdct, 4, 5, 0, 16, src, pix, stride, cnt, stride3
     psllw     m3, 2
     movq      m2, [rsp]
     psllw     m4, 2
-    pmulhw    m4, [pw_2D41]
+    pmulhw    m4, [pic(pw_2D41)]
     paddw     m1, m2
     psllw     m1, 2
     movq      m0, m3
-    pmulhw    m0, [pw_22A3]
+    pmulhw    m0, [pic(pw_22A3)]
     psubw     m3, m1
-    pmulhw    m3, [pw_187E]
+    pmulhw    m3, [pic(pw_187E)]
     movq      m5, m2
-    pmulhw    m1, [pw_539F]
+    pmulhw    m1, [pic(pw_539F)]
     psubw     m2, m4
     paddw     m5, m4
     movq      m6, m2
@@ -724,4 +754,6 @@ cglobal row_fdct, 4, 5, 0, 16, src, pix, stride, cnt, stride3
     add       srcq, DCTSIZE*4*2
     dec       cntd
     jnz .loop
+    PIC_END
+    PIC_FREE
     RET
