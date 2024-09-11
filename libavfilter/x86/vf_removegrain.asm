@@ -622,6 +622,8 @@ cglobal rg_fl_mode_10, 4, 5, 8, 0, dst, src, stride, pixels
 RET
 
 cglobal rg_fl_mode_11_12, 4, 5, 7, 0, dst, src, stride, pixels
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
     mov r4q, strideq
     neg r4q
     %define stride_p strideq
@@ -651,7 +653,7 @@ cglobal rg_fl_mode_11_12, 4, 5, 7, 0, dst, src, stride, pixels
         paddw m1, m3
         paddw m1, m5
 
-        paddw m1, [pw_8]
+        paddw m1, [pic(pw_8)]
         psraw m1, 4
 
         packuswb m1, m1
@@ -661,6 +663,7 @@ cglobal rg_fl_mode_11_12, 4, 5, 7, 0, dst, src, stride, pixels
         add dstq, mmsize/2
         sub pixelsd, mmsize/2
     jg .loop
+    PIC_END ; r5, push/pop
 RET
 
 cglobal rg_fl_mode_13_14, 4, 5, 8, 0, dst, src, stride, pixels
@@ -872,9 +875,11 @@ cglobal rg_fl_mode_18, 4, 5, 16, 0, dst, src, stride, pixels
         sub pixelsd, mmsize
     jg .loop
 RET
-%endif
+%endif ; ARCH_X86_64
 
 cglobal rg_fl_mode_19, 4, 5, 7, 0, dst, src, stride, pixels
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
     mov r4q, strideq
     neg r4q
     %define stride_p strideq
@@ -902,7 +907,7 @@ cglobal rg_fl_mode_19, 4, 5, 7, 0, dst, src, stride, pixels
         paddw m2, m5
         paddw m1, m2
 
-        paddw m1, [pw_4]
+        paddw m1, [pic(pw_4)]
         psraw m1, 3
 
         packuswb m1, m1
@@ -912,9 +917,12 @@ cglobal rg_fl_mode_19, 4, 5, 7, 0, dst, src, stride, pixels
         add dstq, mmsize/2
         sub pixelsd, mmsize/2
     jg .loop
+    PIC_END ; r5, push/pop
 RET
 
 cglobal rg_fl_mode_20, 4, 5, 7, 0, dst, src, stride, pixels
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
     mov r4q, strideq
     neg r4q
     %define stride_p strideq
@@ -941,12 +949,12 @@ cglobal rg_fl_mode_20, 4, 5, 7, 0, dst, src, stride, pixels
         LOAD m6, [c], m0
         paddw m1, m3
         paddw m2, m5
-        paddw m6, [pw_4]
+        paddw m6, [pic(pw_4)]
 
         paddw m1, m2
         paddw m1, m6
 
-        pmulhuw m1, [pw_div9]
+        pmulhuw m1, [pic(pw_div9)]
 
         packuswb m1, m1
 
@@ -955,6 +963,7 @@ cglobal rg_fl_mode_20, 4, 5, 7, 0, dst, src, stride, pixels
         add dstq, mmsize/2
         sub pixelsd, mmsize/2
     jg .loop
+    PIC_END ; r5, push/pop
 RET
 
 cglobal rg_fl_mode_21, 4, 5, 8, 0, dst, src, stride, pixels
