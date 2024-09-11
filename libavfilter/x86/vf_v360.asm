@@ -38,10 +38,17 @@ SECTION .text
 INIT_YMM avx2
 cglobal remap1_8bit_line, 6, 7, 6, dst, width, src, in_linesize, u, v, x
     movsxdifnidn widthq, widthd
+%if !i386pic
     xor             xq, xq
+%endif
     movd           xm0, in_linesized
     pcmpeqw         m4, m4
-    VBROADCASTI128  m3, [pb_mask]
+    PIC_BEGIN xq, 0 ; xq init delayed
+    VBROADCASTI128  m3, [pic(pb_mask)]
+    PIC_END
+%if i386pic
+    xor             xq, xq
+%endif
     vpbroadcastd    m0, xm0
 
     .loop:
@@ -65,10 +72,17 @@ cglobal remap1_8bit_line, 6, 7, 6, dst, width, src, in_linesize, u, v, x
 INIT_YMM avx2
 cglobal remap1_16bit_line, 6, 7, 6, dst, width, src, in_linesize, u, v, x
     movsxdifnidn widthq, widthd
+%if !i386pic
     xor             xq, xq
+%endif
     movd           xm0, in_linesized
     pcmpeqw         m4, m4
-    VBROADCASTI128  m3, [pw_mask]
+    PIC_BEGIN xq, 0 ; xq init delayed
+    VBROADCASTI128  m3, [pic(pw_mask)]
+    PIC_END
+%if i386pic
+    xor             xq, xq
+%endif
     vpbroadcastd    m0, xm0
 
     .loop:
@@ -97,10 +111,17 @@ cglobal remap2_8bit_line, 7, 8, 8, dst, width, src, in_linesize, u, v, ker, x
 %if ARCH_X86_32
 DEFINE_ARGS dst, width, src, x, u, v, ker
 %endif
+%if !i386pic
     xor             xq, xq
+%endif
     pcmpeqw         m7, m7
     vpbroadcastd    m0, xm0
+    PIC_BEGIN xq, 0 ; xq init delayed
     vpbroadcastd    m6, [pd_255]
+    PIC_END
+%if i386pic
+    xor             xq, xq
+%endif
 
     .loop:
         pmovsxwd   m1, [kerq + xq * 8]
@@ -133,10 +154,17 @@ cglobal remap2_16bit_line, 7, 8, 8, dst, width, src, in_linesize, u, v, ker, x
 %if ARCH_X86_32
 DEFINE_ARGS dst, width, src, x, u, v, ker
 %endif
+%if !i386pic
     xor             xq, xq
+%endif
     pcmpeqw         m7, m7
     vpbroadcastd    m0, xm0
-    vpbroadcastd    m6, [pd_65535]
+    PIC_BEGIN xq, 0 ; xq (former in_linesizeq) init delayed
+    vpbroadcastd    m6, [pic(pd_65535)]
+    PIC_END
+%if i386pic
+    xor             xq, xq
+%endif
 
     .loop:
         pmovsxwd   m1, [kerq + xq * 8]
@@ -252,5 +280,5 @@ cglobal remap4_8bit_line, 7, 9, 11, dst, width, src, in_linesize, u, v, ker, x, 
         jl .loop
     RET
 
-%endif
-%endif
+%endif ; ARCH_X86_64
+%endif ; HAVE_AVX2_EXTERNAL
