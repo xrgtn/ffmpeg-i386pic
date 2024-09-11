@@ -23,9 +23,6 @@ At the moment the next files still have R\_386\_32 (absolute address)
 relocations in .text:
 ```
 user@localhost ~/ffmpeg $ find . -name \*.o | while read O; do n=`objdump -dr "$O" | grep R_386_32 | wc -l`; case "$n" in 0);; *) printf '%i\t%s\n' "$n" "$O";; esac; done | sort -n
-4	./libavfilter/x86/vf_ssim.o
-4	./libavfilter/x86/vf_v360.o
-19	./libavfilter/x86/vf_stereo3d.o
 20	./libavfilter/x86/yadif-10.o
 28	./libavfilter/x86/vf_yadif.o
 user@localhost ~/ffmpeg $ 
