@@ -37,11 +37,21 @@ SECTION .text
 ;------------------------------------------------------------------------------
 
 INIT_XMM sse2
-cglobal scale_samples_s16, 4,4,4, dst, src, len, volume
+cglobal scale_samples_s16, (4-4*i386pic),4,4, dst, src, len, volume
+%if i386pic
+    movifnidn srcq, srcmp
+    movifnidn lenq, lenmp
+%endif
+    PIC_BEGIN dstq, 0 ; dstq loading delayed
+    CHECK_REG_COLLISION "rpic","volumem","dstmp"
     movd        m0, volumem
     pshuflw     m0, m0, 0
-    punpcklwd   m0, [pw_1]
-    mova        m1, [pw_128]
+    punpcklwd   m0, [pic(pw_1)]
+    mova        m1, [pic(pw_128)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+%endif
     lea       lenq, [lend*2-mmsize]
 .loop:
     ; dst[i] = av_clip_int16((src[i] * volume + 128) >> 8);
@@ -64,7 +74,14 @@ cglobal scale_samples_s16, 4,4,4, dst, src, len, volume
 ;------------------------------------------------------------------------------
 
 %macro SCALE_SAMPLES_S32 0
-cglobal scale_samples_s32, 4,4,4, dst, src, len, volume
+cglobal scale_samples_s32, (4-4*i386pic),4,4, dst, src, len, volume
+%if i386pic
+    movifnidn srcq, srcmp
+    movifnidn lenq, lenmp
+    movifnidn volumeq, volumemp
+%endif
+    PIC_BEGIN dstq, 0 ; dstq loading delayed
+    CHECK_REG_COLLISION "rpic","volumem","dstmp"
 %if ARCH_X86_32 && cpuflag(avx)
     vbroadcastss   xmm2, volumem
 %else
@@ -72,8 +89,12 @@ cglobal scale_samples_s32, 4,4,4, dst, src, len, volume
     pshufd         xmm2, xmm2, 0
 %endif
     CVTDQ2PD         m2, xmm2
-    mulpd            m2, m2, [pd_1_256]
-    mova             m3, [pd_int32_max]
+    mulpd            m2, m2, [pic(pd_1_256)]
+    mova             m3, [pic(pd_int32_max)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+%endif
     lea            lenq, [lend*4-mmsize]
 .loop:
     CVTDQ2PD         m0, [srcq+lenq         ]
@@ -110,11 +131,21 @@ SCALE_SAMPLES_S32
 ;       [-INT_MAX, INT_MAX] instead of [INT_MIN, INT_MAX]
 
 INIT_XMM ssse3, atom
-cglobal scale_samples_s32, 4,4,8, dst, src, len, volume
+cglobal scale_samples_s32, (4-4*i386pic),4,8, dst, src, len, volume
+%if i386pic
+    movifnidn srcq, srcmp
+    movifnidn lenq, lenmp
+%endif
+    PIC_BEGIN dstq, 0 ; dstq loading delayed
+    CHECK_REG_COLLISION "rpic","volumem","dstmp"
     movd        m4, volumem
     pshufd      m4, m4, 0
-    mova        m5, [pq_128]
+    mova        m5, [pic(pq_128)]
     pxor        m6, m6
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+%endif
     lea       lenq, [lend*4-mmsize]
 .loop:
     ; src[i] = av_clipl_int32((src[i] * volume + 128) >> 8);
