@@ -32,7 +32,10 @@ SECTION .text
 ;%1 byte or short, %2 b or w, %3 size in byte (1 for byte, 2 for short)
 %macro HFLIP 3
 cglobal hflip_%1, 3, 5, 3, src, dst, w, r, x
-    VBROADCASTI128    m0, [pb_flip_%1]
+    PIC_BEGIN rq, 0 ; rq not initialized yet
+    CHECK_REG_COLLISION "rpic","wq"
+    VBROADCASTI128    m0, [pic(pb_flip_%1)]
+    PIC_END
     xor               xq, xq
 %if %3 == 1
     movsxdifnidn wq, wd
