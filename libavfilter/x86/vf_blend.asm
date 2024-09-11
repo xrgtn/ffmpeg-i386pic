@@ -38,7 +38,7 @@ pb_255: times 16 db 255
 
 SECTION .text
 
-%macro BLEND_INIT 2-3 0
+%macro BLEND_INIT 2-4 0,0
 %if ARCH_X86_64
 cglobal blend_%1, 6, 9, %2, top, top_linesize, bottom, bottom_linesize, dst, dst_linesize, width, end, x
     mov    widthd, dword widthm
@@ -46,14 +46,16 @@ cglobal blend_%1, 6, 9, %2, top, top_linesize, bottom, bottom_linesize, dst, dst
         add    widthq, widthq ; doesn't compile on x86_32
     %endif
 %else
-cglobal blend_%1, 5, 7, %2, top, top_linesize, bottom, bottom_linesize, dst, end, x
+cglobal blend_%1, (5-(%4)), 7, %2, top, top_linesize, bottom, bottom_linesize, dst, end, x
 %define dst_linesizeq r5mp
 %define widthq r6mp
 %endif
     mov      endd, dword r7m
     add      topq, widthq
     add   bottomq, widthq
+%if !(%4) ; %4 is "delay dstq initialization" flag
     add      dstq, widthq
+%endif
     neg    widthq
 %endmacro
 
@@ -83,12 +85,19 @@ BLEND_END
 
 ; %1 name , %2 src (b or w), %3 inter (w or d), %4 (1 if 16bit, not set if 8 bit)
 %macro GRAINEXTRACT 3-4 0
-BLEND_INIT %1, 6, %4
+BLEND_INIT %1, 6, %4, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor           m4, m4
 %if %4 ; 16 bit
-    VBROADCASTI128 m5, [pd_32768]
+    VBROADCASTI128 m5, [pic(pd_32768)]
 %else
-    VBROADCASTI128 m5, [pw_128]
+    VBROADCASTI128 m5, [pic(pw_128)]
+%endif
+    PIC_END ; dstq, no-save
+%if i386pic ; init dstq here instead of BLEND_INIT
+    movifnidn dstq, dstmp
+    sub      dstq, widthq ; sub, not add because widthq is already negated
 %endif
 .nextrow:
     mov        xq, widthq
@@ -130,9 +139,16 @@ BLEND_END
 %endmacro
 
 %macro BLEND_MULTIPLY 0
-BLEND_INIT multiply, 6
+BLEND_INIT multiply, 6, 0, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor       m4, m4
-    VBROADCASTI128       m5, [pw_1]
+    VBROADCASTI128       m5, [pic(pw_1)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq ; sub, not add because widthq is already negated
+%endif
 .nextrow:
     mov        xq, widthq
 
@@ -155,11 +171,18 @@ BLEND_END
 %endmacro
 
 %macro BLEND_SCREEN 0
-BLEND_INIT screen, 7
+BLEND_INIT screen, 7, 0, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor       m4, m4
 
-    VBROADCASTI128       m5, [pw_1]
-    VBROADCASTI128       m6, [pw_255]
+    VBROADCASTI128       m5, [pic(pw_1)]
+    VBROADCASTI128       m6, [pic(pw_255)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
+%endif
 .nextrow:
     mov        xq, widthq
 
@@ -204,12 +227,19 @@ BLEND_END
 
 ; %1 name , %2 src (b or w), %3 inter (w or d), %4 (1 if 16bit, not set if 8 bit)
 %macro GRAINMERGE 3-4 0
-BLEND_INIT %1, 6, %4
+BLEND_INIT %1, 6, %4, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor       m4, m4
 %if %4 ; 16 bit
-    VBROADCASTI128       m5, [pd_32768]
+    VBROADCASTI128       m5, [pic(pd_32768)]
 %else
-    VBROADCASTI128       m5, [pw_128]
+    VBROADCASTI128       m5, [pic(pw_128)]
+%endif
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
 %endif
 .nextrow:
     mov        xq, widthq
@@ -237,10 +267,17 @@ BLEND_END
 %endmacro
 
 %macro HARDMIX 0
-BLEND_INIT hardmix, 5
-    VBROADCASTI128       m2, [pb_255]
-    VBROADCASTI128       m3, [pb_128]
-    VBROADCASTI128       m4, [pb_127]
+BLEND_INIT hardmix, 5, 0, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
+    VBROADCASTI128       m2, [pic(pb_255)]
+    VBROADCASTI128       m3, [pic(pb_128)]
+    VBROADCASTI128       m4, [pic(pb_127)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
+%endif
 .nextrow:
     mov        xq, widthq
 
@@ -258,9 +295,16 @@ BLEND_END
 %endmacro
 
 %macro DIVIDE 0
-BLEND_INIT divide, 4
+BLEND_INIT divide, 4, 0, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor       m2, m2
-    mova       m3, [ps_255]
+    mova       m3, [pic(ps_255)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
+%endif
 .nextrow:
     mov        xq, widthq
 
@@ -290,8 +334,15 @@ BLEND_END
 
 %macro PHOENIX 2-3 0
 ; %1 name, %2 b or w, %3 (opt) 1 if 16 bit
-BLEND_INIT %1, 4, %3
-    VBROADCASTI128       m3, [pb_255]
+BLEND_INIT %1, 4, %3, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
+    VBROADCASTI128       m3, [pic(pb_255)]
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
+%endif
 .nextrow:
     mov        xq, widthq
 
@@ -341,12 +392,19 @@ BLEND_END
 
 ; %1 name , %2 src (b or w), %3 inter (w or d), %4 (1 if 16bit, not set if 8 bit)
 %macro EXTREMITY 3-4 0
-BLEND_INIT %1, 8, %4
+BLEND_INIT %1, 8, %4, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor       m2, m2
 %if %4; 16 bit
-    VBROADCASTI128       m4, [pd_65535]
+    VBROADCASTI128       m4, [pic(pd_65535)]
 %else
-    VBROADCASTI128       m4, [pw_255]
+    VBROADCASTI128       m4, [pic(pw_255)]
+%endif
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
 %endif
 .nextrow:
     mov        xq, widthq
@@ -376,12 +434,19 @@ BLEND_END
 %endmacro
 
 %macro NEGATION 3-4 0
-BLEND_INIT %1, 8, %4
+BLEND_INIT %1, 8, %4, i386pic
+    PIC_BEGIN dstq, 0 ; dstq not initialized yet
+    CHECK_REG_COLLISION "rpic","dstmp","widthq"
     pxor       m2, m2
 %if %4; 16 bit
-    VBROADCASTI128       m4, [pd_65535]
+    VBROADCASTI128       m4, [pic(pd_65535)]
 %else
-    VBROADCASTI128       m4, [pw_255]
+    VBROADCASTI128       m4, [pic(pw_255)]
+%endif
+    PIC_END ; dstq, no-save
+%if i386pic
+    movifnidn dstq, dstmp
+    sub      dstq, widthq
 %endif
 .nextrow:
     mov        xq, widthq
