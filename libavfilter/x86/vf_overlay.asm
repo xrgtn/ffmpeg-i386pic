@@ -41,9 +41,11 @@ cglobal overlay_row_44, 5, 7, 6, 0, d, da, s, a, w, r, x
     cmp          wq, mmsize/2
     jl .end
     sub          wq, rq
-    mova         m3, [pw_255]
-    mova         m4, [pw_128]
-    mova         m5, [pw_257]
+    PIC_BEGIN rq, 0 ; rq not used anymore
+    mova         m3, [pic(pw_255)]
+    mova         m4, [pic(pw_128)]
+    mova         m5, [pic(pw_257)]
+    PIC_END
     .loop:
         pmovzxbw    m0, [sq+xq]
         pmovzxbw    m2, [aq+xq]
@@ -74,9 +76,11 @@ cglobal overlay_row_22, 5, 7, 6, 0, d, da, s, a, w, r, x
     cmp          wq, mmsize/2
     jl .end
     sub          wq, rq
-    mova         m3, [pw_255]
-    mova         m4, [pw_128]
-    mova         m5, [pw_257]
+    PIC_BEGIN rq, 0 ; rq not used anymore
+    mova         m3, [pic(pw_255)]
+    mova         m4, [pic(pw_128)]
+    mova         m5, [pic(pw_257)]
+    PIC_END
     .loop:
         pmovzxbw    m0, [sq+xq]
         movu        m1, [aq+2*xq]
@@ -114,10 +118,12 @@ cglobal overlay_row_20, 6, 7, 7, 0, d, da, s, a, w, r, x
     cmp          wq, mmsize/2
     jl .end
     sub          wq, rq
-    mova         m3, [pw_255]
-    mova         m4, [pw_128]
-    mova         m5, [pw_257]
-    mova         m6, [pb_1]
+    PIC_BEGIN rq, 0 ; rq not used anymore
+    mova         m3, [pic(pw_255)]
+    mova         m4, [pic(pw_128)]
+    mova         m5, [pic(pw_257)]
+    mova         m6, [pic(pb_1)]
+    PIC_END
     .loop:
         pmovzxbw    m0, [sq+xq]
         movu        m2, [aq+2*xq]
