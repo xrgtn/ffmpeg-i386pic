@@ -41,7 +41,7 @@ cglobal ssim_4x4_line, 5, 7, %1, buf, buf_stride, ref, ref_stride, sums, buf_str
     lea     buf_stride3q, [buf_strideq*3]
 %if notcpuflag(xop)
     pxor              m7, m7
-    mova             m15, [pw_1]
+    mova             m15, [pw_1] ; amd64-only
 %endif
 
 .loop:
@@ -170,6 +170,9 @@ SSIM_4X4_LINE 8
 
 INIT_XMM sse4
 cglobal ssim_end_line, 3, 3, 7, sum0, sum1, w
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r3
+    CHECK_REG_COLLISION "rpic","r0m"
     pxor              m0, m0
     pxor              m6, m6
 .loop:
@@ -202,10 +205,10 @@ cglobal ssim_end_line, 3, 3, 7, sum0, sum1, w
     paddd             m4, m4                    ; 2 * covariance
     paddd             m5, m5                    ; 2 * fs1 * fs2
     paddd             m1, m2                    ; fs1 * fs1 + fs2 * fs2
-    paddd             m3, [ssim_c2]             ; variance + ssim_c2
-    paddd             m4, [ssim_c2]             ; 2 * covariance + ssim_c2
-    paddd             m5, [ssim_c1]             ; 2 * fs1 * fs2 + ssim_c1
-    paddd             m1, [ssim_c1]             ; fs1 * fs1 + fs2 * fs2 + ssim_c1
+    paddd             m3, [pic(ssim_c2)]        ; variance + ssim_c2
+    paddd             m4, [pic(ssim_c2)]        ; 2 * covariance + ssim_c2
+    paddd             m5, [pic(ssim_c1)]        ; 2 * fs1 * fs2 + ssim_c1
+    paddd             m1, [pic(ssim_c1)]        ; fs1 * fs1 + fs2 * fs2 + ssim_c1
 
     ; convert to float
     cvtdq2ps          m3, m3
@@ -254,4 +257,5 @@ cglobal ssim_end_line, 3, 3, 7, sum0, sum1, w
     movsd            r0m, m0
     fld        qword r0m
 %endif
+    PIC_END ; r3, push/pop
     RET
