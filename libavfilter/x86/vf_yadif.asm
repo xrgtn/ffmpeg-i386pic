@@ -225,7 +225,7 @@ cglobal yadif_filter_line, 4, 7, 8, 80, dst, prev, cur, next, w, prefs, \
     PIC_ALLOC "rpicsave"
     PIC_BEGIN r6
     CHECK_REG_COLLISION "rpic","dstq","prevq","curq","nextq","r4","r5",\
-       "r4mp","r5mp","paritym","r4m","r8m","[rsp]"
+       "r5mp","r6mp","paritym","r4m","r8m","[rsp]"
 %endif
 %if ARCH_X86_32
     mov            r4, r5mp
