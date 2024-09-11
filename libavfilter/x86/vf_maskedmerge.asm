@@ -43,9 +43,12 @@ cglobal maskedmerge8, 5, 7, 8, bsrc, osrc, msrc, dst, blinesize, w, x
 %define dlinesizeq r7mp
 %define hd r9mp
 %endif
-    mova        m4, [pw_255]
-    mova        m5, [pw_127]
-    mova        m7, [pw_32897]
+    PIC_BEGIN xq, 0 ; xq not initialized yet
+    CHECK_REG_COLLISION "rpic","wq"
+    mova        m4, [pic(pw_255)]
+    mova        m5, [pic(pw_127)]
+    mova        m7, [pic(pw_32897)]
+    PIC_END
     pxor        m6, m6
     add      bsrcq, wq
     add      osrcq, wq
