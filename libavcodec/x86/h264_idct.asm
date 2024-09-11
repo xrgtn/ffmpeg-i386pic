@@ -400,6 +400,7 @@ INIT_XMM cpuname
     PIC_END                          ; r0, no-save
     RET
 
+INIT_MMX mmx
 cglobal h264_idct_add8_422_8, 5, 8 + npicregs, 0, dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
 ; dst1, block_offset, block, stride, nnzc, cntr, coeff, dst2, picreg
     movsxdifnidn r3, r3d
@@ -435,7 +436,6 @@ cglobal h264_idct_add8_422_8, 5, 8 + npicregs, 0, dst1, block_offset, block, str
 
     RET ; TODO: check rep ret after a function call
 
-INIT_MMX mmx
 LBL h264_idct_add8_mmx_plane:        ; r0..6, r1m, PIC:r3m==$$,r2m=sv
     ; h264_idct_add8_mmx_plane() expects on entry:
     ; 1. r1m == r0m of calling function, if arch is i386:
