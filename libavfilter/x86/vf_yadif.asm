@@ -30,14 +30,17 @@ pw_1: times  8 dw 1
 
 SECTION .text
 
-%macro CHECK 2
+%macro CHECK 2 ; curq,t0,t1; PIC
     movu      m2, [curq+t1+%1]
     movu      m3, [curq+t0+%2]
     mova      m4, m2
     mova      m5, m2
     pxor      m4, m3
     pavgb     m5, m3
-    pand      m4, [pb_1]
+    CHECK_REG_COLLISION "rpic",%{1:-1},"curq","t0","t1"
+    PIC_BEGIN r4
+    pand      m4, [pic(pb_1)]
+    PIC_END
     psubusb   m5, m4
     RSHIFT    m5, 1
     punpcklbw m5, m7
@@ -67,8 +70,10 @@ SECTION .text
     mova    m1, m3
 %endmacro
 
-%macro CHECK2 0
-    paddw   m6, [pw_1]
+%macro CHECK2 0 ; PIC
+    PIC_BEGIN r4
+    paddw   m6, [pic(pw_1)]
+    PIC_END
     psllw   m6, 14
     paddsw  m2, m6
     mova    m3, m0
@@ -85,8 +90,8 @@ SECTION .text
     punpcklbw %1, m7
 %endmacro
 
-%macro FILTER 3
-.loop%1:
+%macro FILTER 3 ; curq,prevq,nextq,dstq,t0,t1,%2,%3,rsp; r4m,8m; PIC
+LBL .loop%1:
     pxor         m7, m7
     LOAD         m0, [curq+t1]
     LOAD         m1, [curq+t0]
@@ -139,16 +144,19 @@ SECTION .text
     punpcklbw    m3, m7
     paddw        m0, m2
     paddw        m0, m3
-    psubw        m0, [pw_1]
+    PIC_BEGIN dstq
+    CHECK_REG_COLLISION "rpic","curq","t0","t1"
+    psubw        m0, [pic(pw_1)]
 
-    CHECK -2, 0
+    CHECK -2, 0 ; curq,t0,t1; PIC
     CHECK1
     CHECK -3, 1
-    CHECK2
+    CHECK2      ; PIC
     CHECK 0, -2
     CHECK1
-    CHECK 1, -3
-    CHECK2
+    CHECK 1, -3 ; curq,t0,t1; PIC
+    CHECK2      ; PIC
+    PIC_END
 
     mova         m6, [rsp+48]
     cmp   DWORD r8m, 2
@@ -181,7 +189,7 @@ SECTION .text
     psubw        m4, m2
     pmaxsw       m6, m4
 
-.end%1:
+LBL .end%1:
     mova         m2, [rsp+16]
     mova         m3, m2
     psubw        m2, m6
@@ -201,11 +209,23 @@ SECTION .text
 
 %macro YADIF 0
 %if ARCH_X86_32
+; TODO: should be 4,6,8,64, not 4,6,8,80...
 cglobal yadif_filter_line, 4, 6, 8, 80, dst, prev, cur, next, w, prefs, \
                                         mrefs, parity, mode
 %else
 cglobal yadif_filter_line, 4, 7, 8, 80, dst, prev, cur, next, w, prefs, \
                                         mrefs, parity, mode
+%endif
+%if (required_stack_alignment) > (STACK_ALIGNMENT)
+    PIC_ALLOC
+    PIC_BEGIN r5, 0 ; not initialized yet
+    CHECK_REG_COLLISION "rpic","r5mp"
+    PIC_END         ; lpiccache initialized
+%else
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r6
+    CHECK_REG_COLLISION "rpic","dstq","prevq","curq","nextq","r4","r5",\
+       "r4mp","r5mp","paritym","r4m","r8m","[rsp]"
 %endif
 %if ARCH_X86_32
     mov            r4, r5mp
@@ -219,13 +239,17 @@ cglobal yadif_filter_line, 4, 7, 8, 80, dst, prev, cur, next, w, prefs, \
 
     cmp DWORD paritym, 0
     je .parity0
-    FILTER 1, prevq, curq
+    FILTER 1, prevq, curq ; curq,prevq,nextq,dstq,t0,t1,%2,%3,rsp; r4m,8m; PIC
     jmp .ret
 
-.parity0:
-    FILTER 0, curq, nextq
+LBL .parity0:
+    FILTER 0, curq, nextq ; curq,prevq,nextq,dstq,t0,t1,%2,%3,rsp; r4m,8m; PIC
 
 .ret:
+%if (required_stack_alignment) <= (STACK_ALIGNMENT)
+    PIC_END ; r6, save/restore
+%endif
+    PIC_FREE
     RET
 %endmacro
 
