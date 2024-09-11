@@ -123,6 +123,9 @@ SECTION .text
     mova         m6, m7
     psubw        m6, m3
     pmaxsw       m6, m5
+    PIC_BEGIN dstq
+    CHECK_REG_COLLISION "rpic",%2,%3,"t0","t1","m8","m9","m10","m11",\
+        "curq","r4","prefsmp","prefs3mp","r5","mrefsmp","mrefs3mp"
     mova         m3, m2
     pcmpgtw      m3, m7
     pand         m6, m3
@@ -139,12 +142,12 @@ SECTION .text
     mova         m3, m2
     punpcklwd    m2, m8
     punpckhwd    m3, m8
-    pmaddwd      m2, [pw_coefhf]
-    pmaddwd      m3, [pw_coefhf]
+    pmaddwd      m2, [pic(pw_coefhf)]
+    pmaddwd      m3, [pic(pw_coefhf)]
     mova         m4, m10
     mova         m6, m4
-    pmullw       m4, [pw_coefhf1]
-    pmulhw       m6, [pw_coefhf1]
+    pmullw       m4, [pic(pw_coefhf1)]
+    pmulhw       m6, [pic(pw_coefhf1)]
     mova         m5, m4
     punpcklwd    m4, m6
     punpckhwd    m5, m6
@@ -175,16 +178,17 @@ SECTION .text
     punpckhwd    m4, m4
     pand         m2, m1
     pand         m3, m4
-    mova         m5, [pw_splfdif]
+    mova         m5, [pic(pw_splfdif)]
     mova         m7, m5
     pand         m5, m1
     pand         m7, m4
-    paddw        m5, [pw_coefsp]
-    paddw        m7, [pw_coefsp]
+    paddw        m5, [pic(pw_coefsp)]
+    paddw        m7, [pic(pw_coefsp)]
     mova         m4, m0
     punpcklwd    m0, m6
     punpckhwd    m4, m6
     pmaddwd      m0, m5
+    PIC_END ; dstq, save/restore
     pmaddwd      m4, m7
     paddd        m2, m0
     paddd        m3, m4
@@ -200,7 +204,7 @@ SECTION .text
     paddw        m3, m0
     CLIPW        m2, m4, m3
     pxor         m7, m7
-    DISP%4
+    DISP%4 ; dstq,m12*
 
     add        dstq, STEP
     add       prevq, STEP
@@ -210,7 +214,9 @@ SECTION .text
     jg .loop%1
 %endmacro
 
+%define GLOBL_LBL
 %macro PROC 2
+    PIC_ALLOC
 %if ARCH_X86_64
     movsxd       r5, DWORD prefsm
     movsxd       r6, DWORD mrefsm
@@ -222,6 +228,9 @@ SECTION .text
     %define m9  [rsp+16]
     %define m10 [rsp+32]
     %define m11 [rsp+48]
+    PIC_BEGIN r5, 0 ; init lpiccache ; r5 no initialized yet
+    CHECK_REG_COLLISION "rpic","mprefsmp"
+    PIC_END
     mov          r4, prefsmp
     mov          r5, mrefsmp
     DECLARE_REG_TMP 4, 5
@@ -230,9 +239,10 @@ SECTION .text
     je .parity0
     FILTER 1, prevq, curq, %1, %2
     jmp .ret
-.parity0:
+LBL .parity0:
     FILTER 0, curq, nextq, %1, %2
 .ret:
+    PIC_FREE
     RET
 %endmacro
 
