@@ -117,7 +117,7 @@ DEFINE_ARGS dst, width, src, x, u, v, ker
     pcmpeqw         m7, m7
     vpbroadcastd    m0, xm0
     PIC_BEGIN xq, 0 ; xq init delayed
-    vpbroadcastd    m6, [pd_255]
+    vpbroadcastd    m6, [pic(pd_255)]
     PIC_END
 %if i386pic
     xor             xq, xq
