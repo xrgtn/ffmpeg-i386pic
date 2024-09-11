@@ -87,6 +87,8 @@ cglobal lowpass_line_16, 5, 5, 7, dst, h, src, mref, pref
 
 %macro LOWPASS_LINE_COMPLEX 0
 cglobal lowpass_line_complex, 5, 5, 8, dst, h, src, mref, pref
+    %define rpicsave ; safe to push/pop rpic
+    PIC_BEGIN r5
     pxor m7, m7
 .loop:
     movu m0, [srcq+mrefq]
@@ -126,8 +128,8 @@ cglobal lowpass_line_complex, 5, 5, 8, dst, h, src, mref, pref
     punpckhbw m5, m7
     paddw m2, m4
     paddw m3, m5
-    paddw m0, [pw_4]
-    paddw m1, [pw_4]
+    paddw m0, [pic(pw_4)]
+    paddw m1, [pic(pw_4)]
     psubusw m0, m2
     psubusw m1, m3
     psrlw m0, 3
@@ -146,9 +148,12 @@ cglobal lowpass_line_complex, 5, 5, 8, dst, h, src, mref, pref
     add srcq, mmsize
     sub hd, mmsize
     jg .loop
+    PIC_END ; r5, push/pop
 RET
 
 cglobal lowpass_line_complex_12, 5, 5, 8, 16, dst, h, src, mref, pref, clip_max
+    PIC_ALLOC "rpicsave"
+    PIC_BEGIN r5
     movd m7, DWORD clip_maxm
     SPLATW m7, m7, 0
     movu [rsp], m7
@@ -179,8 +184,8 @@ cglobal lowpass_line_complex_12, 5, 5, 8, 16, dst, h, src, mref, pref, clip_max
     movu m5, [srcq+2*prefq+mmsize]
     paddw m2, m4
     paddw m3, m5
-    paddw m0, [pw_4]
-    paddw m1, [pw_4]
+    paddw m0, [pic(pw_4)]
+    paddw m1, [pic(pw_4)]
     psubusw m0, m2
     psubusw m1, m3
     psrlw m0, 3
@@ -208,6 +213,8 @@ cglobal lowpass_line_complex_12, 5, 5, 8, 16, dst, h, src, mref, pref, clip_max
     add srcq, 2*mmsize
     sub hd, mmsize
     jg .loop
+    PIC_END
+    PIC_FREE
 RET
 %endmacro
 
