@@ -214,7 +214,6 @@ SECTION .text
     jg .loop%1
 %endmacro
 
-%define GLOBL_LBL
 %macro PROC 2
     PIC_ALLOC
 %if ARCH_X86_64
